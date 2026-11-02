@@ -7,11 +7,10 @@ type Button = InlineKeyboardButton.CallbackButton;
 export const NOOP = 'noop';
 
 export function mainMenu(locale: Locale, isAdmin: boolean) {
+  // Kept short on purpose; other sections stay reachable via commands (/myphotos, /stats, /rating, /language).
   const rows = [
     [locale.menu.submit],
-    [locale.menu.myPhotos, locale.menu.myStats],
-    [locale.menu.rating, locale.menu.battle],
-    [locale.menu.votes, locale.menu.language],
+    [locale.menu.votes, locale.menu.battle],
     [locale.menu.rules, locale.menu.help],
   ];
   if (isAdmin) rows.push([locale.menu.admin]);

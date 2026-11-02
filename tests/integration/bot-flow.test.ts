@@ -100,7 +100,8 @@ describe('bot: registration and menu', () => {
     const reply = api.find((c) => c.method === 'sendMessage')!;
     expect(String(reply.payload.text)).toContain('Добро пожаловать в Photo Battle! 📸');
     const keyboard = JSON.stringify(reply.payload.reply_markup);
-    for (const label of ['📸 Отправить фотографию', '🏆 Мои фотографии', '📊 Моя статистика', 'ℹ️ Правила', '❓ Помощь']) expect(keyboard).toContain(label);
+    for (const label of ['📸 Отправить фотографию', '⭐ Купить голоса', '⚔️ Текущий батл', 'ℹ️ Правила', '❓ Помощь']) expect(keyboard).toContain(label);
+    for (const label of ['🏆 Мои фотографии', '📊 Моя статистика', '🥇 Рейтинг', '🌐 Язык']) expect(keyboard).not.toContain(label);
     expect(keyboard).not.toContain('Админ-панель');
   });
 
