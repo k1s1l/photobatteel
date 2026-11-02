@@ -32,7 +32,7 @@ beforeEach(async () => {
     channel: CHANNEL,
     bot: { username: 'photobattle_bot' },
     logger: silentLogger,
-    env: { DEFAULT_LANGUAGE: 'ru', TIMEZONE: 'Europe/Kyiv', PUBLISH_MAX_ATTEMPTS: 3, BROADCAST_RATE_PER_SECOND: 30 },
+    env: { DEFAULT_LANGUAGE: 'ru', TIMEZONE: 'Europe/Kyiv', PUBLISH_MAX_ATTEMPTS: 3, BROADCAST_RATE_PER_SECOND: 30, CARD_CURRENCY: 'UAH' },
   });
   await services.settings.ensureDefaults();
   await services.admins.syncOwners([ADMIN_TG_ID]);

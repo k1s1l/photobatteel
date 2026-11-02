@@ -88,8 +88,8 @@ export class BattleService {
       this.locale.battle.announceStart({
         title: escapeHtml(battle.title),
         theme: battle.theme ? escapeHtml(battle.theme) : null,
-        submissionsEnd: formatDateTime(battle.submissionsEndAt, this.timeZone),
-        end: formatDateTime(battle.endsAt, this.timeZone),
+        submissionsEnd: formatDateTime(battle.submissionsEndAt, this.timeZone, this.locale.intl),
+        end: formatDateTime(battle.endsAt, this.timeZone, this.locale.intl),
         botUsername: this.bot.username,
       }),
     );
@@ -168,7 +168,7 @@ export class BattleService {
       await this.postToChannel(
         this.locale.battle.announceWinner({ title: escapeHtml(battle.title), winner: escapeHtml(displayName(winner.user)), id, votes: winner.votesCount }),
       );
-      await this.notifications.notifyUser(winner.user.telegramId, this.locale.battle.winnerDm({ title: escapeHtml(battle.title), id, votes: winner.votesCount }));
+      await this.notifications.notifyUser(winner.user, (l) => l.battle.winnerDm({ title: escapeHtml(battle.title), id, votes: winner.votesCount }));
     } else {
       await this.postToChannel(this.locale.battle.announceNoWinner(escapeHtml(battle.title)));
     }
@@ -202,7 +202,7 @@ export class BattleService {
     const updated = await this.prisma.battle.updateMany({ where: { id: battle.id, status: 'ACTIVE' }, data: { status: 'VOTING' } });
     if (updated.count === 0) return;
     await this.activity.log({ action: 'BATTLE_VOTING_STARTED', userId: adminUserId, entityType: 'Battle', entityId: battle.id });
-    await this.postToChannel(this.locale.battle.announceVoting({ title: escapeHtml(battle.title), end: formatDateTime(battle.endsAt, this.timeZone) }));
+    await this.postToChannel(this.locale.battle.announceVoting({ title: escapeHtml(battle.title), end: formatDateTime(battle.endsAt, this.timeZone, this.locale.intl) }));
   }
 
   private async postToChannel(text: string): Promise<void> {

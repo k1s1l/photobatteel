@@ -24,12 +24,13 @@ async function showStats(ctx: BotContext): Promise<void> {
   const stats = await ctx.deps.services.users.getStats(currentUser(ctx).id);
   await ctx.reply(
     ctx.locale.stats.text({
-      since: formatDate(stats.user.createdAt, ctx.deps.env.TIMEZONE),
+      since: formatDate(stats.user.createdAt, ctx.deps.env.TIMEZONE, ctx.locale.intl),
       submitted: stats.user.photosSubmitted,
       published: stats.user.photosPublished,
       queued: stats.queued,
       votes: stats.user.votesReceived,
       rank: stats.rank,
+      balance: stats.user.voteBalance,
     }),
     { parse_mode: 'HTML' },
   );
@@ -72,8 +73,8 @@ async function showBattle(ctx: BotContext): Promise<void> {
       title: escapeHtml(battle.title),
       theme: battle.theme ? escapeHtml(battle.theme) : null,
       status: battleStatusLabel(ctx.locale, battle),
-      submissionsEnd: formatDateTime(battle.submissionsEndAt, tz),
-      end: formatDateTime(battle.endsAt, tz),
+      submissionsEnd: formatDateTime(battle.submissionsEndAt, tz, ctx.locale.intl),
+      end: formatDateTime(battle.endsAt, tz, ctx.locale.intl),
       participants: await battles.participantsCount(battle.id),
     }),
     { parse_mode: 'HTML' },

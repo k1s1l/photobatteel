@@ -62,6 +62,10 @@ export class FakeTelegram implements TelegramGateway {
     this.record('editMessageReplyMarkup', chatId, [messageId, markup]);
   }
 
+  async refundStarPayment(userId: number, telegramChargeId: string): Promise<void> {
+    this.record('refundStarPayment', userId, [telegramChargeId]);
+  }
+
   async downloadFile(fileId: string): Promise<Buffer> {
     this.record('downloadFile', undefined, [fileId]);
     const file = this.files.get(fileId);

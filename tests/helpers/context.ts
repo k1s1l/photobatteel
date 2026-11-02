@@ -25,7 +25,7 @@ export function testPrisma(): PrismaClient {
   return shared;
 }
 
-const TABLES = ['ActivityLog', 'Vote', 'Publication', 'PublicationQueue', 'Broadcast', 'Battle', 'Photo', 'Admin', 'BotSettings', 'User'];
+const TABLES = ['ActivityLog', 'PaidVote', 'Payment', 'VotePackage', 'Vote', 'Publication', 'PublicationQueue', 'Broadcast', 'Battle', 'Photo', 'Admin', 'BotSettings', 'User'];
 
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`);
@@ -43,10 +43,18 @@ export async function createTestContext(options: { maxAttempts?: number } = {}):
     channel: CHANNEL,
     bot: { username: 'photobattle_bot' },
     logger: silentLogger,
-    env: { DEFAULT_LANGUAGE: 'ru', TIMEZONE: 'Europe/Kyiv', PUBLISH_MAX_ATTEMPTS: options.maxAttempts ?? 3, BROADCAST_RATE_PER_SECOND: 30 },
+    env: {
+      DEFAULT_LANGUAGE: 'ru',
+      TIMEZONE: 'Europe/Kyiv',
+      PUBLISH_MAX_ATTEMPTS: options.maxAttempts ?? 3,
+      BROADCAST_RATE_PER_SECOND: 30,
+      CARD_CURRENCY: 'UAH',
+      PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
+    },
   });
   await services.settings.ensureDefaults();
   await services.admins.syncOwners([ADMIN_TG_ID]);
+  await services.payments.ensureDefaultPackages();
   return { prisma, telegram, scheduler, services };
 }
 

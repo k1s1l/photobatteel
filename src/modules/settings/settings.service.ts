@@ -14,6 +14,7 @@ export type SettingsPatch = Partial<
     | 'maxPhotosPerBattle'
     | 'submissionsOnlyInBattle'
     | 'weeklyBattlesEnabled'
+    | 'paidVotesEnabled'
   >
 >;
 

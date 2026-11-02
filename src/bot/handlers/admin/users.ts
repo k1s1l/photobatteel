@@ -22,8 +22,8 @@ async function showUserCard(ctx: BotContext, userId: number): Promise<void> {
   const text = ctx.locale.admin.userCard({
     name: escapeHtml(displayName(user)),
     telegramId: user.telegramId.toString(),
-    since: formatDateTime(user.createdAt, tz),
-    lastActive: formatDateTime(user.lastActiveAt, tz),
+    since: formatDateTime(user.createdAt, tz, ctx.locale.intl),
+    lastActive: formatDateTime(user.lastActiveAt, tz, ctx.locale.intl),
     submitted: user.photosSubmitted,
     published: user.photosPublished,
     votes: user.votesReceived,
@@ -49,7 +49,7 @@ export async function blockUser(ctx: BotContext, target: User): Promise<void> {
   }
   try {
     const { cancelledPhotos } = await users.block(target.id, adminUserId(ctx), ctx.locale.rejectReasons.blocked);
-    await notifications.notifyUser(target.telegramId, ctx.locale.notifications.blocked);
+    await notifications.notifyUser(target, (l) => l.notifications.blocked);
     await respond(ctx, ctx.locale.admin.userBlocked({ name: escapeHtml(displayName(target)), cancelled: cancelledPhotos }), {
       keyboard: inline([[button(ctx.locale.admin.actions.author, `a:u:${target.id}`), button(ctx.locale.admin.buttons.panel, PANEL)]]),
     });
@@ -63,7 +63,7 @@ export async function unblockUser(ctx: BotContext, target: User): Promise<void> 
   const { users, notifications } = ctx.deps.services;
   try {
     await users.unblock(target.id, adminUserId(ctx));
-    await notifications.notifyUser(target.telegramId, ctx.locale.notifications.unblocked);
+    await notifications.notifyUser(target, (l) => l.notifications.unblocked);
     await respond(ctx, ctx.locale.admin.userUnblocked(escapeHtml(displayName(target))), {
       keyboard: inline([[button(ctx.locale.admin.actions.author, `a:u:${target.id}`), button(ctx.locale.admin.buttons.panel, PANEL)]]),
     });

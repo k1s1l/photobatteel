@@ -27,7 +27,7 @@ export async function showAdminPhotoCard(ctx: BotContext, photoId: number): Prom
     author: escapeHtml(displayName(photo.user)),
     authorId: photo.user.telegramId.toString(),
     status: ctx.locale.status[photo.status],
-    created: formatDateTime(photo.createdAt, ctx.deps.env.TIMEZONE),
+    created: formatDateTime(photo.createdAt, ctx.deps.env.TIMEZONE, ctx.locale.intl),
     votes: photo.votesCount,
     size: sizeLabel(photo),
     battle: photo.battle ? escapeHtml(photo.battle.title) : null,

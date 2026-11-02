@@ -40,6 +40,12 @@ export class TelegrafGateway implements TelegramGateway {
     await this.telegram.editMessageReplyMarkup(chatId, messageId, undefined, markup);
   }
 
+  async refundStarPayment(userId: number, telegramChargeId: string): Promise<void> {
+    // Not yet typed in Telegraf 4.16; the Bot API method is stable.
+    const call = this.telegram.callApi as unknown as (method: string, payload: Record<string, unknown>) => Promise<unknown>;
+    await call.call(this.telegram, 'refundStarPayment', { user_id: userId, telegram_payment_charge_id: telegramChargeId });
+  }
+
   async downloadFile(fileId: string, maxBytes: number): Promise<Buffer> {
     const file = await this.telegram.getFile(fileId);
     const maxMb = Math.round(maxBytes / 1024 / 1024);

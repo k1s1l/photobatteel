@@ -21,6 +21,10 @@ export const loadUser: MiddlewareFn<BotContext> = async (ctx, next) => {
 /** Stops blocked users (admins are never blocked). */
 export const blockedGuard: MiddlewareFn<BotContext> = async (ctx, next) => {
   if (!ctx.user?.isBlocked || ctx.isAdmin) return next();
+  if (ctx.preCheckoutQuery) {
+    await ctx.answerPreCheckoutQuery(false, ctx.locale.common.blocked).catch(() => undefined);
+    return;
+  }
   if (ctx.callbackQuery) {
     await answer(ctx, ctx.locale.common.blocked, true);
     return;

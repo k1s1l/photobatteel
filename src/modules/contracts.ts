@@ -22,6 +22,8 @@ export interface TelegramGateway {
   copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number): Promise<void>;
   deleteMessage(chatId: ChatId, messageId: number): Promise<void>;
   editMessageReplyMarkup(chatId: ChatId, messageId: number, markup: InlineKeyboardMarkup | undefined): Promise<void>;
+  /** Returns a successful Telegram Stars payment to the user. */
+  refundStarPayment(userId: number, telegramChargeId: string): Promise<void>;
   /** Downloads a file by file_id, rejecting files larger than `maxBytes`. */
   downloadFile(fileId: string, maxBytes: number): Promise<Buffer>;
 }

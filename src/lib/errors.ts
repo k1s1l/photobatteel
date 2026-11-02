@@ -19,7 +19,9 @@ export type DomainErrorCode =
   | 'DIMENSIONS'
   | 'BATTLE_EXISTS'
   | 'SELF_VOTE'
-  | 'VOTING_DISABLED';
+  | 'VOTING_DISABLED'
+  | 'INSUFFICIENT_BALANCE'
+  | 'PAYMENTS_DISABLED';
 
 export class DomainError extends Error {
   constructor(

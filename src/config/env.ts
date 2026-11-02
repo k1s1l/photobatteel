@@ -52,7 +52,10 @@ const envSchema = z
     PORT: z.coerce.number().int().positive().default(8080),
     APP_ROLE: z.enum(['all', 'bot', 'worker']).default('all'),
 
-    DEFAULT_LANGUAGE: z.enum(['ru']).default('ru'),
+    /** Payment provider token from @BotFather → Payments. Enables card payments; Stars work without it. */
+    PAYMENT_PROVIDER_TOKEN: z.string().min(10).optional(),
+    CARD_CURRENCY: z.string().regex(/^[A-Z]{3}$/, 'CARD_CURRENCY must be a 3-letter ISO code').default('UAH'),
+    DEFAULT_LANGUAGE: z.enum(['uk', 'ru']).default('uk'),
     TIMEZONE: z.string().default('Europe/Kyiv'),
 
     MAX_PHOTO_SIZE_MB: z.coerce.number().positive().max(20).default(10),

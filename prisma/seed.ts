@@ -9,6 +9,7 @@ import { createPrisma } from '../src/lib/prisma.js';
 import { ActivityService } from '../src/modules/activity/activity.service.js';
 import { AdminService } from '../src/modules/admins/admin.service.js';
 import type { JobScheduler } from '../src/modules/contracts.js';
+import { DEFAULT_PACKAGES } from '../src/modules/payments/payment.service.js';
 import { SettingsService } from '../src/modules/settings/settings.service.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -37,6 +38,7 @@ try {
     { settings: new SettingsService(prisma, activity, noScheduler), admins: new AdminService(prisma, activity, logger) },
     adminIds,
   );
+  if ((await prisma.votePackage.count()) === 0) await prisma.votePackage.createMany({ data: DEFAULT_PACKAGES.map((pack) => ({ ...pack })) });
   logger.info({ admins: adminIds.length }, 'Database initialized');
 } finally {
   await prisma.$disconnect();

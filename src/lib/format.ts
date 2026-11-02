@@ -25,11 +25,11 @@ export interface NamedUser {
 export function displayName(user: NamedUser): string {
   if (user.username) return `@${user.username}`;
   const full = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
-  return full || 'Участник';
+  return full || '👤';
 }
 
-export function formatDateTime(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('ru-RU', {
+export function formatDateTime(date: Date, timeZone: string, intlLocale: string): string {
+  return new Intl.DateTimeFormat(intlLocale, {
     timeZone,
     day: '2-digit',
     month: '2-digit',
@@ -39,8 +39,8 @@ export function formatDateTime(date: Date, timeZone: string): string {
   }).format(date);
 }
 
-export function formatDate(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+export function formatDate(date: Date, timeZone: string, intlLocale: string): string {
+  return new Intl.DateTimeFormat(intlLocale, { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
 }
 
 /** Link to a channel post. Private channels get a t.me/c/ link (works for members). */

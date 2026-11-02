@@ -30,6 +30,8 @@ const env = parseEnv({
   CHANNEL_ID: String(CHANNEL.id),
   DATABASE_URL: 'postgresql://unused@localhost/test',
   RATE_LIMIT_PER_MINUTE: '1000',
+  DEFAULT_LANGUAGE: 'ru',
+  PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
 });
 
 beforeEach(async () => {
@@ -50,8 +52,8 @@ beforeEach(async () => {
   createBot(bot, { services: ctx.services, locks: new LockService(redis), gateway: ctx.telegram, channel: CHANNEL, logger: silentLogger, env }, redis);
 });
 
-function from(id: number, username = `u${id}`) {
-  return { id, is_bot: false, first_name: `Name${id}`, username };
+function from(id: number, username = `u${id}`, languageCode?: string) {
+  return { id, is_bot: false, first_name: `Name${id}`, username, ...(languageCode ? { language_code: languageCode } : {}) };
 }
 
 async function sendText(userId: number, text: string, username?: string) {
@@ -217,5 +219,102 @@ describe('bot: channel voting', () => {
     expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).votesCount).toBe(1);
     await press(60, `v:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
     expect(answers().at(-1)).toContain('Нельзя голосовать за свою');
+  });
+});
+
+describe('bot: Ukrainian language', () => {
+  it('greets Ukrainian Telegram users in Ukrainian and lets them switch to Russian', async () => {
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: { message_id: messageId++, date: 0, chat: { id: 90, type: 'private', first_name: 'N' }, from: from(90, 'olena', 'uk'), text: '/start', entities: [{ type: 'bot_command', offset: 0, length: 6 }] },
+    } as Update);
+    const welcome = api.find((c) => c.method === 'sendMessage')!;
+    expect(String(welcome.payload.text)).toContain('Ласкаво просимо до Photo Battle! 📸');
+    expect(JSON.stringify(welcome.payload.reply_markup)).toContain('📸 Надіслати фотографію');
+
+    await press(90, 'lang:ru');
+    expect(texts('sendMessage').at(-1)).toContain('Язык интерфейса: русский');
+    await sendText(90, '📊 Моя статистика');
+    expect(texts('sendMessage').at(-1)).toContain('Моя статистика');
+    await sendText(90, '🌐 Язык');
+    await press(90, 'lang:uk');
+    await sendText(90, '📊 Моя статистика');
+    expect(texts('sendMessage').at(-1)).toContain('Отримано голосів');
+  });
+});
+
+describe('bot: paid votes', () => {
+  async function publishedPhotoOf(ownerTgId: number) {
+    const owner = (await ctx.services.users.upsertFromTelegram({ id: ownerTgId, first_name: 'Owner' })).user;
+    await ctx.services.users.giveConsent(owner.id);
+    ctx.telegram.files.set(`p${ownerTgId}`, await makeUniqueJpeg(ownerTgId));
+    await sendPhoto(ownerTgId, `p${ownerTgId}`, `pu${ownerTgId}`);
+    const photo = await ctx.prisma.photo.findFirstOrThrow({ where: { userId: owner.id } });
+    await press(ownerTgId, `ph:ok:${photo.id}`);
+    await ctx.services.publications.processItem((await ctx.services.publications.claimNext())!.id);
+    return photo;
+  }
+
+  it('sells votes for Stars and spends them with the channel button', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true }, null);
+    const photo = await publishedPhotoOf(70);
+
+    await sendText(71, '⭐ Купить голоса');
+    const menu = api.filter((c) => c.method === 'sendMessage').at(-1)!;
+    expect(String(menu.payload.text)).toContain('Дополнительные голоса');
+    const [pack] = await ctx.services.payments.listPackages(true);
+    expect(JSON.stringify(menu.payload.reply_markup)).toContain(`pay:s:${pack!.id}:0`);
+    expect(JSON.stringify(menu.payload.reply_markup)).toContain(`pay:c:${pack!.id}:0`);
+
+    await press(71, `pay:s:${pack!.id}:0`);
+    const invoice = api.find((c) => c.method === 'sendInvoice')!;
+    expect(invoice.payload).toMatchObject({ currency: 'XTR', provider_token: '', prices: [{ amount: pack!.priceStars }] });
+
+    await bot.handleUpdate({
+      update_id: updateId++,
+      pre_checkout_query: { id: 'pcq1', from: from(71), currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: String(invoice.payload.payload) },
+    } as Update);
+    expect(api.find((c) => c.method === 'answerPreCheckoutQuery')?.payload).toMatchObject({ ok: true });
+
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: {
+        message_id: messageId++,
+        date: 0,
+        chat: { id: 71, type: 'private', first_name: 'N' },
+        from: from(71),
+        successful_payment: {
+          currency: 'XTR',
+          total_amount: pack!.priceStars,
+          invoice_payload: String(invoice.payload.payload),
+          telegram_payment_charge_id: 'stars-charge-1',
+          provider_payment_charge_id: '',
+        },
+      },
+    } as Update);
+    expect(texts('sendMessage').at(-1)).toContain('На баланс зачислено 5');
+
+    await press(71, `b:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
+    expect(answers().at(-1)).toContain('Осталось на балансе: 4');
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).votesCount).toBe(1);
+  });
+
+  it('opens the purchase in the bot when the balance is empty', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true }, null);
+    const photo = await publishedPhotoOf(72);
+    await press(73, `b:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
+    const reply = api.filter((c) => c.method === 'answerCallbackQuery').at(-1)!;
+    expect(String(reply.payload.url)).toBe(`https://t.me/photobattle_bot?start=boost_${photo.id}`);
+
+    await sendText(73, `/start boost_${photo.id}`);
+    expect(texts('sendMessage').at(-1)).toContain(`Голоса для фото #000${photo.id}`);
+  });
+
+  it('rejects a stale pre-checkout query', async () => {
+    await bot.handleUpdate({
+      update_id: updateId++,
+      pre_checkout_query: { id: 'pcq2', from: from(74), currency: 'XTR', total_amount: 25, invoice_payload: 'order:424242' },
+    } as Update);
+    expect(api.find((c) => c.method === 'answerPreCheckoutQuery')?.payload).toMatchObject({ ok: false });
   });
 });

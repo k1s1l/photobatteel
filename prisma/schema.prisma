@@ -53,6 +53,17 @@ enum BroadcastStatus {
   FAILED
 }
 
+enum PaymentMethod {
+  STARS // Telegram Stars (XTR)
+  CARD  // bank card via a Telegram payment provider
+}
+
+enum PaymentStatus {
+  PENDING  // invoice sent, not paid yet
+  PAID     // votes credited
+  REFUNDED // Stars returned to the buyer
+}
+
 enum ActivityAction {
   USER_REGISTERED
   CONSENT_GIVEN
@@ -78,6 +89,11 @@ enum ActivityAction {
   BATTLE_CANCELLED
   ADMIN_ACCESS_DENIED
   USER_DATA_DELETED
+  PAYMENT_SUCCEEDED
+  PAYMENT_REFUNDED
+  PAID_VOTES_SPENT
+  PACKAGE_UPDATED
+  LANGUAGE_CHANGED
 }
 
 model User {
@@ -95,6 +111,7 @@ model User {
   photosSubmitted Int      @default(0)
   photosPublished Int      @default(0)
   votesReceived   Int      @default(0)
+  voteBalance     Int      @default(0) // purchased votes not spent yet
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   lastActiveAt   DateTime  @default(now())
@@ -106,6 +123,8 @@ model User {
   moderated      Photo[]   @relation("PhotoModerator")
   battlesCreated Battle[]
   broadcasts     Broadcast[]
+  payments       Payment[]
+  paidVotes      PaidVote[]
 
   @@index([votesReceived])
   @@index([username])
@@ -137,7 +156,8 @@ model Photo {
   height          Int
   fileSize        Int
   status          PhotoStatus @default(DRAFT)
-  votesCount      Int         @default(0)
+  votesCount      Int         @default(0) // free + paid votes
+  paidVotes       Int         @default(0) // paid part of votesCount
   previewMessageId Int?
   rejectionReason String?
   moderatedById   Int?
@@ -152,6 +172,8 @@ model Photo {
   publication     Publication?
   queueItem       PublicationQueue?
   votes           Vote[]
+  paidVoteEntries PaidVote[]
+  payments        Payment[]
   wonBattle       Battle?     @relation("BattleWinner")
 
   @@index([userId, status])
@@ -240,6 +262,7 @@ model BotSettings {
   maxPhotosPerBattle       Int      @default(1)  // 0 = unlimited
   submissionsOnlyInBattle  Boolean  @default(false)
   weeklyBattlesEnabled     Boolean  @default(false)
+  paidVotesEnabled         Boolean  @default(false)
   updatedById              Int?
   updatedAt                DateTime @updatedAt
 }
@@ -270,5 +293,57 @@ model ActivityLog {
   createdAt  DateTime       @default(now())
 
   @@index([action, createdAt])
+  @@index([userId, createdAt])
+}
+
+/** Packs of votes sold for Stars and/or card. */
+model VotePackage {
+  id         Int       @id @default(autoincrement())
+  votes      Int
+  priceStars Int       // in Telegram Stars
+  priceCard  Int       // in minor units of CARD_CURRENCY (kopecks for UAH)
+  isActive   Boolean   @default(true)
+  sortOrder  Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  payments   Payment[]
+}
+
+model Payment {
+  id                      Int           @id @default(autoincrement())
+  userId                  Int
+  user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId               Int?
+  package                 VotePackage?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  votes                   Int
+  method                  PaymentMethod
+  currency                String        // XTR for Stars, e.g. UAH for cards
+  amount                  Int           // Stars, or minor currency units
+  status                  PaymentStatus @default(PENDING)
+  /// When set, purchased votes go straight to this photo instead of the balance.
+  targetPhotoId           Int?
+  targetPhoto             Photo?        @relation(fields: [targetPhotoId], references: [id], onDelete: SetNull)
+  telegramChargeId        String?       @unique
+  providerChargeId        String?
+  createdAt               DateTime      @default(now())
+  paidAt                  DateTime?
+  refundedAt              DateTime?
+
+  @@index([status, paidAt])
+  @@index([userId, createdAt])
+}
+
+/** Paid votes given to a photo (from the balance or directly from a purchase). */
+model PaidVote {
+  id        Int      @id @default(autoincrement())
+  photoId   Int
+  photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int
+  paymentId Int?
+  createdAt DateTime @default(now())
+
+  @@index([photoId])
   @@index([userId, createdAt])
 }

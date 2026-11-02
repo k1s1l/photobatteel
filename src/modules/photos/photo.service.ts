@@ -1,9 +1,8 @@
 import type { Battle, Photo, PhotoSource, PhotoStatus, Prisma, PrismaClient, User } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
-import { channelPostLink, formatPhotoId } from '../../lib/format.js';
+import { channelPostLink, escapeHtml, formatPhotoId } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import { classifyTelegramError } from '../../lib/telegram-errors.js';
-import type { Locale } from '../../i18n/index.js';
 import type { ActivityService } from '../activity/activity.service.js';
 import type { BattleService } from '../battles/battle.service.js';
 import type { ChannelInfo, JobScheduler, TelegramGateway } from '../contracts.js';
@@ -61,7 +60,6 @@ export class PhotoService {
     private readonly telegram: TelegramGateway,
     private readonly scheduler: JobScheduler,
     private readonly channel: ChannelInfo,
-    private readonly locale: Locale,
     private readonly logger: Logger,
   ) {}
 
@@ -156,7 +154,7 @@ export class PhotoService {
       return tx.photo.findUniqueOrThrow({ where: { id: photoId }, include: { user: true } });
     });
     await this.scheduler.triggerPublishTick();
-    await this.notifications.notifyUser(photo.user.telegramId, this.locale.notifications.approved(formatPhotoId(photoId)));
+    await this.notifications.notifyUser(photo.user, (l) => l.notifications.approved(formatPhotoId(photoId)));
     return photo;
   }
 
@@ -178,7 +176,7 @@ export class PhotoService {
       );
       return tx.photo.findUniqueOrThrow({ where: { id: photoId }, include: { user: true } });
     });
-    await this.notifications.notifyUser(photo.user.telegramId, this.locale.notifications.rejected({ id: formatPhotoId(photoId), reason }));
+    await this.notifications.notifyUser(photo.user, (l) => l.notifications.rejected({ id: formatPhotoId(photoId), reason: escapeHtml(reason) }));
     return photo;
   }
 
@@ -219,11 +217,11 @@ export class PhotoService {
       channelRemoved = await this.removeChannelPost(photoId, publication.id, publication.messageId);
       if (!channelRemoved) {
         const link = channelPostLink(this.channel, publication.messageId);
-        await this.notifications.notifyAdmins(this.locale.admin.channelDeleteFailed({ id: formatPhotoId(photoId), link }));
+        await this.notifications.notifyAdmins((l) => l.admin.channelDeleteFailed({ id: formatPhotoId(photoId), link }));
       }
     }
     if (actor.isAdmin && photo.userId !== actor.userId) {
-      await this.notifications.notifyUser(photo.user.telegramId, this.locale.notifications.deletedByAdmin(formatPhotoId(photoId)));
+      await this.notifications.notifyUser(photo.user, (l) => l.notifications.deletedByAdmin(formatPhotoId(photoId)));
     }
     return { photo, channelRemoved };
   }

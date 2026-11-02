@@ -7,13 +7,14 @@ import { registerCommonHandlers, registerFallback } from './handlers/common.js';
 import { registerMyPhotosHandlers } from './handlers/my-photos.js';
 import { registerProfileHandlers } from './handlers/profile.js';
 import { registerSubmissionHandlers } from './handlers/submission.js';
+import { registerPaymentHandlers } from './handlers/payments.js';
 import { registerVoteHandlers } from './handlers/votes.js';
 import { chatFilter } from './middlewares/chat-filter.js';
 import { errorBoundary } from './middlewares/error-boundary.js';
 import { rateLimit } from './middlewares/rate-limit.js';
 import { blockedGuard, loadUser } from './middlewares/user.js';
 import { RedisSessionStore } from './session-store.js';
-import { getLocale } from '../i18n/index.js';
+import { getDefaultLanguage, getLocale, SUPPORTED_LANGUAGES, type Locale } from '../i18n/index.js';
 
 /** Builds the bot: middleware order matters (filter → limits → user → guards → session → handlers). */
 export function createBot(bot: Telegraf<BotContext>, deps: AppContextDeps, redis: Redis): Telegraf<BotContext> {
@@ -43,6 +44,7 @@ export function createBot(bot: Telegraf<BotContext>, deps: AppContextDeps, redis
   registerSubmissionHandlers(bot);
   registerMyPhotosHandlers(bot);
   registerProfileHandlers(bot);
+  registerPaymentHandlers(bot);
   registerFallback(bot);
 
   bot.catch((error, ctx) => {
@@ -51,14 +53,12 @@ export function createBot(bot: Telegraf<BotContext>, deps: AppContextDeps, redis
   return bot;
 }
 
-export const BOT_COMMANDS = [
-  { command: 'start', description: 'Главное меню' },
-  { command: 'myphotos', description: 'Мои фотографии' },
-  { command: 'stats', description: 'Моя статистика' },
-  { command: 'rating', description: 'Рейтинг участников' },
-  { command: 'battle', description: 'Текущий батл' },
-  { command: 'rules', description: 'Правила' },
-  { command: 'help', description: 'Помощь' },
-  { command: 'cancel', description: 'Отменить действие' },
-  { command: 'deletedata', description: 'Удалить мои фотографии' },
-];
+/** Registers the command menu in every supported language (and the default one for others). */
+export async function registerCommands(bot: Telegraf<BotContext>): Promise<void> {
+  const commandsFor = (locale: Locale) => Object.entries(locale.commands).map(([command, description]) => ({ command, description }));
+  const scope = { type: 'all_private_chats' as const };
+  await bot.telegram.setMyCommands(commandsFor(getLocale(getDefaultLanguage())), { scope });
+  for (const code of SUPPORTED_LANGUAGES) {
+    await bot.telegram.setMyCommands(commandsFor(getLocale(code)), { scope, language_code: code });
+  }
+}

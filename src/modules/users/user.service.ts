@@ -52,7 +52,7 @@ export class UserService {
 
     try {
       const user = await this.prisma.user.create({
-        data: { telegramId, username, firstName, lastName, languageCode: profile.language_code?.slice(0, 8) ?? 'ru' },
+        data: { telegramId, username, firstName, lastName, languageCode: profile.language_code?.slice(0, 8) ?? '' },
       });
       await this.activity.log({ action: 'USER_REGISTERED', userId: user.id, telegramId });
       return { user, isNew: true };
@@ -85,6 +85,13 @@ export class UserService {
     const username = input.replace(/^@/, '');
     if (!/^[A-Za-z0-9_]{3,64}$/.test(username)) return null;
     return this.prisma.user.findFirst({ where: { username: { equals: username, mode: 'insensitive' } } });
+  }
+
+  /** Explicit interface language chosen by the user (overrides the Telegram app language). */
+  async setLanguage(userId: number, languageCode: string): Promise<User> {
+    const user = await this.prisma.user.update({ where: { id: userId }, data: { languageCode } });
+    await this.activity.log({ action: 'LANGUAGE_CHANGED', userId, details: { languageCode } });
+    return user;
   }
 
   async giveConsent(userId: number): Promise<User> {

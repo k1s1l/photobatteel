@@ -1,7 +1,7 @@
 import type { PrismaClient, PublicationQueue } from '../../generated/prisma/client.js';
 import type { Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
-import { channelPostLink, formatPhotoId, truncate } from '../../lib/format.js';
+import { channelPostLink, escapeHtml, formatPhotoId, truncate } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import { classifyTelegramError, isRetryable } from '../../lib/telegram-errors.js';
 import type { ActivityService } from '../activity/activity.service.js';
@@ -155,7 +155,7 @@ export class PublicationService {
       const sent = await this.telegram.sendPhoto(this.channel.id, photo.fileId, {
         caption: buildChannelCaption(this.locale, photo, photo.user, photo.battle?.title ?? null),
         parseMode: 'HTML',
-        ...(settings.votingEnabled ? { replyMarkup: buildVoteKeyboard(this.locale, photo.id, photo.votesCount) } : {}),
+        ...(settings.votingEnabled ? { replyMarkup: buildVoteKeyboard(this.locale, photo.id, photo.votesCount, settings.paidVotesEnabled) } : {}),
       });
       messageId = sent.message_id;
     } catch (error) {
@@ -174,11 +174,11 @@ export class PublicationService {
 
     const link = channelPostLink(this.channel, messageId);
     const id = formatPhotoId(photo.id);
-    await this.notifications.notifyUser(photo.user.telegramId, this.locale.notifications.published({ id, link }), {
+    await this.notifications.notifyUser(photo.user, (l) => l.notifications.published({ id, link }), {
       parseMode: 'HTML',
       disablePreview: true,
     });
-    if (item.manual) await this.notifications.notifyAdmins(this.locale.admin.publishedNotice({ id, link, manual: true }));
+    if (item.manual) await this.notifications.notifyAdmins((l) => l.admin.publishedNotice({ id, link, manual: true }));
     return { status: 'published', messageId };
   }
 
@@ -230,7 +230,7 @@ export class PublicationService {
     });
     await this.activity.log({ action: 'PHOTO_PUBLISH_FAILED', entityType: 'Photo', entityId: photoId, details: { error } });
     this.logger.error({ photoId, error }, 'Publication failed permanently');
-    await this.notifications.notifyAdmins(this.locale.admin.publishFailed({ id: formatPhotoId(photoId), error: truncate(error, 300) }));
+    await this.notifications.notifyAdmins((l) => l.admin.publishFailed({ id: formatPhotoId(photoId), error: escapeHtml(truncate(error, 300)) }));
   }
 
   private async finishItem(itemId: number, status: 'DONE' | 'CANCELLED'): Promise<void> {

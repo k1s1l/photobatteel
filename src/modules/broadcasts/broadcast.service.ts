@@ -1,5 +1,4 @@
 import type { Broadcast, Prisma, PrismaClient } from '../../generated/prisma/client.js';
-import type { Locale } from '../../i18n/index.js';
 import type { Logger } from '../../lib/logger.js';
 import { classifyTelegramError } from '../../lib/telegram-errors.js';
 import type { ActivityService } from '../activity/activity.service.js';
@@ -26,7 +25,6 @@ export class BroadcastService {
     private readonly scheduler: JobScheduler,
     private readonly activity: ActivityService,
     private readonly notifications: NotificationService,
-    private readonly locale: Locale,
     private readonly logger: Logger,
     private readonly ratePerSecond: number,
   ) {}
@@ -83,7 +81,7 @@ export class BroadcastService {
       entityId: broadcastId,
       details: { sent, failed },
     });
-    await this.notifications.notifyUser(broadcast.createdBy.telegramId, this.locale.admin.broadcastDone({ sent, failed }));
+    await this.notifications.notifyUser(broadcast.createdBy, (l) => l.admin.broadcastDone({ sent, failed }));
     return finished;
   }
 

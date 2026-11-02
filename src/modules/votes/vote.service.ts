@@ -56,7 +56,7 @@ export class VoteService {
     const photo = await this.prisma.photo.findUnique({ where: { id: photoId }, include: { publication: true } });
     if (!photo?.publication || photo.publication.removedAt || photo.status !== 'PUBLISHED') return;
     const settings = await this.settings.get();
-    const markup = settings.votingEnabled ? buildVoteKeyboard(this.locale, photo.id, photo.votesCount) : undefined;
+    const markup = settings.votingEnabled ? buildVoteKeyboard(this.locale, photo.id, photo.votesCount, settings.paidVotesEnabled) : undefined;
     try {
       await this.telegram.editMessageReplyMarkup(this.channel.id, photo.publication.messageId, markup);
     } catch (error) {

@@ -7,12 +7,13 @@ import type { ChannelInfo, TelegramGateway } from '../modules/contracts.js';
 import type { Services } from '../services.js';
 import type { Env } from '../config/env.js';
 
-export type AdminInputAction = 'publish' | 'delete' | 'block' | 'unblock';
+export type AdminInputAction = 'publish' | 'delete' | 'block' | 'unblock' | 'package_price';
 
 /** What the bot expects from the user next. */
 export type ConversationState =
   | { kind: 'awaiting_photo' }
-  | { kind: 'admin_input'; action: AdminInputAction }
+  | { kind: 'give_votes' }
+  | { kind: 'admin_input'; action: AdminInputAction; packageId?: number }
   | { kind: 'admin_broadcast' }
   | { kind: 'battle_create'; step: 'title' | 'theme' | 'submission' | 'voting'; title?: string; theme?: string | null; submissionHours?: number };
 

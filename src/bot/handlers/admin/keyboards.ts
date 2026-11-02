@@ -28,7 +28,7 @@ export function adminPanelKeyboard(locale: Locale, paused: boolean, pending: num
     [button(b.delete, 'a:in:delete'), button(b.battles, 'a:bt')],
     [button(b.block, 'a:in:block'), button(b.unblock, 'a:in:unblock')],
     [paused ? button(b.resume, 'a:resume') : button(b.pause, 'a:pause'), button(b.settings, 'a:set')],
-    [button(b.broadcast, 'a:bc')],
+    [button(b.broadcast, 'a:bc'), button(b.payments, 'a:pay')],
   ]);
 }
 

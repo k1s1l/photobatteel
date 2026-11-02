@@ -7,6 +7,8 @@ import type { DomainErrorCode } from '../../lib/errors.js';
  */
 export const ru = {
   languageName: 'Русский',
+  /** BCP 47 tag for dates and numbers. */
+  intl: 'ru-RU',
 
   menu: {
     submit: '📸 Отправить фотографию',
@@ -16,7 +18,30 @@ export const ru = {
     battle: '⚔️ Текущий батл',
     rules: 'ℹ️ Правила',
     help: '❓ Помощь',
+    votes: '⭐ Купить голоса',
+    language: '🌐 Язык',
     admin: '🛠 Админ-панель',
+  },
+
+  /** Descriptions of bot commands shown in the Telegram command menu. */
+  commands: {
+    start: 'Главное меню',
+    myphotos: 'Мои фотографии',
+    stats: 'Моя статистика',
+    rating: 'Рейтинг участников',
+    battle: 'Текущий батл',
+    votes: 'Купить голоса',
+    rules: 'Правила',
+    help: 'Помощь',
+    language: 'Сменить язык',
+    cancel: 'Отменить действие',
+    deletedata: 'Удалить мои фотографии',
+    paysupport: 'Помощь с оплатой',
+  },
+
+  language: {
+    choose: 'Выбери язык интерфейса:\nОбери мову інтерфейсу:',
+    changed: '✅ Язык интерфейса: русский.',
   },
 
   common: {
@@ -73,8 +98,11 @@ export const ru = {
       '/myphotos — мои фотографии\n' +
       '/stats — моя статистика\n' +
       '/rules — правила\n' +
+      '/votes — купить дополнительные голоса\n' +
+      '/language — сменить язык\n' +
       '/cancel — отменить текущее действие\n' +
-      '/deletedata — удалить все мои фотографии',
+      '/deletedata — удалить все мои фотографии\n' +
+      '/paysupport — помощь с оплатой',
   },
 
   consent: {
@@ -135,6 +163,8 @@ export const ru = {
     BATTLE_EXISTS: () => 'Уже есть активный батл. Заверши или отмени его, прежде чем создавать новый.',
     SELF_VOTE: () => 'Нельзя голосовать за свою фотографию 🙂',
     VOTING_DISABLED: () => 'Голосование сейчас отключено.',
+    INSUFFICIENT_BALANCE: (p) => `Недостаточно купленных голосов на балансе (сейчас: ${p.balance}).`,
+    PAYMENTS_DISABLED: () => 'Покупка голосов сейчас недоступна.',
   } satisfies Record<DomainErrorCode, (p: Record<string, string | number>) => string>,
 
   status: {
@@ -171,14 +201,15 @@ export const ru = {
   },
 
   stats: {
-    text: (p: { since: string; submitted: number; published: number; queued: number; votes: number; rank: number | null }) =>
+    text: (p: { since: string; submitted: number; published: number; queued: number; votes: number; rank: number | null; balance: number }) =>
       '<b>📊 Моя статистика</b>\n\n' +
       `📅 Участник с: ${p.since}\n` +
       `📸 Отправлено фото: ${p.submitted}\n` +
       `✅ Опубликовано: ${p.published}\n` +
       `⏳ Ожидают публикации: ${p.queued}\n` +
       `🔥 Получено голосов: ${p.votes}\n` +
-      `🥇 Место в рейтинге: ${p.rank ? p.rank : '—'}`,
+      `🥇 Место в рейтинге: ${p.rank ? p.rank : '—'}\n` +
+      `⭐ Купленных голосов на балансе: ${p.balance}`,
   },
 
   rating: {
@@ -226,6 +257,47 @@ export const ru = {
     added: '🔥 Голос учтён! Спасибо за поддержку.',
     removed: 'Голос отменён.',
     unavailable: 'Голосование за эту фотографию недоступно.',
+    boostButton: '⭐ +1 голос',
+    boosted: (left: number) => `⭐ Платный голос отдан! Осталось на балансе: ${left}.`,
+    noBalance: 'На балансе нет купленных голосов. Открываю покупку…',
+  },
+
+  payments: {
+    menu: (p: { balance: number }) =>
+      '<b>⭐ Дополнительные голоса</b>\n\n' +
+      'Купленные голоса добавляются к голосам за фото и помогают подняться в рейтинге и выиграть батл.\n\n' +
+      `Твой баланс: <b>${p.balance}</b>\n\n` +
+      'Как отдать голос: кнопка «⭐ +1 голос» под постом в канале или «🎁 Отдать голоса фото» ниже.\n\n' +
+      'Выбери пакет и способ оплаты:',
+    menuForPhoto: (id: string) =>
+      `<b>⭐ Голоса для фото ${id}</b>\n\nКупленные голоса сразу будут добавлены этому фото. Выбери пакет и способ оплаты:`,
+    packStars: (p: { votes: number; price: number }) => `${p.votes} гол. — ${p.price} ⭐`,
+    packCard: (p: { votes: number; price: string }) => `${p.votes} гол. — ${p.price} 💳`,
+    give: '🎁 Отдать голоса фото',
+    askGive: 'Введи ID фото и количество голосов, например: <code>#0012 5</code>',
+    giveInvalid: 'Не понял. Формат: <code>#0012 5</code>',
+    given: (p: { amount: number; id: string; left: number }) => `⭐ Фото ${p.id} получило +${p.amount} гол. Осталось на балансе: ${p.left}.`,
+    invoiceTitle: (votes: number) => `${votes} голосов — Photo Battle`,
+    invoiceToBalance: (votes: number) => `${votes} дополнительных голосов на баланс. Отдавай их фото кнопкой «⭐ +1 голос».`,
+    invoiceToPhoto: (p: { votes: number; id: string }) => `${p.votes} дополнительных голосов для фото ${p.id}.`,
+    invoiceLabel: (votes: number) => `${votes} голосов`,
+    paidToBalance: (p: { votes: number; balance: number }) => `✅ Оплата прошла! На баланс зачислено ${p.votes} гол. Сейчас на балансе: ${p.balance}.`,
+    paidToPhoto: (p: { votes: number; id: string }) => `✅ Оплата прошла! Фото ${p.id} получило +${p.votes} гол.`,
+    paidPhotoGone: (p: { votes: number; balance: number }) =>
+      `✅ Оплата прошла! Фото больше недоступно, поэтому ${p.votes} гол. зачислены на баланс (${p.balance}).`,
+    checkoutExpired: 'Этот счёт устарел. Открой «⭐ Купить голоса» и создай новый.',
+    checkoutUnavailable: 'Фото больше недоступно для голосования. Выбери другое.',
+    support:
+      '<b>💬 Помощь с оплатой</b>\n\n' +
+      'Если голоса не начислились или возникла другая проблема с оплатой, напиши администратору канала. ' +
+      'Укажи дату, сумму и способ оплаты — мы проверим платёж и вернём средства, если голоса не были получены.',
+    terms:
+      '<b>Условия покупки голосов</b>\n\n' +
+      '• Голоса — цифровой товар внутри Photo Battle; они зачисляются сразу после оплаты.\n' +
+      '• Отданные фото голоса нельзя вернуть на баланс.\n' +
+      '• Если фото удалено или отклонено, отданные ему голоса сгорают.\n' +
+      '• Возврат возможен, если голоса не были начислены: /paysupport.',
+    refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
   },
 
   channel: {
@@ -277,6 +349,7 @@ export const ru = {
       settings: '⚙️ Настройки',
       broadcast: '📢 Объявление',
       battles: '⚔️ Батлы',
+      payments: '💰 Платежи',
       panel: '🛠 В админ-панель',
     },
     stats: (p: {
@@ -458,6 +531,48 @@ export const ru = {
     battleCancelled: (title: string) => `❌ Батл «${title}» отменён.`,
     battleVotingStarted: (title: string) => `⏳ Приём фото в батл «${title}» закрыт.`,
     hours: (h: number) => (h % 24 === 0 ? `${h / 24} дн.` : `${h} ч`),
+    paymentsTitle: (p: {
+      enabled: boolean;
+      card: boolean;
+      paid: number;
+      stars: number;
+      card24: string;
+      cardTotal: string;
+      votesSold: number;
+      paid24h: number;
+    }) =>
+      '<b>💰 Платежи и голоса</b>\n\n' +
+      `Продажа голосов: ${p.enabled ? '✅ включена' : '⛔ выключена'}\n` +
+      `Оплата картой: ${p.card ? '✅ подключена' : '— не подключена (нет PAYMENT_PROVIDER_TOKEN)'}\n\n` +
+      `Оплат всего: ${p.paid} (за сутки: ${p.paid24h})\n` +
+      `⭐ Получено звёзд: ${p.stars}\n` +
+      `💳 Получено картой: ${p.cardTotal} (за сутки: ${p.card24})\n` +
+      `🔥 Продано голосов: ${p.votesSold}\n\n` +
+      'Пакеты (нажми, чтобы изменить цену):',
+    paymentsToggleOn: '✅ Включить продажу голосов',
+    paymentsToggleOff: '⛔ Выключить продажу голосов',
+    packageRow: (p: { votes: number; stars: number; card: string; active: boolean }) =>
+      `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.stars}⭐ · ${p.card}`,
+    packageCard: (p: { votes: number; stars: number; card: string; active: boolean }) =>
+      `<b>Пакет: ${p.votes} голосов</b>\nЦена: ${p.stars} ⭐ / ${p.card}\nСтатус: ${p.active ? 'продаётся' : 'скрыт'}`,
+    packageEditPrice: '✏️ Изменить цену',
+    packageHide: '🚫 Скрыть пакет',
+    packageShow: '✅ Показывать пакет',
+    askPackagePrice: (p: { votes: number; currency: string }) =>
+      `Введи новую цену пакета «${p.votes} голосов»: звёзды и сумму в ${p.currency} через пробел, например <code>90 89</code>`,
+    packagePriceInvalid: 'Формат: два числа через пробел — звёзды и сумма картой, например <code>90 89</code>',
+    packageSaved: '✅ Пакет обновлён.',
+    paymentsList: '🧾 Последние оплаты',
+    paymentsListTitle: '<b>🧾 Последние оплаты</b>',
+    paymentsEmpty: 'Оплат пока нет.',
+    paymentRow: (p: { id: number; user: string; votes: number; amount: string; status: string; date: string }) =>
+      `#${p.id} · ${p.date} · ${p.user} · ${p.votes} гол. · ${p.amount} · ${p.status}`,
+    refund: (id: number) => `↩️ Вернуть звёзды по оплате #${id}`,
+    refundConfirm: (p: { id: number; amount: string; user: string }) =>
+      `Вернуть оплату #${p.id} (${p.amount}) пользователю ${p.user}? Купленные голоса будут списаны (сколько возможно).`,
+    refundDone: (p: { id: number; reclaimed: number }) => `↩️ Оплата #${p.id} возвращена. Списано голосов: ${p.reclaimed}.`,
+    refundOnlyStars: 'Автоматический возврат доступен только для оплат звёздами. Оплату картой возвращайте в кабинете платёжного провайдера.',
+    paymentStatus: { PENDING: '⏳ ожидает', PAID: '✅ оплачено', REFUNDED: '↩️ возврат' },
     textTooLong: (max: number) => `Слишком длинный текст. Максимум ${max} символов.`,
   },
 };

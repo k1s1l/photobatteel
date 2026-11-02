@@ -10,6 +10,7 @@ import { handleBattleWizardText, registerBattleHandlers } from './battles.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
+import { handlePackagePriceInput, registerPaymentAdminHandlers } from './payments.js';
 import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
 import { adminUserId } from './shared.js';
@@ -23,7 +24,9 @@ const MENU_BUTTONS = new Set(
     .concat(allTranslations((l) => l.menu.rating))
     .concat(allTranslations((l) => l.menu.battle))
     .concat(allTranslations((l) => l.menu.rules))
-    .concat(allTranslations((l) => l.menu.help)),
+    .concat(allTranslations((l) => l.menu.help))
+    .concat(allTranslations((l) => l.menu.votes))
+    .concat(allTranslations((l) => l.menu.language)),
 );
 const ADMIN_BUTTONS = new Set(allTranslations((l) => l.menu.admin));
 
@@ -71,6 +74,11 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind !== 'admin_input') return next();
+  if (state.action === 'package_price') {
+    if (state.packageId) await handlePackagePriceInput(ctx, state.packageId, text);
+    else setState(ctx, undefined);
+    return;
+  }
 
   const { services } = ctx.deps;
   const retry = inline([[button(ctx.locale.common.cancel, 'a:cancel')]]);
@@ -134,6 +142,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>): void {
   registerSettingsHandlers(admin);
   registerBroadcastHandlers(admin);
   registerBattleHandlers(admin);
+  registerPaymentAdminHandlers(admin);
 
   const prompts = {
     publish: (ctx: BotContext) => ctx.locale.admin.askPhotoIdPublish,

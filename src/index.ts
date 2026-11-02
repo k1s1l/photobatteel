@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 import type { Worker } from 'bullmq';
 import { Telegraf } from 'telegraf';
 import { parseEnv } from './config/env.js';
-import { createBot, BOT_COMMANDS } from './bot/bot.js';
+import { createBot, registerCommands } from './bot/bot.js';
 import type { BotContext } from './bot/context.js';
 import { TelegrafGateway } from './bot/telegram-gateway.js';
 import { startHttpServer } from './bootstrap/http-server.js';
@@ -65,8 +65,8 @@ async function main(): Promise<void> {
   let polling = false;
   if (env.APP_ROLE !== 'worker') {
     createBot(bot, { services, locks: new LockService(redis), gateway, channel, logger, env }, redis);
-    await bot.telegram.setMyCommands(BOT_COMMANDS, { scope: { type: 'all_private_chats' } });
-    const allowedUpdates = ['message', 'callback_query'] as const;
+    await registerCommands(bot);
+    const allowedUpdates = ['message', 'callback_query', 'pre_checkout_query'] as const;
 
     if (env.BOT_MODE === 'webhook') {
       const handler = await bot.createWebhook({

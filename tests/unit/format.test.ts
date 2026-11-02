@@ -15,7 +15,7 @@ describe('format helpers', () => {
   it('uses @username or falls back to the display name', () => {
     expect(displayName({ username: 'kate', firstName: 'Kate', lastName: null })).toBe('@kate');
     expect(displayName({ username: null, firstName: 'Kate', lastName: 'Smith' })).toBe('Kate Smith');
-    expect(displayName({ username: null, firstName: '', lastName: null })).toBe('Участник');
+    expect(displayName({ username: null, firstName: '', lastName: null })).toBe('👤');
   });
 
   it('escapes HTML', () => {

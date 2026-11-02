@@ -182,10 +182,11 @@ export function registerSubmissionHandlers(bot: Telegraf<BotContext>): void {
     await showMainMenu(ctx, text + position);
 
     if (outcome.moderation) {
+      const author = escapeHtml(ctx.from?.username ? `@${ctx.from.username}` : user.firstName);
       await services.notifications.notifyAdminsWithPhoto(
         outcome.photo.fileId,
-        ctx.locale.admin.newForModeration({ id, author: escapeHtml(ctx.from?.username ? `@${ctx.from.username}` : user.firstName) }),
-        { parseMode: 'HTML', replyMarkup: moderationKeyboard(ctx.locale, photoId) },
+        (l) => l.admin.newForModeration({ id, author }),
+        (l) => ({ parseMode: 'HTML', replyMarkup: moderationKeyboard(l, photoId) }),
       );
     }
   });

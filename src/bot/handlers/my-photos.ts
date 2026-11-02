@@ -35,7 +35,7 @@ async function showCard(ctx: BotContext, photoId: number): Promise<void> {
   const caption = ctx.locale.myPhotos.card({
     id: formatPhotoId(photo.id),
     status: ctx.locale.status[photo.status],
-    date: formatDateTime(photo.createdAt, env.TIMEZONE),
+    date: formatDateTime(photo.createdAt, env.TIMEZONE, ctx.locale.intl),
     votes: photo.votesCount,
     battle: photo.battle ? escapeHtml(photo.battle.title) : null,
     link,
