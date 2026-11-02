@@ -1,0 +1,274 @@
+// Photo Battle Bot — database schema (PostgreSQL)
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PhotoStatus {
+  DRAFT              // uploaded, waiting for the author's confirmation
+  PENDING_MODERATION // confirmed, waiting for an admin decision
+  QUEUED             // in the publication queue
+  PUBLISHED          // posted to the channel
+  REJECTED           // rejected by a moderator
+  DELETED            // deleted by the author or an admin
+  CANCELLED          // the author cancelled the draft (or it expired)
+  FAILED             // publication failed permanently, admin attention required
+}
+
+enum PhotoSource {
+  PHOTO    // sent as a compressed Telegram photo
+  DOCUMENT // sent as an image file
+}
+
+enum QueueStatus {
+  WAITING
+  PROCESSING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum BattleStatus {
+  ACTIVE    // accepting submissions
+  VOTING    // submissions closed, voting continues
+  FINISHED  // winner selected
+  CANCELLED
+}
+
+enum AdminRole {
+  OWNER // declared in ADMIN_IDS
+  ADMIN
+}
+
+enum BroadcastStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum ActivityAction {
+  USER_REGISTERED
+  CONSENT_GIVEN
+  PHOTO_UPLOADED
+  PHOTO_CONFIRMED
+  PHOTO_CANCELLED
+  PHOTO_APPROVED
+  PHOTO_REJECTED
+  PHOTO_PUBLISHED
+  PHOTO_PUBLISH_FAILED
+  PHOTO_REQUEUED
+  PHOTO_DELETED
+  USER_BLOCKED
+  USER_UNBLOCKED
+  PUBLISHING_PAUSED
+  PUBLISHING_RESUMED
+  SETTINGS_UPDATED
+  BROADCAST_CREATED
+  BROADCAST_FINISHED
+  BATTLE_CREATED
+  BATTLE_VOTING_STARTED
+  BATTLE_FINISHED
+  BATTLE_CANCELLED
+  ADMIN_ACCESS_DENIED
+  USER_DATA_DELETED
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  telegramId     BigInt    @unique
+  username       String?
+  firstName      String
+  lastName       String?
+  languageCode   String    @default("ru")
+  isBlocked      Boolean   @default(false)
+  blockedAt      DateTime?
+  blockedReason  String?
+  botBlockedAt   DateTime? // user stopped/blocked the bot (detected during broadcasts)
+  consentAt      DateTime? // consent to publish photos in the public channel
+  photosSubmitted Int      @default(0)
+  photosPublished Int      @default(0)
+  votesReceived   Int      @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastActiveAt   DateTime  @default(now())
+
+  photos         Photo[]
+  votes          Vote[]
+  admin          Admin?
+  activities     ActivityLog[]
+  moderated      Photo[]   @relation("PhotoModerator")
+  battlesCreated Battle[]
+  broadcasts     Broadcast[]
+
+  @@index([votesReceived])
+  @@index([username])
+}
+
+model Admin {
+  id         Int       @id @default(autoincrement())
+  telegramId BigInt    @unique
+  userId     Int?      @unique
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  role       AdminRole @default(ADMIN)
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Photo {
+  id              Int         @id @default(autoincrement())
+  userId          Int
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  battleId        Int?
+  battle          Battle?     @relation("BattlePhotos", fields: [battleId], references: [id], onDelete: SetNull)
+  source          PhotoSource
+  fileId          String      // Telegram photo file_id used for publishing
+  fileUniqueId    String
+  contentHash     String      // SHA-256 of the image bytes, used for duplicate detection
+  mimeType        String
+  width           Int
+  height          Int
+  fileSize        Int
+  status          PhotoStatus @default(DRAFT)
+  votesCount      Int         @default(0)
+  previewMessageId Int?
+  rejectionReason String?
+  moderatedById   Int?
+  moderatedBy     User?       @relation("PhotoModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  moderatedAt     DateTime?
+  confirmedAt     DateTime?
+  publishedAt     DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  publication     Publication?
+  queueItem       PublicationQueue?
+  votes           Vote[]
+  wonBattle       Battle?     @relation("BattleWinner")
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([contentHash])
+  @@index([fileUniqueId])
+  @@index([battleId, votesCount])
+}
+
+model PublicationQueue {
+  id         Int         @id @default(autoincrement())
+  photoId    Int         @unique
+  photo      Photo       @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  status     QueueStatus @default(WAITING)
+  priority   Int         @default(0) // higher goes first; FIFO inside one priority
+  attempts   Int         @default(0)
+  lastError  String?
+  manual     Boolean     @default(false)
+  requestedById Int?     // admin user id for manual publications
+  enqueuedAt DateTime    @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  updatedAt  DateTime    @updatedAt
+
+  @@index([status, priority, enqueuedAt])
+}
+
+model Publication {
+  id            Int       @id @default(autoincrement())
+  photoId       Int       @unique
+  photo         Photo     @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  channelId     BigInt
+  messageId     Int
+  manual        Boolean   @default(false)
+  publishedById Int?
+  publishedAt   DateTime  @default(now())
+  removedAt     DateTime? // channel post was deleted
+
+  @@unique([channelId, messageId])
+  @@index([publishedAt])
+}
+
+model Vote {
+  id        Int      @id @default(autoincrement())
+  photoId   Int
+  photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([photoId, userId])
+  @@index([userId])
+}
+
+model Battle {
+  id               Int          @id @default(autoincrement())
+  title            String
+  theme            String?
+  status           BattleStatus @default(ACTIVE)
+  isWeekly         Boolean      @default(false)
+  startsAt         DateTime     @default(now())
+  submissionsEndAt DateTime
+  endsAt           DateTime
+  winnerPhotoId    Int?         @unique
+  winnerPhoto      Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
+  createdById      Int?
+  createdBy        User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  finishedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  photos           Photo[]      @relation("BattlePhotos")
+
+  @@index([status, submissionsEndAt])
+  @@index([status, endsAt])
+}
+
+model BotSettings {
+  id                       Int      @id @default(1)
+  publishingPaused         Boolean  @default(false)
+  publishIntervalMinutes   Int      @default(15) // 0 = manual publishing only
+  moderationEnabled        Boolean  @default(false)
+  votingEnabled            Boolean  @default(true)
+  maxPhotosPerDay          Int      @default(3)  // 0 = unlimited
+  maxQueuedPerUser         Int      @default(5)  // 0 = unlimited
+  maxPhotosPerBattle       Int      @default(1)  // 0 = unlimited
+  submissionsOnlyInBattle  Boolean  @default(false)
+  weeklyBattlesEnabled     Boolean  @default(false)
+  updatedById              Int?
+  updatedAt                DateTime @updatedAt
+}
+
+model Broadcast {
+  id          Int             @id @default(autoincrement())
+  createdById Int
+  createdBy   User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  fromChatId  BigInt
+  messageId   Int
+  status      BroadcastStatus @default(PENDING)
+  lastUserId  Int             @default(0) // resume cursor
+  sentCount   Int             @default(0)
+  failedCount Int             @default(0)
+  createdAt   DateTime        @default(now())
+  finishedAt  DateTime?
+}
+
+model ActivityLog {
+  id         Int            @id @default(autoincrement())
+  action     ActivityAction
+  userId     Int?
+  user       User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  telegramId BigInt?
+  entityType String?
+  entityId   String?
+  details    Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+}
