@@ -36,7 +36,7 @@ export interface ScheduleBattleInput {
   createdById: number | null;
 }
 
-export type PostOutcome = 'posted' | 'skipped';
+export type PrepareOutcome = 'prepared' | 'skipped';
 
 /** Fisher–Yates shuffle with a cryptographic RNG (pairings must not be predictable). */
 export function shuffle<T>(items: readonly T[]): T[] {
@@ -120,12 +120,13 @@ export class BattleService {
     return this.prisma.photo.count({ where: { battleId, status: { in: [...ENTRY_STATUSES] } } });
   }
 
-  async roundProgress(battleId: number, round: number): Promise<{ total: number; finished: number }> {
-    const [total, finished] = await Promise.all([
+  async roundProgress(battleId: number, round: number): Promise<{ total: number; finished: number; ready: number }> {
+    const [total, finished, ready] = await Promise.all([
       this.prisma.duel.count({ where: { battleId, round } }),
       this.prisma.duel.count({ where: { battleId, round, status: 'FINISHED' } }),
+      this.prisma.duel.count({ where: { battleId, round, status: 'READY' } }),
     ]);
-    return { total, finished };
+    return { total, finished, ready };
   }
 
   async schedule(input: ScheduleBattleInput, now: Date = new Date()): Promise<Battle> {
@@ -144,7 +145,7 @@ export class BattleService {
       return created;
     });
     await this.scheduler.scheduleTickAt(battle.startsAt, `battle-${battle.id}`);
-    await this.postText(
+    await this.prepareAnnouncement(
       this.locale.battle.announceScheduled({
         title: escapeHtml(battle.title),
         start: formatDateTime(battle.startsAt, this.options.timeZone, this.locale.intl),
@@ -162,8 +163,8 @@ export class BattleService {
       });
       if (updated.count === 0) throw new DomainError('INVALID_STATE');
       await tx.photo.updateMany({ where: { battleId, status: { in: ['ACCEPTED', 'IN_BATTLE', 'PENDING_MODERATION'] } }, data: { status: 'CANCELLED' } });
-      const open = await tx.duel.findMany({ where: { battleId, status: { in: ['PENDING', 'ACTIVE'] } } });
-      await tx.duel.updateMany({ where: { battleId, status: { in: ['PENDING', 'ACTIVE'] } }, data: { status: 'FINISHED', finishedAt: new Date() } });
+      const open = await tx.duel.findMany({ where: { battleId, status: { in: ['PENDING', 'READY', 'ACTIVE'] } } });
+      await tx.duel.updateMany({ where: { battleId, status: { in: ['PENDING', 'READY', 'ACTIVE'] } }, data: { status: 'FINISHED', finishedAt: new Date() } });
       await this.activity.log({ action: 'BATTLE_CANCELLED', userId: adminUserId, entityType: 'Battle', entityId: battleId }, tx);
       return open;
     });
@@ -187,7 +188,7 @@ export class BattleService {
       orderBy: [{ round: 'asc' }, { position: 'asc' }],
       select: { id: true, stage: true },
     });
-    for (const duel of pending) await this.scheduler.enqueueDuelPost(duel.id, duel.stage);
+    for (const duel of pending) await this.scheduler.enqueueDuelPrepare(duel.id, duel.stage);
   }
 
   /** Start: shuffle accepted entries and create round 1. */
@@ -211,14 +212,14 @@ export class BattleService {
     if (!result) return;
     const battle = await this.prisma.battle.findUniqueOrThrow({ where: { id: battleId } });
     if (!result.started) {
-      await this.postText(this.locale.battle.announceNoEntries(escapeHtml(battle.title)));
+      await this.prepareAnnouncement(this.locale.battle.announceNoEntries(escapeHtml(battle.title)));
       return;
     }
     if (result.soleWinner) {
       await this.finishBattle(battleId, result.soleWinner);
       return;
     }
-    await this.postText(this.locale.battle.announceRound({ title: escapeHtml(battle.title), round: 1, entries: result.entries }));
+    await this.prepareAnnouncement(this.locale.battle.announceRound({ title: escapeHtml(battle.title), round: 1, entries: result.entries }));
     await this.scheduler.triggerTick();
   }
 
@@ -242,80 +243,135 @@ export class BattleService {
     if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: pairs.length } }, tx);
   }
 
-  /** Publishes one duel stage. Called by the duel post job (one at a time, paced). */
-  async postDuel(duelId: number, stage: number): Promise<PostOutcome> {
+  /**
+   * Prepares one duel stage for publication: the finished post (collage, or an
+   * album for videos, with the admin-designed caption) is sent to every admin,
+   * who publishes it in the channel. Called by the duel job (one at a time, paced).
+   */
+  async prepareDuel(duelId: number, stage: number): Promise<PrepareOutcome> {
     const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { photoA: true, photoB: true, battle: true } });
     if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || !duel.photoB || duel.battle.status !== 'RUNNING') return 'skipped';
+    const adminChats = await this.notifications.adminChatIds();
+    if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
     const settings = await this.settings.get();
     const template = settings.duelTemplate ?? this.locale.duel.defaultTemplate;
     const caption = renderDuelCaption(template, this.locale, { battleTitle: duel.battle.title, round: duel.round, position: duel.position, stage });
-    const keyboard = activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: 0, votesB: 0 }, settings.paidVotesEnabled);
 
-    let messageId: number;
-    let mediaMessageIds: number[] = [];
+    await this.notifications.notifyAdmins((l) => l.admin.duelReady({ round: duel.round, duel: duel.position, tiebreak: stage > 0 }));
+    let preparedFileUniqueId: string | null;
     try {
-      ({ messageId, mediaMessageIds } = await this.sendDuel(duel as DuelWithPhotos, caption, keyboard));
+      preparedFileUniqueId = await this.sendPrepared(duel as DuelWithPhotos, caption, adminChats);
     } catch (error) {
-      const classified = classifyTelegramError(error);
-      if (classified.kind === 'permanent') await this.alertAdmins(classified.description, duel.id);
+      if (classifyTelegramError(error).kind === 'permanent') await this.alertAdmins(classifyTelegramError(error).description, duel.id);
       throw error;
     }
+    const updated = await this.prisma.duel.updateMany({
+      where: { id: duel.id, status: 'PENDING', stage },
+      data: { status: 'READY', preparedFileUniqueId },
+    });
+    return updated.count ? 'prepared' : 'skipped';
+  }
 
+  /**
+   * Sends the ready post to the admins. Photos → one collage (uploaded once, then
+   * re-sent by file id so every copy has the same file_unique_id); videos → album.
+   * Returns the collage's file_unique_id (null for albums, which are recognised by the entries' files).
+   */
+  private async sendPrepared(duel: DuelWithPhotos, caption: string, adminChats: number[]): Promise<string | null> {
+    const photoB = duel.photoB!;
+    const isCollage = duel.photoA.mediaType === 'PHOTO' && photoB.mediaType === 'PHOTO';
+    const collage = isCollage
+      ? await buildDuelCollage(
+          await this.telegram.downloadFile(duel.photoA.fileId, MAX_MEDIA_BYTES),
+          await this.telegram.downloadFile(photoB.fileId, MAX_MEDIA_BYTES),
+        )
+      : null;
+    let html = caption;
+    let collageRef: { fileId: string; uniqueId: string } | null = null;
+
+    for (const chatId of adminChats) {
+      const send = async (text: string) => {
+        if (collage) {
+          const sent = await this.telegram.sendPhoto(chatId, collageRef?.fileId ?? collage, { caption: text, parseMode: 'HTML' });
+          const largest = sent.photo?.at(-1);
+          if (!collageRef && largest) collageRef = { fileId: largest.file_id, uniqueId: largest.file_unique_id };
+          return;
+        }
+        await this.telegram.sendMediaGroup(chatId, [
+          { type: duel.photoA.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: duel.photoA.fileId, caption: text },
+          { type: photoB.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: photoB.fileId },
+        ]);
+      };
+      try {
+        await send(html);
+      } catch (error) {
+        // Premium emoji need the bot owner's Telegram Premium; without it send regular emoji.
+        const classified = classifyTelegramError(error);
+        if (classified.kind !== 'permanent' || !/emoji|entit/i.test(classified.description) || !html.includes('<tg-emoji')) throw error;
+        this.logger.warn({ duelId: duel.id, error: classified.description }, 'Custom emoji rejected, preparing with regular emoji');
+        html = stripCustomEmoji(html);
+        await send(html);
+      }
+    }
+    return collage ? (collageRef as { uniqueId: string } | null)?.uniqueId ?? null : null;
+  }
+
+  /**
+   * Called for every new channel post. When it is an admin's copy of a prepared
+   * duel (the same collage, or the entries' videos), the duel goes live: the bot
+   * replies under it with the vote buttons and the voting timer starts.
+   * Returns true when the post belongs to a duel.
+   */
+  async linkChannelPost(post: { messageId: number; fileUniqueIds: string[] }): Promise<boolean> {
+    const ids = post.fileUniqueIds;
+    if (ids.length === 0) return false;
+    const byFiles = (status: 'READY' | 'ACTIVE') => ({
+      status,
+      OR: [{ preparedFileUniqueId: { in: ids } }, { photoA: { fileUniqueId: { in: ids } } }, { photoB: { fileUniqueId: { in: ids } } }],
+    });
+
+    const duel = await this.prisma.duel.findFirst({ where: byFiles('READY'), include: { photoA: true, photoB: true, battle: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
+    if (!duel?.photoB) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+
+    const settings = await this.settings.get();
+    const stage = duel.stage;
+    const buttons = await this.telegram.sendMessage(this.channel.id, this.locale.duel.buttonsMessage({ round: duel.round, duel: duel.position, tiebreak: stage > 0 }), {
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: 0, votesB: 0 }, settings.paidVotesEnabled),
+      replyToMessageId: post.messageId,
+    });
     const minutes = stage === 0 ? duel.battle.roundMinutes : duel.battle.tiebreakMinutes;
     const now = new Date();
     const endsAt = new Date(now.getTime() + minutes * 60_000);
     const activated = await this.prisma.duel.updateMany({
-      where: { id: duel.id, status: 'PENDING', stage },
-      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId, mediaMessageIds },
+      where: { id: duel.id, status: 'READY', stage },
+      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId] },
     });
     if (activated.count === 0) {
-      // Withdrawn while posting: remove the post again.
-      await this.deleteMessages([messageId, ...mediaMessageIds]);
-      return 'skipped';
+      // Another item of the same album won the race: keep only its buttons.
+      await this.deleteMessages([buttons.message_id]);
+      return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
     }
     await this.scheduler.scheduleTickAt(endsAt, `duel-${duel.id}-${stage}`);
+
+    const link = channelPostLink(this.channel, post.messageId);
+    const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
+    await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ round: duel.round, duel: duel.position, ends }));
     if (stage === 0) {
-      const link = channelPostLink(this.channel, messageId);
       for (const photo of [duel.photoA, duel.photoB]) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
         if (author) await this.notifications.notifyUser(author, (l) => l.battle.entryPosted({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
       }
     }
-    return 'posted';
+    return true;
   }
 
-  /** Photos → one collage with buttons; anything with a video → album + buttons message under it. */
-  private async sendDuel(duel: DuelWithPhotos, caption: string, keyboard: ReturnType<typeof activeDuelKeyboard>) {
-    const photoB = duel.photoB!;
-    const send = async (html: string) => {
-      if (duel.photoA.mediaType === 'PHOTO' && photoB.mediaType === 'PHOTO') {
-        const [first, second] = await Promise.all([
-          this.telegram.downloadFile(duel.photoA.fileId, MAX_MEDIA_BYTES),
-          this.telegram.downloadFile(photoB.fileId, MAX_MEDIA_BYTES),
-        ]);
-        const collage = await buildDuelCollage(first, second);
-        const sent = await this.telegram.sendPhoto(this.channel.id, collage, { caption: html, parseMode: 'HTML', replyMarkup: keyboard });
-        return { messageId: sent.message_id, mediaMessageIds: [] as number[] };
-      }
-      const album = await this.telegram.sendMediaGroup(this.channel.id, [
-        { type: duel.photoA.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: duel.photoA.fileId },
-        { type: photoB.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: photoB.fileId },
-      ]);
-      const sent = await this.telegram.sendMessage(this.channel.id, html, { parseMode: 'HTML', replyMarkup: keyboard, replyToMessageId: album[0] });
-      return { messageId: sent.message_id, mediaMessageIds: album };
-    };
-    try {
-      return await send(caption);
-    } catch (error) {
-      // Premium emoji in channels need a Fragment username for the bot; fall back to regular emoji.
-      const classified = classifyTelegramError(error);
-      if (classified.kind === 'permanent' && /emoji|entit/i.test(classified.description) && caption.includes('<tg-emoji')) {
-        this.logger.warn({ duelId: duel.id, error: classified.description }, 'Custom emoji rejected, posting with regular emoji');
-        return send(stripCustomEmoji(caption));
-      }
-      throw error;
-    }
+  /** Remembers further album items of a live duel so the whole post can be removed later. */
+  private async attachAlbumItem(messageId: number, where: Prisma.DuelWhereInput): Promise<boolean> {
+    const active = await this.prisma.duel.findFirst({ where, orderBy: { id: 'desc' } });
+    if (!active || active.mediaMessageIds.includes(messageId)) return !!active;
+    await this.prisma.duel.update({ where: { id: active.id }, data: { mediaMessageIds: { push: messageId } } });
+    return true;
   }
 
   /** Decides a finished duel stage: winner, or a tiebreak repost. */
@@ -346,12 +402,13 @@ export class BattleService {
 
     if (outcome.kind === 'tiebreak') {
       await this.closeButtons(outcome.duel, 'tie');
-      await this.scheduler.enqueueDuelPost(duelId, stage + 1);
+      await this.scheduler.enqueueDuelPrepare(duelId, stage + 1);
       return;
     }
     const { duel, winner, loser } = outcome;
     await this.closeButtons(duel, winner.id === duel.photoAId ? 'a' : 'b');
-    const link = duel.messageId ? channelPostLink(this.channel, duel.messageId) : '';
+    const postId = duel.mediaMessageIds[0] ?? duel.messageId;
+    const link = postId ? channelPostLink(this.channel, postId) : '';
     const [winnerUser, loserUser] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: winner.userId } }),
       this.prisma.user.findUnique({ where: { id: loser.userId } }),
@@ -385,7 +442,7 @@ export class BattleService {
       else await this.finishBattle(battleId, next.final);
       return;
     }
-    await this.postText(this.locale.battle.announceRound({ title: escapeHtml(next.battle.title), round: next.round!, entries: next.entries! }));
+    await this.prepareAnnouncement(this.locale.battle.announceRound({ title: escapeHtml(next.battle.title), round: next.round!, entries: next.entries! }));
     await this.scheduler.triggerTick();
   }
 
@@ -403,16 +460,16 @@ export class BattleService {
     });
     if (!finished?.winnerPhoto) return;
     const { winnerPhoto } = finished;
+    // The winner post is prepared for the admins, who publish it in the channel.
     const caption = this.locale.battle.announceWinner({ title: escapeHtml(finished.title), votes: winnerPhoto.votesCount });
-    try {
-      if (winnerPhoto.mediaType === 'VIDEO') {
-        const [albumId] = await this.telegram.sendMediaGroup(this.channel.id, [{ type: 'video', fileId: winnerPhoto.fileId }]);
-        await this.telegram.sendMessage(this.channel.id, caption, { parseMode: 'HTML', ...(albumId ? { replyToMessageId: albumId } : {}) });
-      } else {
-        await this.telegram.sendPhoto(this.channel.id, winnerPhoto.fileId, { caption, parseMode: 'HTML' });
+    await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
+    for (const chatId of await this.notifications.adminChatIds()) {
+      try {
+        if (winnerPhoto.mediaType === 'VIDEO') await this.telegram.sendMediaGroup(chatId, [{ type: 'video', fileId: winnerPhoto.fileId, caption }]);
+        else await this.telegram.sendPhoto(chatId, winnerPhoto.fileId, { caption, parseMode: 'HTML' });
+      } catch (error) {
+        this.logger.error({ err: error, battleId }, 'Failed to prepare the winner post');
       }
-    } catch (error) {
-      this.logger.error({ err: error, battleId }, 'Failed to announce the winner');
     }
     await this.notifications.notifyUser(winnerPhoto.user, (l) => l.battle.winnerDm(escapeHtml(finished.title)));
   }
@@ -423,12 +480,12 @@ export class BattleService {
    */
   async forfeit(photoId: number): Promise<void> {
     const duel = await this.prisma.duel.findFirst({
-      where: { status: { in: ['PENDING', 'ACTIVE'] }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
+      where: { status: { in: ['PENDING', 'READY', 'ACTIVE'] }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
     });
     if (!duel) return;
     const opponent = duel.photoAId === photoId ? duel.photoBId : duel.photoAId;
     const updated = await this.prisma.duel.updateMany({
-      where: { id: duel.id, status: { in: ['PENDING', 'ACTIVE'] } },
+      where: { id: duel.id, status: { in: ['PENDING', 'READY', 'ACTIVE'] } },
       data: { status: 'FINISHED', winnerPhotoId: opponent, finishedAt: new Date() },
     });
     if (updated.count === 0) return;
@@ -448,13 +505,14 @@ export class BattleService {
     }
   }
 
-  /** Link to the latest channel post of an entry, if it was posted. */
+  /** Link to the latest channel post of an entry, if it was published. */
   async entryPostLink(photoId: number): Promise<string | null> {
     const duel = await this.prisma.duel.findFirst({
       where: { messageId: { not: null }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
       orderBy: [{ round: 'desc' }],
     });
-    return duel?.messageId ? channelPostLink(this.channel, duel.messageId) : null;
+    const postId = duel?.mediaMessageIds[0] ?? duel?.messageId;
+    return postId ? channelPostLink(this.channel, postId) : null;
   }
 
   private async closeButtons(duel: Duel, winner: 'a' | 'b' | 'tie'): Promise<void> {
@@ -472,15 +530,13 @@ export class BattleService {
     }
   }
 
-  private async postText(html: string): Promise<void> {
-    try {
-      await this.telegram.sendMessage(this.channel.id, html, { parseMode: 'HTML', disablePreview: true });
-    } catch (error) {
-      this.logger.error({ err: error }, 'Failed to post a battle announcement');
-    }
+  /** Channel announcements are prepared for the admins too: a short note, then the ready text to forward. */
+  private async prepareAnnouncement(html: string): Promise<void> {
+    await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
+    await this.notifications.notifyAdmins(() => html, { parseMode: 'HTML', disablePreview: true });
   }
 
-  /** Permanent posting errors (e.g. lost channel rights) — alert admins at most every 30 minutes. */
+  /** Permanent errors while preparing a duel post — alert admins at most every 30 minutes. */
   private async alertAdmins(description: string, duelId: number): Promise<void> {
     await this.activity.log({ action: 'DUEL_POST_FAILED', entityType: 'Duel', entityId: duelId, details: { error: description } });
     if (Date.now() - this.lastAdminAlert < ADMIN_ALERT_INTERVAL_MS) return;

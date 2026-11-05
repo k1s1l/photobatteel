@@ -9,6 +9,7 @@ import { registerProfileHandlers } from './handlers/profile.js';
 import { registerSubmissionHandlers } from './handlers/submission.js';
 import { registerPaymentHandlers } from './handlers/payments.js';
 import { registerVoteHandlers } from './handlers/votes.js';
+import { channelPosts } from './middlewares/channel-posts.js';
 import { chatFilter } from './middlewares/chat-filter.js';
 import { errorBoundary } from './middlewares/error-boundary.js';
 import { rateLimit } from './middlewares/rate-limit.js';
@@ -25,6 +26,7 @@ export function createBot(bot: Telegraf<BotContext>, deps: AppContextDeps, redis
     return next();
   });
   bot.use(errorBoundary);
+  bot.use(channelPosts);
   bot.use(chatFilter);
   bot.use(rateLimit(redis, deps.env.RATE_LIMIT_PER_MINUTE));
   bot.use(loadUser);

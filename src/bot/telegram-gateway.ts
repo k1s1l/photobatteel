@@ -32,7 +32,7 @@ export class TelegrafGateway implements TelegramGateway {
   }
 
   async sendMediaGroup(chatId: ChatId, items: AlbumItem[]): Promise<number[]> {
-    const media = items.map((item) => ({ type: item.type, media: item.fileId }));
+    const media = items.map((item) => ({ type: item.type, media: item.fileId, ...(item.caption ? { caption: item.caption, parse_mode: 'HTML' } : {}) }));
     const messages = await this.telegram.sendMediaGroup(chatId, media as Parameters<Telegram['sendMediaGroup']>[1]);
     return messages.map((message) => message.message_id);
   }

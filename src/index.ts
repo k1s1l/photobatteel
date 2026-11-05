@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   if (env.APP_ROLE !== 'worker') {
     createBot(bot, { services, locks: new LockService(redis), gateway, channel, logger, env }, redis);
     await registerCommands(bot);
-    const allowedUpdates = ['message', 'callback_query', 'pre_checkout_query'] as const;
+    const allowedUpdates = ['message', 'callback_query', 'pre_checkout_query', 'channel_post'] as const;
 
     if (env.BOT_MODE === 'webhook') {
       const handler = await bot.createWebhook({

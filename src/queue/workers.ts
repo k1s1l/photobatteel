@@ -3,7 +3,7 @@ import type { Logger } from '../lib/logger.js';
 import { bullConnection } from '../lib/redis.js';
 import { classifyTelegramError, isRetryable } from '../lib/telegram-errors.js';
 import type { Services } from '../services.js';
-import { QUEUE_NAMES, type BroadcastJobData, type DuelPostJobData, type VoteRefreshJobData } from './queues.js';
+import { QUEUE_NAMES, type BroadcastJobData, type DuelJobData, type VoteRefreshJobData } from './queues.js';
 import { RetryLaterError, telegramBackoff } from './retry.js';
 
 export interface WorkerOptions {
@@ -15,8 +15,8 @@ export interface WorkerOptions {
 }
 
 /**
- * Background workers. Duel posts run one at a time with a pause between them
- * (Telegram limits posts per channel); the tournament tick runs every 30 s.
+ * Background workers. Duel posts are prepared one at a time with a pause between
+ * them (Telegram rate limits); the tournament tick runs every 30 s.
  */
 export function startWorkers(services: Services, options: WorkerOptions, logger: Logger): Worker[] {
   const base = { connection: bullConnection(options.redisUrl), prefix: options.prefix };
@@ -24,9 +24,9 @@ export function startWorkers(services: Services, options: WorkerOptions, logger:
 
   const duels = new Worker(
     QUEUE_NAMES.duels,
-    async (job: Job<DuelPostJobData>) => {
+    async (job: Job<DuelJobData>) => {
       try {
-        return await services.battles.postDuel(job.data.duelId, job.data.stage);
+        return await services.battles.prepareDuel(job.data.duelId, job.data.stage);
       } catch (error) {
         const classified = classifyTelegramError(error);
         if (!isRetryable(classified)) throw new UnrecoverableError(classified.description);

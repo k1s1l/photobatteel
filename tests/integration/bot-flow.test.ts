@@ -6,7 +6,7 @@ import { createBot } from '../../src/bot/bot.js';
 import type { BotContext } from '../../src/bot/context.js';
 import { parseEnv } from '../../src/config/env.js';
 import { LockService } from '../../src/lib/locks.js';
-import { ADMIN_TG_ID, CHANNEL, createTestContext, openBattle, postPendingDuels, startBattle, type TestContext } from '../helpers/context.js';
+import { ADMIN_TG_ID, CHANNEL, createTestContext, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 import { TEST_REDIS_URL } from '../helpers/env.js';
 import { silentLogger } from '../helpers/fakes.js';
 import { makeJpeg, makeUniqueJpeg } from '../helpers/images.js';
@@ -193,6 +193,44 @@ describe('bot: voting under duel posts', () => {
     await postPendingDuels(ctx);
     return ctx.prisma.duel.findFirstOrThrow();
   }
+
+  it('attaches vote buttons when the admin forwards the prepared post to the channel', async () => {
+    const battle = await openBattle(ctx);
+    for (const userId of [62, 63]) {
+      await consent(userId);
+      ctx.telegram.files.set(`p${userId}`, await makeUniqueJpeg(userId));
+      await sendPhoto(userId, `p${userId}`, `pu${userId}`);
+      const photo = await ctx.prisma.photo.findFirstOrThrow({ where: { user: { telegramId: BigInt(userId) } } });
+      await press(userId, `ph:ok:${photo.id}`);
+    }
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    // Posts in other channels are ignored.
+    await bot.handleUpdate({
+      update_id: updateId++,
+      channel_post: { message_id: 1, date: 0, chat: { id: -1009999, type: 'channel', title: 'Other' }, photo: [{ file_id: 'x', file_unique_id: duel.preparedFileUniqueId!, width: 1, height: 1 }] },
+    } as Update);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('READY');
+
+    await bot.handleUpdate({
+      update_id: updateId++,
+      channel_post: {
+        message_id: 777,
+        date: 0,
+        chat: { id: CHANNEL.id, type: 'channel', title: 'C' },
+        photo: [
+          { file_id: 'small', file_unique_id: 'small-u', width: 90, height: 60 },
+          { file_id: 'big', file_unique_id: duel.preparedFileUniqueId!, width: 1452, height: 900 },
+        ],
+        caption: 'designed caption',
+      },
+    } as Update);
+    const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } });
+    expect(live).toMatchObject({ status: 'ACTIVE', mediaMessageIds: [777] });
+    const buttons = ctx.telegram.callsOf('sendMessage').find((c) => c.chatId === CHANNEL.id)!;
+    expect((buttons.args[1] as { replyToMessageId: number }).replyToMessageId).toBe(777);
+  });
 
   it('counts a free vote from a channel subscriber and lets them switch', async () => {
     const duel = await runningDuel();

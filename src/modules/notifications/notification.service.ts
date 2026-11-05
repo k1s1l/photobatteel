@@ -55,6 +55,11 @@ export class NotificationService {
     );
   }
 
+  /** Private chat ids of all active admins. */
+  async adminChatIds(): Promise<number[]> {
+    return this.admins.listAdminTelegramIds();
+  }
+
   private async adminRecipients(): Promise<Recipient[]> {
     const ids = await this.admins.listAdminTelegramIds();
     return Promise.all(

@@ -75,22 +75,27 @@ async function waitFor<T>(fn: () => Promise<T>, done: (value: T) => boolean, tim
 }
 
 describe('BullMQ tournament pipeline', () => {
-  it('starts the battle on time and posts the duel, retrying temporary Telegram errors exactly once each', async () => {
+  it('starts the battle on time and prepares the duel post for the admin, retrying temporary Telegram errors', async () => {
     telegram.failNext('sendPhoto', telegramError(502, 'Bad Gateway'), telegramError(429, 'Too Many Requests', 1));
     await startNow();
-    const duel = await waitFor(() => prisma.duel.findFirst(), (d) => d?.status === 'ACTIVE');
-    expect(duel?.messageId).toBeGreaterThan(0);
-    expect(telegram.callsOf('sendPhoto').filter((c) => c.chatId === CHANNEL.id)).toHaveLength(3);
+    const duel = await waitFor(() => prisma.duel.findFirst(), (d) => d?.status === 'READY');
+    expect(duel?.preparedFileUniqueId).toBeTruthy();
+    const toAdmin = () => telegram.callsOf('sendPhoto').filter((c) => c.chatId === ADMIN_TG_ID);
+    expect(toAdmin()).toHaveLength(3);
+    expect(telegram.callsOf('sendPhoto').filter((c) => c.chatId === CHANNEL.id)).toHaveLength(0);
 
-    // More ticks must not post it again.
+    // More ticks must not prepare it again.
     await queues.triggerTick();
     await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(telegram.callsOf('sendPhoto').filter((c) => c.chatId === CHANNEL.id)).toHaveLength(3);
+    expect(toAdmin()).toHaveLength(3);
   });
 
   it('debounces vote counter refreshes into channel edits', async () => {
     await startNow();
-    const duel = (await waitFor(() => prisma.duel.findFirst(), (d) => d?.status === 'ACTIVE'))!;
+    const ready = (await waitFor(() => prisma.duel.findFirst(), (d) => d?.status === 'READY'))!;
+    await services.battles.linkChannelPost({ messageId: 9000, fileUniqueIds: [ready.preparedFileUniqueId!] });
+    const duel = await prisma.duel.findUniqueOrThrow({ where: { id: ready.id } });
+    expect(duel.status).toBe('ACTIVE');
     for (let i = 0; i < 5; i += 1) {
       const { user } = await services.users.upsertFromTelegram({ id: 80_000 + i, first_name: 'V' });
       await services.duelVotes.vote(duel.id, 0, 'A', user);

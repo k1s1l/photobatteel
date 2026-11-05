@@ -46,10 +46,22 @@ export class FakeTelegram implements TelegramGateway {
     return { message_id: this.nextMessageId++ };
   }
 
+  /** file_id → file_unique_id of photos "uploaded" so far (re-sending by file_id keeps the unique id, as in Telegram). */
+  private readonly uploaded = new Map<string, string>();
+
   async sendPhoto(chatId: ChatId, photo: string | Buffer, options?: SendOptions): Promise<SentMessage> {
     this.record('sendPhoto', chatId, [photo, options]);
     const id = this.nextMessageId++;
-    return { message_id: id, photo: [{ file_id: `photo-file-${id}`, file_unique_id: `unique-${id}`, width: 800, height: 600 }] };
+    const known = typeof photo === 'string' ? this.uploaded.get(photo) : undefined;
+    const fileId = known ? (photo as string) : `photo-file-${id}`;
+    const uniqueId = known ?? `unique-${id}`;
+    this.uploaded.set(fileId, uniqueId);
+    return { message_id: id, photo: [{ file_id: fileId, file_unique_id: uniqueId, width: 800, height: 600 }] };
+  }
+
+  /** A new message id, as if someone posted in a chat. */
+  nextId(): number {
+    return this.nextMessageId++;
   }
 
   async sendMediaGroup(chatId: ChatId, items: AlbumItem[]): Promise<number[]> {
@@ -92,7 +104,7 @@ export class FakeScheduler implements JobScheduler {
   readonly broadcasts: number[] = [];
   ticks = 0;
 
-  async enqueueDuelPost(duelId: number, stage: number): Promise<void> {
+  async enqueueDuelPrepare(duelId: number, stage: number): Promise<void> {
     this.duelPosts.push({ duelId, stage });
   }
   async scheduleVoteRefresh(duelId: number): Promise<void> {

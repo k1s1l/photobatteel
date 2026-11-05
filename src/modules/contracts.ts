@@ -19,6 +19,8 @@ export interface SendOptions {
 export interface AlbumItem {
   type: 'photo' | 'video';
   fileId: string;
+  /** HTML caption (only the first item of an album should carry one). */
+  caption?: string;
 }
 
 /** Subset of the Telegram Bot API used by the domain services. */
@@ -40,8 +42,8 @@ export interface TelegramGateway {
 
 /** Background job scheduling (implemented with BullMQ). */
 export interface JobScheduler {
-  /** Posts a duel stage to the channel (deduplicated per duel and stage). */
-  enqueueDuelPost(duelId: number, stage: number): Promise<void>;
+  /** Prepares a duel stage post for the admins (deduplicated per duel and stage). */
+  enqueueDuelPrepare(duelId: number, stage: number): Promise<void>;
   scheduleVoteRefresh(duelId: number): Promise<void>;
   enqueueBroadcast(broadcastId: number): Promise<void>;
   /** Runs the tournament tick as soon as possible. */

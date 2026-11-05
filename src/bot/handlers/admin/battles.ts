@@ -31,7 +31,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
         tiebreakMinutes: battle.tiebreakMinutes,
         entries: await battles.entriesCount(battle.id),
         round: battle.currentRound,
-        progress: progress ? `${progress.finished}/${progress.total}` : null,
+        progress: progress ? ctx.locale.admin.progress(progress) : null,
       }),
       '',
     );

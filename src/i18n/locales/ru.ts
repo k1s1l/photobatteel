@@ -247,6 +247,9 @@ export const ru = {
     closed: 'Голосование в этой паре завершено.',
     chooseSide: (p: { round: number; duel: number }) => `<b>⭐ Голоса — раунд ${p.round}, пара ${p.duel}</b>\n\nЗа какую работу?`,
     side: (side: 1 | 2) => `Работа ${side}`,
+    /** The bot's message with vote buttons, posted as a reply under the admin's duel post. */
+    buttonsMessage: (p: { round: number; duel: number; tiebreak: boolean }) =>
+      p.tiebreak ? `⚡ Переголосование · Раунд ${p.round} · Пара ${p.duel} — голосуй 👇` : `🗳 Раунд ${p.round} · Пара ${p.duel} — голосуй 👇`,
   },
 
   payments: {
@@ -418,7 +421,14 @@ export const ru = {
     notBlocked: 'Пользователь не заблокирован.',
     newForModeration: (p: { id: string; author: string }) => `🛡 Новая работа на модерацию: ${p.id} от ${p.author}`,
     duelPostFailed: (error: string) =>
-      `⚠️ Не удаётся опубликовать пару в канал.\nОшибка: <code>${error}</code>\n\nПроверь, что бот — администратор канала с правом публикации. Бот будет повторять попытки.`,
+      `⚠️ Не удаётся подготовить пост пары.\nОшибка: <code>${error}</code>\n\nБот будет повторять попытки.`,
+    duelReady: (p: { round: number; duel: number; tiebreak: boolean }) =>
+      `${p.tiebreak ? '⚡ Переголосование!' : '⚔️'} Раунд ${p.round} · Пара ${p.duel}\n` +
+      'Перешли пост ниже в канал <b>без автора</b> (Переслать → Скрыть отправителя). Подпись можно поправить перед отправкой. Кнопки голосования бот добавит сам.',
+    duelPublished: (p: { round: number; duel: number; ends: string }) => `✅ Пара ${p.duel} (раунд ${p.round}) опубликована, кнопки добавлены. Голосование до ${p.ends}.`,
+    announcementReady: '📢 Пост для канала — перешли сообщение ниже без автора:',
+    progress: (p: { finished: number; total: number; ready: number }) =>
+      `завершено ${p.finished}/${p.total}` + (p.ready > 0 ? `, ждут публикации: ${p.ready}` : ''),
     settingsTitle: (p: { moderation: boolean; subscribersOnly: boolean; maxPerBattle: number }) =>
       '<b>⚙️ Настройки</b>\n\n' +
       `🛡 Модерация работ: ${p.moderation ? 'вкл' : 'выкл'}\n` +
@@ -463,7 +473,7 @@ export const ru = {
       '\n\nЧтобы поменять — нажми «✏️ Загрузить своё» и пришли сообщение, оформленное как пост: жирный, курсив, ссылки, премиум-эмодзи.\n\n' +
       'Подстановки: <code>{battle}</code> — название батла, <code>{round}</code> — раунд, <code>{duel}</code> — номер пары, ' +
       '<code>{stage}</code> — «Раунд 1 · Пара 3» / «Переголосование».\n\n' +
-      '⚠️ Премиум-эмодзи в канале отображаются, только если у бота есть username, купленный на Fragment. Без него бот автоматически опубликует обычные эмодзи.',
+      'Посты пар приходят тебе в личку, ты пересылаешь их в канал — премиум-эмодзи сохраняются (нужен Telegram Premium у владельца бота).',
     designUpload: '✏️ Загрузить своё',
     designReset: '↩️ Стандартное оформление',
     designAsk: 'Пришли одним сообщением текст поста с нужным оформлением и эмодзи. Можно использовать подстановки {battle}, {round}, {duel}, {stage}.',

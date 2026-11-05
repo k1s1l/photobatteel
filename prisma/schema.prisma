@@ -41,8 +41,9 @@ enum BattleStatus {
 }
 
 enum DuelStatus {
-  PENDING  // created, not posted yet
-  ACTIVE   // posted, voting is open until endsAt
+  PENDING  // created, the post is not prepared yet
+  READY    // the post was sent to admins, waiting for them to publish it in the channel
+  ACTIVE   // published, voting is open until endsAt
   FINISHED // winner decided
 }
 
@@ -233,9 +234,11 @@ model Duel {
   stage           Int        @default(0)
   votesA          Int        @default(0) // votes of the current stage
   votesB          Int        @default(0)
-  /// Channel message carrying the vote buttons (the collage itself, or the message under a video album)
+  /// file_unique_id of the prepared collage; identifies the admin's channel post (photo duels)
+  preparedFileUniqueId String?
+  /// Bot message with the vote buttons, posted as a reply under the admin's channel post
   messageId       Int?
-  /// Album message ids for video duels (removed together with the buttons message)
+  /// The admin's channel post(s) for this stage (removed if an entry withdraws)
   mediaMessageIds Int[]      @default([])
   postedAt        DateTime?
   endsAt          DateTime?

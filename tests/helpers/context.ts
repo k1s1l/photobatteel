@@ -116,10 +116,29 @@ export async function startBattle(ctx: TestContext, battleId: number): Promise<v
   await ctx.services.battles.tick();
 }
 
-/** Posts every pending duel (what the duel-post worker does). */
-export async function postPendingDuels(ctx: TestContext): Promise<void> {
+/** Prepares every pending duel post for the admins (what the duel worker does). */
+export async function preparePendingDuels(ctx: TestContext): Promise<void> {
   const pending = await ctx.prisma.duel.findMany({ where: { status: 'PENDING' }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
-  for (const duel of pending) await ctx.services.battles.postDuel(duel.id, duel.stage);
+  for (const duel of pending) await ctx.services.battles.prepareDuel(duel.id, duel.stage);
+}
+
+/** What an admin does: forwards each prepared post to the channel; the bot sees the channel post. */
+export async function publishReadyDuels(ctx: TestContext): Promise<number[]> {
+  const ready = await ctx.prisma.duel.findMany({ where: { status: 'READY' }, include: { photoA: true, photoB: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
+  const posts: number[] = [];
+  for (const duel of ready) {
+    const messageId = ctx.telegram.nextId();
+    posts.push(messageId);
+    const files = duel.preparedFileUniqueId ? [duel.preparedFileUniqueId] : [duel.photoA.fileUniqueId, duel.photoB!.fileUniqueId];
+    await ctx.services.battles.linkChannelPost({ messageId, fileUniqueIds: files });
+  }
+  return posts;
+}
+
+/** Prepare + publish: every pending duel becomes live. */
+export async function postPendingDuels(ctx: TestContext): Promise<void> {
+  await preparePendingDuels(ctx);
+  await publishReadyDuels(ctx);
 }
 
 /** Expires every active duel and runs the tick. */

@@ -3,14 +3,14 @@ import { bullConnection } from '../lib/redis.js';
 import type { JobScheduler } from '../modules/contracts.js';
 
 export const QUEUE_NAMES = {
-  duels: 'duel-posts',
+  duels: 'duel-prepare',
   votes: 'vote-refresh',
   broadcasts: 'broadcasts',
   maintenance: 'maintenance',
 } as const;
 
 export const JOB_NAMES = {
-  postDuel: 'post-duel',
+  prepareDuel: 'prepare-duel',
   refreshVotes: 'refresh-votes',
   broadcast: 'broadcast',
   tick: 'tick',
@@ -20,7 +20,7 @@ export const CUSTOM_BACKOFF = 'telegram';
 const VOTE_REFRESH_DEBOUNCE_MS = 2_000;
 const TICK_EVERY_MS = 30_000;
 
-export interface DuelPostJobData {
+export interface DuelJobData {
   duelId: number;
   stage: number;
 }
@@ -60,11 +60,11 @@ export class AppQueues implements JobScheduler {
     await this.maintenance.upsertJobScheduler('tick', { every: TICK_EVERY_MS }, { name: JOB_NAMES.tick, opts: cleanup });
   }
 
-  async enqueueDuelPost(duelId: number, stage: number): Promise<void> {
-    const data: DuelPostJobData = { duelId, stage };
-    await this.duels.add(JOB_NAMES.postDuel, data, {
+  async enqueueDuelPrepare(duelId: number, stage: number): Promise<void> {
+    const data: DuelJobData = { duelId, stage };
+    await this.duels.add(JOB_NAMES.prepareDuel, data, {
       ...cleanupAll,
-      jobId: `duel-${duelId}-${stage}`, // one post per duel stage, however often the tick re-adds it
+      jobId: `duel-${duelId}-${stage}`, // one prepared post per duel stage, however often the tick re-adds it
       attempts: this.options.postMaxAttempts,
       backoff: { type: CUSTOM_BACKOFF },
     });
