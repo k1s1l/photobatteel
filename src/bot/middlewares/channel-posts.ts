@@ -15,6 +15,8 @@ export const channelPosts: MiddlewareFn<BotContext> = async (ctx, next) => {
     ...('video' in post ? [post.video.file_unique_id] : []),
   ];
   const { battles, notifications } = ctx.deps.services;
+  const chatTitle = ctx.chat && 'title' in ctx.chat ? ctx.chat.title : undefined;
+  ctx.deps.logger.info({ chatId: ctx.chat?.id, chatTitle, messageId: post.message_id, files: fileUniqueIds.length }, 'Channel post received');
   if (ctx.chat?.id !== ctx.deps.channel.id) {
     // A prepared duel post published in another channel: tell the admins why no buttons appeared.
     if (await battles.isPreparedPost(fileUniqueIds)) {
@@ -24,5 +26,6 @@ export const channelPosts: MiddlewareFn<BotContext> = async (ctx, next) => {
     }
     return;
   }
-  await battles.linkChannelPost({ messageId: post.message_id, fileUniqueIds });
+  const linked = await battles.linkChannelPost({ messageId: post.message_id, fileUniqueIds });
+  ctx.deps.logger.info({ messageId: post.message_id, linked }, linked ? 'Channel post linked to a duel' : 'Channel post is not a prepared duel post');
 };
