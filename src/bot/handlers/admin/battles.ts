@@ -28,6 +28,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
         status: battleStatusLabel(ctx.locale, battle),
         start: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl),
         roundMinutes: battle.roundMinutes,
+        finalMinutes: battle.finalMinutes ?? battle.roundMinutes,
         tiebreakMinutes: battle.tiebreakMinutes,
         entries: await battles.entriesCount(battle.id),
         round: battle.currentRound,
@@ -96,6 +97,22 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     const minutes = matchInt(ctx);
     if (state?.kind !== 'battle_create' || state.step !== 'round' || !state.title || !state.startsAt) return answer(ctx, ctx.locale.common.alreadyProcessed);
     if (!(ROUND_MINUTES as readonly number[]).includes(minutes)) return answer(ctx);
+    setState(ctx, { ...state, step: 'final', roundMinutes: minutes });
+    await answer(ctx);
+    const options = ROUND_MINUTES.map((m) => button(ctx.locale.admin.minutes(m), `a:bt:final:${m}`));
+    await respond(ctx, ctx.locale.admin.battleAskFinal, {
+      keyboard: inline([[button(ctx.locale.admin.battleFinalSame, 'a:bt:final:0')], options.slice(0, 4), options.slice(4), [button(ctx.locale.common.cancel, 'a:cancel')]]),
+    });
+  });
+
+  admin.action(/^a:bt:final:(\d+)$/, async (ctx) => {
+    const state = getState(ctx);
+    const finalMinutes = matchInt(ctx);
+    if (state?.kind !== 'battle_create' || state.step !== 'final' || !state.title || !state.startsAt || !state.roundMinutes) {
+      return answer(ctx, ctx.locale.common.alreadyProcessed);
+    }
+    if (finalMinutes !== 0 && !(ROUND_MINUTES as readonly number[]).includes(finalMinutes)) return answer(ctx);
+    const minutes = state.roundMinutes;
     const startsAt = new Date(state.startsAt);
     if (startsAt <= new Date()) {
       setState(ctx, { kind: 'battle_create', step: 'start', title: state.title });
@@ -108,6 +125,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       title: state.title,
       startsAt,
       roundMinutes: minutes,
+      finalMinutes: finalMinutes || null,
       tiebreakMinutes: ctx.deps.env.TIEBREAK_MINUTES,
       createdById: adminUserId(ctx),
     });

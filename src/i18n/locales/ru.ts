@@ -212,16 +212,7 @@ export const ru = {
     statusRunning: '🔥 Идёт голосование',
     statusFinished: '🏁 Завершён',
     statusCancelled: '❌ Отменён',
-    announceScheduled: (p: { title: string; start: string; botUsername: string }) =>
-      `🏆 <b>НОВЫЙ ФОТОБАТЛ: ${p.title}</b>\n\n` +
-      `📸 Приём фото и видео — до ${p.start}\n` +
-      `⚔️ В ${p.start} все работы выйдут в канал парами — голосуй за лучшую!\n\n` +
-      `Отправляй свою работу в бота @${p.botUsername}`,
     announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
-    announceRound: (p: { title: string; round: number; entries: number }) =>
-      `⚔️ <b>${p.title} — раунд ${p.round}</b>\n\nВ борьбе ${p.entries} работ. Голосуй в парах ниже! 🔥`,
-    announceWinner: (p: { title: string; votes: number }) =>
-      `🏆 <b>Победитель батла «${p.title}»</b>\n\n🔥 Голосов за весь батл: ${p.votes}\n\nПоздравляем автора! 🎉`,
     winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
     entryPosted: (p: { round: number; link: string }) =>
       `⚔️ Твоя работа вышла в канал — раунд ${p.round}!\n<a href="${p.link}">Открыть пару</a> — зови друзей голосовать 🔥`,
@@ -229,15 +220,30 @@ export const ru = {
     duelLost: (p: { round: number; link: string }) => `😔 В раунде ${p.round} твоя работа уступила сопернику. Спасибо за участие! <a href="${p.link}">Пост</a>`,
   },
 
+  /**
+   * Default designs of the posts the bot prepares (admins can replace each one).
+   * Placeholders are listed in modules/duels/templates.ts.
+   */
+  templates: {
+    duel: '⚔️ <b>PHOTO BATTLE</b> · {battle}\n{stage}\n\n1️⃣ или 2️⃣ — какая работа сильнее?\n🔥 Поддержи свою!',
+    announce:
+      '🏆 <b>НОВЫЙ ФОТОБАТЛ: {battle}</b>\n\n' +
+      '📸 Приём фото и видео — до {start}\n' +
+      '⚔️ В {start} все работы выйдут в канал парами — голосуй за лучшую!\n\n' +
+      'Отправляй свою работу в бота {bot}',
+    round: '⚔️ <b>{battle} — {roundName}</b>\n\nВ борьбе {entries} работ. Голосуй в парах ниже! 🔥',
+    winner: '🏆 <b>Победитель батла «{battle}»</b>\n\n🔥 Голосов за весь батл: {votes}\n\nПоздравляем автора! 🎉',
+    buttons: '🗳 {stage} — голосуй 👇',
+  },
+
   duel: {
-    /** Used until an admin uploads a custom design. Placeholders: {battle} {round} {duel} {stage}. */
-    defaultTemplate:
-      '⚔️ <b>PHOTO BATTLE</b> · {battle}\n' +
-      '{stage}\n\n' +
-      '1️⃣ или 2️⃣ — какая работа сильнее?\n' +
-      '🔥 Поддержи свою!',
-    stageMain: (p: { round: number; duel: number }) => `Раунд ${p.round} · Пара ${p.duel}`,
-    stageTiebreak: (p: { round: number; duel: number }) => `⚡ Переголосование! Раунд ${p.round} · Пара ${p.duel}`,
+    roundNames: {
+      final: 'Финал',
+      semifinal: 'Полуфинал',
+      round: (n: number) => `Раунд ${n}`,
+    },
+    stage: (p: { roundName: string; duel: number; final: boolean; tiebreak: boolean }) =>
+      `${p.tiebreak ? '⚡ Переголосование! ' : ''}${p.final ? p.roundName : `${p.roundName} · Пара ${p.duel}`}`,
     voteButton: (p: { side: 1 | 2; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
     paidButton: '⭐ +1 голос',
     closedButton: '🏁 Голосование завершено',
@@ -247,9 +253,6 @@ export const ru = {
     closed: 'Голосование в этой паре завершено.',
     chooseSide: (p: { round: number; duel: number }) => `<b>⭐ Голоса — раунд ${p.round}, пара ${p.duel}</b>\n\nЗа какую работу?`,
     side: (side: 1 | 2) => `Работа ${side}`,
-    /** The bot's message with vote buttons, posted as a reply under the admin's duel post. */
-    buttonsMessage: (p: { round: number; duel: number; tiebreak: boolean }) =>
-      p.tiebreak ? `⚡ Переголосование · Раунд ${p.round} · Пара ${p.duel} — голосуй 👇` : `🗳 Раунд ${p.round} · Пара ${p.duel} — голосуй 👇`,
   },
 
   payments: {
@@ -422,10 +425,13 @@ export const ru = {
     newForModeration: (p: { id: string; author: string }) => `🛡 Новая работа на модерацию: ${p.id} от ${p.author}`,
     duelPostFailed: (error: string) =>
       `⚠️ Не удаётся подготовить пост пары.\nОшибка: <code>${error}</code>\n\nБот будет повторять попытки.`,
-    duelReady: (p: { round: number; duel: number; tiebreak: boolean }) =>
-      `${p.tiebreak ? '⚡ Переголосование!' : '⚔️'} Раунд ${p.round} · Пара ${p.duel}\n` +
+    duelReady: (stage: string) =>
+      `⚔️ ${stage}\n` +
       'Перешли пост ниже в канал <b>без автора</b> (Переслать → Скрыть отправителя). Подпись можно поправить перед отправкой. Кнопки голосования бот добавит сам.',
-    duelPublished: (p: { round: number; duel: number; ends: string }) => `✅ Пара ${p.duel} (раунд ${p.round}) опубликована, кнопки добавлены. Голосование до ${p.ends}.`,
+    duelPublished: (p: { stage: string; ends: string }) => `✅ ${p.stage} — опубликовано, кнопки добавлены. Голосование до ${p.ends}.`,
+    publishReminder: (stage: string) => `⏰ ${stage} — пост ещё не опубликован. Перешли его в канал без автора, чтобы началось голосование.`,
+    wrongChannel: (p: { got: string; expected: string }) =>
+      `⚠️ Пост пары опубликован в канале «${p.got}», а бот работает с каналом ${p.expected}. Кнопки голосования не добавлены — перешли пост в ${p.expected} (или поменяй CHANNEL_ID).`,
     announcementReady: '📢 Пост для канала — перешли сообщение ниже без автора:',
     progress: (p: { finished: number; total: number; ready: number }) =>
       `завершено ${p.finished}/${p.total}` + (p.ready > 0 ? `, ждут публикации: ${p.ready}` : ''),
@@ -450,9 +456,9 @@ export const ru = {
     broadcastDone: (p: { sent: number; failed: number }) => `📢 Рассылка завершена.\n✅ Доставлено: ${p.sent}\n⚠️ Не доставлено: ${p.failed}`,
     battlesTitle: '<b>⚔️ Батлы</b>',
     battlesEmpty: 'Батлов пока не было.',
-    battleInfo: (p: { title: string; status: string; start: string; roundMinutes: number; tiebreakMinutes: number; entries: number; round: number; progress: string | null }) =>
+    battleInfo: (p: { title: string; status: string; start: string; roundMinutes: number; finalMinutes: number; tiebreakMinutes: number; entries: number; round: number; progress: string | null }) =>
       `<b>${p.title}</b> — ${p.status}\n` +
-      `Старт: ${p.start} · Голосование в паре: ${p.roundMinutes} мин · Переголосование: ${p.tiebreakMinutes} мин\n` +
+      `Старт: ${p.start} · Голосование в паре: ${p.roundMinutes} мин · Финал: ${p.finalMinutes} мин · Переголосование: ${p.tiebreakMinutes} мин\n` +
       `Работ: ${p.entries}` +
       (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
     battleCreate: '➕ Запланировать батл',
@@ -464,21 +470,35 @@ export const ru = {
       `Формат: <code>14:00</code> (сегодня/завтра) или <code>${p.example}</code>.\nЧасовой пояс: ${p.timeZone}.`,
     battleStartInvalid: 'Не понял время или оно уже прошло. Пример: <code>14:00</code> или <code>06.11 14:00</code>',
     battleAskRound: 'Сколько длится голосование в каждой паре?',
+    battleAskFinal: 'А сколько длится голосование в финале?',
+    battleFinalSame: 'Как в раундах',
     battleCreated: (p: { title: string; start: string }) => `⚔️ Батл «${p.title}» запланирован на ${p.start} и анонсирован в канале.`,
     battleCancelled: (title: string) => `❌ Батл «${title}» отменён.`,
     minutes: (m: number) => (m % 60 === 0 ? `${m / 60} ч` : `${m} мин`),
-    designTitle: (custom: boolean) =>
-      '<b>🎨 Оформление поста пары</b>\n\n' +
-      (custom ? 'Сейчас используется <b>твоё оформление</b>. Пример ниже.' : 'Сейчас стандартное оформление. Пример ниже.') +
-      '\n\nЧтобы поменять — нажми «✏️ Загрузить своё» и пришли сообщение, оформленное как пост: жирный, курсив, ссылки, премиум-эмодзи.\n\n' +
-      'Подстановки: <code>{battle}</code> — название батла, <code>{round}</code> — раунд, <code>{duel}</code> — номер пары, ' +
-      '<code>{stage}</code> — «Раунд 1 · Пара 3» / «Переголосование».\n\n' +
-      'Посты пар приходят тебе в личку, ты пересылаешь их в канал — премиум-эмодзи сохраняются (нужен Telegram Premium у владельца бота).',
+    designMenu:
+      '<b>🎨 Оформление постов</b>\n\n' +
+      'Выбери, какой пост оформить. Пришли боту сообщение, оформленное как пост (жирный, курсив, ссылки, премиум-эмодзи), — бот будет подставлять в него значения сам.\n\n' +
+      'Все посты приходят тебе в личку, ты пересылаешь их в канал — премиум-эмодзи сохраняются (нужен Telegram Premium у владельца бота). ' +
+      'Исключение — подпись над кнопками: её публикует сам бот, там премиум-эмодзи заменятся обычными.',
+    templateNames: {
+      duel: '⚔️ Пост пары',
+      announce: '📢 Анонс батла',
+      round: '🔁 Анонс раунда',
+      winner: '🏆 Пост победителя',
+      buttons: '🗳 Подпись над кнопками',
+    },
+    designType: (p: { name: string; custom: boolean; placeholders: string }) =>
+      `<b>${p.name}</b>\n\n` +
+      (p.custom ? 'Сейчас — <b>твоё оформление</b>.' : 'Сейчас — стандартный текст.') +
+      ' Пример ниже.\n\n' +
+      `Подстановки: ${p.placeholders}\n\n` +
+      '<code>{stage}</code> — «Раунд 1 · Пара 3», «Полуфинал · Пара 2», «Финал», при ничьей с «⚡ Переголосование!». ' +
+      '<code>{roundName}</code> — «Раунд 1» / «Полуфинал» / «Финал».',
     designUpload: '✏️ Загрузить своё',
     designReset: '↩️ Стандартное оформление',
-    designAsk: 'Пришли одним сообщением текст поста с нужным оформлением и эмодзи. Можно использовать подстановки {battle}, {round}, {duel}, {stage}.',
+    designAsk: (placeholders: string) => `Пришли одним сообщением текст поста с нужным оформлением и эмодзи. Подстановки: ${placeholders}`,
     designNeedsText: 'Нужно текстовое сообщение (без фото). Попробуй ещё раз.',
-    designSaved: '✅ Оформление сохранено. Так будет выглядеть подпись к паре:',
+    designSaved: '✅ Оформление сохранено. Так будет выглядеть пост:',
     designResetDone: '↩️ Вернул стандартное оформление.',
     textTooLong: (max: number) => `Слишком длинный текст. Максимум ${max} символов.`,
     paymentsTitle: (p: { enabled: boolean; card: boolean; paid: number; stars: number; card24: string; cardTotal: string; votesSold: number; paid24h: number }) =>

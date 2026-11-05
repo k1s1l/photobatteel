@@ -2,7 +2,8 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { pairEntries, shuffle } from '../../src/modules/battles/battle.service.js';
 import { buildDuelCollage } from '../../src/modules/duels/collage.js';
-import { activeDuelKeyboard, closedDuelKeyboard, renderDuelCaption } from '../../src/modules/duels/duel-post.js';
+import { activeDuelKeyboard, closedDuelKeyboard } from '../../src/modules/duels/duel-post.js';
+import { renderTemplate, roundName, stageValues } from '../../src/modules/duels/templates.js';
 import { uk } from '../../src/i18n/locales/uk.js';
 import { makeJpeg, makePng } from '../helpers/images.js';
 
@@ -22,12 +23,20 @@ describe('pairing', () => {
 });
 
 describe('duel post', () => {
-  it('fills the template and escapes values', () => {
-    const template = '<b>{battle}</b> · {stage} · раунд {round}, пара {duel}';
-    expect(renderDuelCaption(template, uk, { battleTitle: 'A&B', round: 2, position: 5, stage: 0 })).toBe(
-      '<b>A&amp;B</b> · Раунд 2 · Пара 5 · раунд 2, пара 5',
-    );
-    expect(renderDuelCaption('{stage}', uk, { battleTitle: 'x', round: 1, position: 1, stage: 1 })).toContain('Переголосування');
+  it('fills templates, escapes values and leaves unknown placeholders alone', () => {
+    const template = '<b>{battle}</b> · {stage} · {unknown} · {start}';
+    expect(renderTemplate(template, 'duel', { battle: 'A&B', stage: 'Раунд 2 · Пара 5', start: 'x' })).toBe('<b>A&amp;B</b> · Раунд 2 · Пара 5 · {unknown} · {start}');
+    expect(renderTemplate('{bot} {start}', 'announce', { bot: '@pb_bot', start: '14:00' })).toBe('@pb_bot 14:00');
+  });
+
+  it('names the last rounds "Фінал" and "Півфінал"', () => {
+    expect(roundName(uk, 1, 16)).toBe('Раунд 1');
+    expect(roundName(uk, 3, 4)).toBe('Півфінал');
+    expect(roundName(uk, 2, 3)).toBe('Півфінал');
+    expect(roundName(uk, 4, 2)).toBe('Фінал');
+    expect(stageValues(uk, { round: 4, entriesInRound: 2, duel: 1, stage: 0 }).stage).toBe('Фінал');
+    expect(stageValues(uk, { round: 3, entriesInRound: 4, duel: 2, stage: 0 }).stage).toBe('Півфінал · Пара 2');
+    expect(stageValues(uk, { round: 1, entriesInRound: 9, duel: 5, stage: 1 }).stage).toBe('⚡ Переголосування! Раунд 1 · Пара 5');
   });
 
   it('builds vote buttons for both entries and the paid +1 button', () => {

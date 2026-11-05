@@ -212,6 +212,7 @@ describe('bot: voting under duel posts', () => {
       channel_post: { message_id: 1, date: 0, chat: { id: -1009999, type: 'channel', title: 'Other' }, photo: [{ file_id: 'x', file_unique_id: duel.preparedFileUniqueId!, width: 1, height: 1 }] },
     } as Update);
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('READY');
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => c.chatId === ADMIN_TG_ID && String(c.args[0]).includes('опубликован в канале «Other»'))).toBe(true);
 
     await bot.handleUpdate({
       update_id: updateId++,
@@ -302,15 +303,18 @@ describe('bot: admin', () => {
     await sendText(ADMIN_TG_ID, '23:59');
     expect(texts('sendMessage').at(-1)).toContain('Сколько длится голосование');
     await press(ADMIN_TG_ID, 'a:bt:round:120');
+    expect(texts('editMessageText').at(-1)).toContain('голосование в финале');
+    await press(ADMIN_TG_ID, 'a:bt:final:360');
     const battle = await ctx.prisma.battle.findFirstOrThrow();
-    expect(battle).toMatchObject({ title: 'Зимний батл', status: 'SCHEDULED', roundMinutes: 120, tiebreakMinutes: 10 });
+    expect(battle).toMatchObject({ title: 'Зимний батл', status: 'SCHEDULED', roundMinutes: 120, finalMinutes: 360, tiebreakMinutes: 10 });
     expect(battle.startsAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('saves a duel design with premium emoji from a formatted message', async () => {
     await press(ADMIN_TG_ID, 'a:tpl');
-    expect(texts('editMessageText').some((t) => t.includes('Оформление поста пары'))).toBe(true);
-    await press(ADMIN_TG_ID, 'a:tpl:up');
+    expect(texts('editMessageText').some((t) => t.includes('Оформление постов'))).toBe(true);
+    await press(ADMIN_TG_ID, 'a:tpl:k:duel');
+    await press(ADMIN_TG_ID, 'a:tpl:up:duel');
     await sendText(ADMIN_TG_ID, '🔥 БАТЛ {stage}', {
       entities: [
         { type: 'custom_emoji', offset: 0, length: 2, custom_emoji_id: '5368324170671202286' },

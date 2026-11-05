@@ -6,6 +6,7 @@ import type { Logger } from '../lib/logger.js';
 import type { ChannelInfo, TelegramGateway } from '../modules/contracts.js';
 import type { Services } from '../services.js';
 import type { Env } from '../config/env.js';
+import type { TemplateKey } from '../modules/duels/templates.js';
 
 export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'package_price';
 
@@ -14,8 +15,8 @@ export type ConversationState =
   | { kind: 'awaiting_photo' }
   | { kind: 'admin_input'; action: AdminInputAction; packageId?: number }
   | { kind: 'admin_broadcast' }
-  | { kind: 'admin_template' }
-  | { kind: 'battle_create'; step: 'title' | 'start' | 'round'; title?: string; startsAt?: string };
+  | { kind: 'admin_template'; key: TemplateKey }
+  | { kind: 'battle_create'; step: 'title' | 'start' | 'round' | 'final'; title?: string; startsAt?: string; roundMinutes?: number };
 
 export interface SessionData {
   state?: ConversationState;

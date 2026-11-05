@@ -70,7 +70,7 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(prepared).toHaveLength(2);
     const [image, options] = prepared[0]!.args as [Buffer, { caption: string; replyMarkup?: unknown }];
     expect(Buffer.isBuffer(image)).toBe(true); // the collage
-    expect(options.caption).toContain('Раунд 1 · Пара 1');
+    expect(options.caption).toContain('Полуфинал · Пара 1'); // 4 entries: the first round is a semifinal
     expect(options.replyMarkup).toBeUndefined(); // the forwarded post must stay clean
     expect(adminTexts().some((t) => t.includes('Перешли пост ниже в канал'))).toBe(true);
     expect(toChannel('sendPhoto')).toHaveLength(0);
@@ -93,12 +93,12 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(ctx.scheduler.timedTicks).toContainEqual({ at: duel.endsAt, key: `duel-${duel.id}-0` });
 
     const buttons = toChannel('sendMessage')[0]!;
-    expect(String(buttons.args[0])).toContain('Раунд 1 · Пара 1');
+    expect(String(buttons.args[0])).toBe('🗳 Финал — голосуй 👇');
     const options = buttons.args[1] as { replyToMessageId: number; replyMarkup: { inline_keyboard: { text: string }[][] } };
     expect(options.replyToMessageId).toBe(postId);
     expect(options.replyMarkup.inline_keyboard[0]?.map((b) => b.text)).toEqual(['Поддержать 1 · 0', 'Поддержать 2 · 0']);
     expect(duel.messageId).toBeGreaterThan(0);
-    expect(adminTexts().some((t) => t.includes('Пара 1 (раунд 1) опубликована'))).toBe(true);
+    expect(adminTexts().some((t) => t.includes('✅ Финал — опубликовано'))).toBe(true);
     expect(ctx.telegram.callsOf('sendMessage').filter((c) => String(c.args[0]).includes('вышла в канал'))).toHaveLength(2);
   });
 
@@ -163,7 +163,7 @@ describe('results', () => {
     const round2 = await ctx.prisma.duel.findMany({ where: { round: 2 } });
     expect(round2).toHaveLength(1);
     expect([round2[0]!.photoAId, round2[0]!.photoBId]).toEqual([first!.photoAId, second!.photoBId]);
-    expect(adminTexts().some((t) => t.includes('раунд 2'))).toBe(true);
+    expect(adminTexts().some((t) => t.includes('Осень — Финал'))).toBe(true);
   });
 
   it('prepares a tie for a short revote with votes reset, then the earlier entry wins', async () => {
@@ -219,7 +219,7 @@ describe('design template and errors', () => {
     await entries(2);
     await startBattle(ctx, battle.id);
     await preparePendingDuels(ctx);
-    expect((toAdmin('sendPhoto')[0]!.args[1] as { caption: string }).caption).toBe('<tg-emoji emoji-id="111">🔥</tg-emoji> <b>Осень</b> Раунд 1 · Пара 1');
+    expect((toAdmin('sendPhoto')[0]!.args[1] as { caption: string }).caption).toBe('<tg-emoji emoji-id="111">🔥</tg-emoji> <b>Осень</b> Финал');
 
     await ctx.services.battles.cancel(battle.id, admin.id);
     const second = await openBattle(ctx);
@@ -228,7 +228,7 @@ describe('design template and errors', () => {
     await startBattle(ctx, second.id);
     ctx.telegram.failNext('sendPhoto', telegramError(400, 'Bad Request: CUSTOM_EMOJI_NOT_ALLOWED in entities'));
     await preparePendingDuels(ctx);
-    expect((toAdmin('sendPhoto').at(-1)!.args[1] as { caption: string }).caption).toBe('🔥 <b>Осень</b> Раунд 1 · Пара 1');
+    expect((toAdmin('sendPhoto').at(-1)!.args[1] as { caption: string }).caption).toBe('🔥 <b>Осень</b> Финал');
     expect((await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: second.id } })).status).toBe('READY');
   });
 
@@ -263,5 +263,65 @@ describe('design template and errors', () => {
     expect((await ctx.services.battles.findById(battle.id))?.status).toBe('CANCELLED');
     expect(await ctx.prisma.duel.count({ where: { status: { not: 'FINISHED' } } })).toBe(0);
     expect(await ctx.prisma.photo.count({ where: { status: 'IN_BATTLE' } })).toBe(0);
+  });
+});
+
+describe('templates, final duration and reminders', () => {
+  it('uses the admin designs for the announcement, round, buttons and winner posts', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update(
+      {
+        announceTemplate: '<b>{battle}</b> стартует {start}, бот {bot}',
+        roundTemplate: '<i>{roundName}</i>: {entries}',
+        buttonsTemplate: '<b>{stage}</b>',
+        winnerTemplate: '👑 {battle}: {votes}',
+      },
+      admin.id,
+    );
+    const battle = await openBattle(ctx);
+    expect(adminTexts().some((t) => /^<b>Осень<\/b> стартует .+, бот @photobattle_bot$/.test(t))).toBe(true);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    expect(adminTexts()).toContain('<i>Финал</i>: 2');
+    await postPendingDuels(ctx);
+    expect(String(toChannel('sendMessage')[0]!.args[0])).toBe('<b>Финал</b>');
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    await setVotes(duel.id, 2, 1);
+    await expireDuels(ctx);
+    expect(toAdmin('sendPhoto').some((c) => (c.args[1] as { caption?: string }).caption === '👑 Осень: 0')).toBe(true);
+  });
+
+  it('gives the final its own voting time', async () => {
+    const battle = await ctx.services.battles.schedule({
+      title: 'F',
+      startsAt: new Date(Date.now() + 60_000),
+      roundMinutes: 30,
+      finalMinutes: 180,
+      tiebreakMinutes: 10,
+      createdById: null,
+    });
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const semi = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 1 } });
+    expect(semi.endsAt!.getTime() - semi.postedAt!.getTime()).toBe(30 * 60_000);
+    for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    await postPendingDuels(ctx);
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 2 } });
+    expect(final.endsAt!.getTime() - final.postedAt!.getTime()).toBe(180 * 60_000);
+  });
+
+  it('reminds the admins once when a prepared pair is not published within 10 minutes', async () => {
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    await ctx.services.battles.tick();
+    expect(adminTexts().some((t) => t.includes('ещё не опубликован'))).toBe(false);
+    await ctx.prisma.duel.updateMany({ data: { readyAt: new Date(Date.now() - 11 * 60_000) } });
+    await ctx.services.battles.tick();
+    await ctx.services.battles.tick();
+    expect(adminTexts().filter((t) => t.includes('⏰ Финал — пост ещё не опубликован'))).toHaveLength(1);
   });
 });

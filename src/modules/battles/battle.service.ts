@@ -10,7 +10,8 @@ import type { ActivityService } from '../activity/activity.service.js';
 import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '../contracts.js';
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
-import { activeDuelKeyboard, closedDuelKeyboard, renderDuelCaption } from '../duels/duel-post.js';
+import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
+import { renderTemplate, roundName, stageValues, templateFor, type TemplateKey } from '../duels/templates.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
@@ -21,6 +22,8 @@ type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; battle: Batt
 const ENTRY_STATUSES = ['PENDING_MODERATION', 'ACCEPTED', 'IN_BATTLE', 'ELIMINATED', 'WINNER'] as const;
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const ADMIN_ALERT_INTERVAL_MS = 30 * 60_000;
+/** Admins are reminded once when a prepared duel post is not published within this time. */
+const PUBLISH_REMINDER_MS = 10 * 60_000;
 
 export interface BattleOptions {
   timeZone: string;
@@ -32,6 +35,8 @@ export interface ScheduleBattleInput {
   title: string;
   startsAt: Date;
   roundMinutes: number;
+  /** Voting time of the final; null/undefined = same as roundMinutes. */
+  finalMinutes?: number | null;
   tiebreakMinutes: number;
   createdById: number | null;
 }
@@ -135,21 +140,29 @@ export class BattleService {
     if (input.startsAt <= now) throw new RangeError('Battle must start in the future');
     if (input.roundMinutes < 5 || input.roundMinutes > 7 * 24 * 60) throw new RangeError('Invalid round duration');
     if (input.tiebreakMinutes < 1 || input.tiebreakMinutes > 24 * 60) throw new RangeError('Invalid tiebreak duration');
+    if (input.finalMinutes != null && (input.finalMinutes < 5 || input.finalMinutes > 7 * 24 * 60)) throw new RangeError('Invalid final duration');
 
     const battle = await this.prisma.$transaction(async (tx) => {
       if (await tx.battle.findFirst({ where: { status: { in: ['SCHEDULED', 'RUNNING'] } } })) throw new DomainError('BATTLE_EXISTS');
       const created = await tx.battle.create({
-        data: { title, startsAt: input.startsAt, roundMinutes: input.roundMinutes, tiebreakMinutes: input.tiebreakMinutes, createdById: input.createdById },
+        data: {
+          title,
+          startsAt: input.startsAt,
+          roundMinutes: input.roundMinutes,
+          finalMinutes: input.finalMinutes ?? null,
+          tiebreakMinutes: input.tiebreakMinutes,
+          createdById: input.createdById,
+        },
       });
       await this.activity.log({ action: 'BATTLE_CREATED', userId: input.createdById, entityType: 'Battle', entityId: created.id }, tx);
       return created;
     });
     await this.scheduler.scheduleTickAt(battle.startsAt, `battle-${battle.id}`);
     await this.prepareAnnouncement(
-      this.locale.battle.announceScheduled({
-        title: escapeHtml(battle.title),
+      await this.render('announce', {
+        battle: battle.title,
         start: formatDateTime(battle.startsAt, this.options.timeZone, this.locale.intl),
-        botUsername: this.bot.username,
+        bot: `@${this.bot.username}`,
       }),
     );
     return battle;
@@ -182,6 +195,8 @@ export class BattleService {
 
     const running = await this.prisma.battle.findMany({ where: { status: 'RUNNING' } });
     for (const battle of running) await this.advance(battle.id);
+
+    await this.remindUnpublished(now);
 
     const pending = await this.prisma.duel.findMany({
       where: { status: 'PENDING', battle: { status: 'RUNNING' } },
@@ -219,7 +234,7 @@ export class BattleService {
       await this.finishBattle(battleId, result.soleWinner);
       return;
     }
-    await this.prepareAnnouncement(this.locale.battle.announceRound({ title: escapeHtml(battle.title), round: 1, entries: result.entries }));
+    await this.prepareAnnouncement(await this.roundAnnouncement(battle.title, 1, result.entries));
     await this.scheduler.triggerTick();
   }
 
@@ -254,11 +269,10 @@ export class BattleService {
     const adminChats = await this.notifications.adminChatIds();
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
-    const settings = await this.settings.get();
-    const template = settings.duelTemplate ?? this.locale.duel.defaultTemplate;
-    const caption = renderDuelCaption(template, this.locale, { battleTitle: duel.battle.title, round: duel.round, position: duel.position, stage });
+    const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage };
+    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo) });
 
-    await this.notifications.notifyAdmins((l) => l.admin.duelReady({ round: duel.round, duel: duel.position, tiebreak: stage > 0 }));
+    await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
     let preparedFileUniqueId: string | null;
     try {
       preparedFileUniqueId = await this.sendPrepared(duel as DuelWithPhotos, caption, adminChats);
@@ -268,7 +282,7 @@ export class BattleService {
     }
     const updated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'PENDING', stage },
-      data: { status: 'READY', preparedFileUniqueId },
+      data: { status: 'READY', preparedFileUniqueId, readyAt: new Date(), remindedAt: null },
     });
     return updated.count ? 'prepared' : 'skipped';
   }
@@ -336,11 +350,25 @@ export class BattleService {
 
     const settings = await this.settings.get();
     const stage = duel.stage;
-    const buttons = await this.telegram.sendMessage(this.channel.id, this.locale.duel.buttonsMessage({ round: duel.round, duel: duel.position, tiebreak: stage > 0 }), {
+    const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
+    const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage };
+    const buttonsText = await this.render('buttons', stageValues(this.locale, stageInfo));
+    const buttonsOptions = {
+      parseMode: 'HTML' as const,
       replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: 0, votesB: 0 }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
-    });
-    const minutes = stage === 0 ? duel.battle.roundMinutes : duel.battle.tiebreakMinutes;
+    };
+    let buttons;
+    try {
+      buttons = await this.telegram.sendMessage(this.channel.id, buttonsText, buttonsOptions);
+    } catch (error) {
+      // The bot itself cannot use premium emoji in the channel: retry with regular ones.
+      const classified = classifyTelegramError(error);
+      if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
+      buttons = await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(buttonsText), buttonsOptions);
+    }
+    const isFinal = entriesInRound <= 2;
+    const minutes = stage > 0 ? duel.battle.tiebreakMinutes : isFinal ? (duel.battle.finalMinutes ?? duel.battle.roundMinutes) : duel.battle.roundMinutes;
     const now = new Date();
     const endsAt = new Date(now.getTime() + minutes * 60_000);
     const activated = await this.prisma.duel.updateMany({
@@ -356,7 +384,7 @@ export class BattleService {
 
     const link = channelPostLink(this.channel, post.messageId);
     const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
-    await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ round: duel.round, duel: duel.position, ends }));
+    await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: stageValues(l, stageInfo).stage as string, ends }));
     if (stage === 0) {
       for (const photo of [duel.photoA, duel.photoB]) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
@@ -364,6 +392,19 @@ export class BattleService {
       }
     }
     return true;
+  }
+
+  /** True when the files belong to a prepared duel waiting for publication. */
+  async isPreparedPost(fileUniqueIds: string[]): Promise<boolean> {
+    if (fileUniqueIds.length === 0) return false;
+    const found = await this.prisma.duel.findFirst({
+      where: {
+        status: 'READY',
+        OR: [{ preparedFileUniqueId: { in: fileUniqueIds } }, { photoA: { fileUniqueId: { in: fileUniqueIds } } }, { photoB: { fileUniqueId: { in: fileUniqueIds } } }],
+      },
+      select: { id: true },
+    });
+    return !!found;
   }
 
   /** Remembers further album items of a live duel so the whole post can be removed later. */
@@ -442,7 +483,7 @@ export class BattleService {
       else await this.finishBattle(battleId, next.final);
       return;
     }
-    await this.prepareAnnouncement(this.locale.battle.announceRound({ title: escapeHtml(next.battle.title), round: next.round!, entries: next.entries! }));
+    await this.prepareAnnouncement(await this.roundAnnouncement(next.battle.title, next.round!, next.entries!));
     await this.scheduler.triggerTick();
   }
 
@@ -461,7 +502,7 @@ export class BattleService {
     if (!finished?.winnerPhoto) return;
     const { winnerPhoto } = finished;
     // The winner post is prepared for the admins, who publish it in the channel.
-    const caption = this.locale.battle.announceWinner({ title: escapeHtml(finished.title), votes: winnerPhoto.votesCount });
+    const caption = await this.render('winner', { battle: finished.title, votes: winnerPhoto.votesCount });
     await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
     for (const chatId of await this.notifications.adminChatIds()) {
       try {
@@ -527,6 +568,35 @@ export class BattleService {
   private async deleteMessages(ids: number[]): Promise<void> {
     for (const id of ids) {
       await this.telegram.deleteMessage(this.channel.id, id).catch((error: unknown) => this.logger.warn({ err: error, messageId: id }, 'Failed to delete duel post'));
+    }
+  }
+
+  /** Renders a post from the admin's design (or the default text) in the channel language. */
+  private async render(key: TemplateKey, values: Record<string, string | number>): Promise<string> {
+    return renderTemplate(templateFor(await this.settings.get(), this.locale, key), key, values);
+  }
+
+  private async roundAnnouncement(title: string, round: number, entries: number): Promise<string> {
+    return this.render('round', { battle: title, round, roundName: roundName(this.locale, round, entries), entries });
+  }
+
+  /** Number of entries playing in a round (a bye counts once). */
+  private async roundEntries(battleId: number, round: number): Promise<number> {
+    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoBId: true } });
+    return duels.reduce((sum, duel) => sum + (duel.photoBId ? 2 : 1), 0);
+  }
+
+  /** Prepared posts that nobody published for a while: remind the admins once. */
+  private async remindUnpublished(now: Date): Promise<void> {
+    const stale = await this.prisma.duel.findMany({
+      where: { status: 'READY', remindedAt: null, readyAt: { lte: new Date(now.getTime() - PUBLISH_REMINDER_MS) } },
+      orderBy: [{ round: 'asc' }, { position: 'asc' }],
+    });
+    for (const duel of stale) {
+      const claimed = await this.prisma.duel.updateMany({ where: { id: duel.id, status: 'READY', remindedAt: null }, data: { remindedAt: now } });
+      if (claimed.count === 0) continue;
+      const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage: duel.stage };
+      await this.notifications.notifyAdmins((l) => l.admin.publishReminder(stageValues(l, stageInfo).stage as string));
     }
   }
 

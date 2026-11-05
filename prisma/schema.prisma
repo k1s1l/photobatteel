@@ -201,6 +201,7 @@ model Battle {
   status          BattleStatus @default(SCHEDULED)
   startsAt        DateTime
   roundMinutes    Int          // voting time of every duel
+  finalMinutes    Int?         // voting time of the final (null = roundMinutes)
   tiebreakMinutes Int          @default(10)
   currentRound    Int          @default(0)
   winnerPhotoId   Int?         @unique
@@ -236,6 +237,9 @@ model Duel {
   votesB          Int        @default(0)
   /// file_unique_id of the prepared collage; identifies the admin's channel post (photo duels)
   preparedFileUniqueId String?
+  /// When the post was sent to admins, and when they were reminded to publish it
+  readyAt         DateTime?
+  remindedAt      DateTime?
   /// Bot message with the vote buttons, posted as a reply under the admin's channel post
   messageId       Int?
   /// The admin's channel post(s) for this stage (removed if an entry withdraws)
@@ -277,8 +281,12 @@ model BotSettings {
   subscribersOnly    Boolean  @default(true) // only channel subscribers may vote
   paidVotesEnabled   Boolean  @default(false)
   maxPhotosPerBattle Int      @default(1)    // 0 = unlimited
-  /// Duel post caption designed by an admin in Telegram (HTML, may contain <tg-emoji>)
+  /// Post designs made by an admin in Telegram (HTML, may contain <tg-emoji>); null = default text
   duelTemplate       String?
+  announceTemplate   String?
+  roundTemplate      String?
+  winnerTemplate     String?
+  buttonsTemplate    String?
   updatedById        Int?
   updatedAt          DateTime @updatedAt
 }

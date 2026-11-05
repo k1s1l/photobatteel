@@ -1,32 +1,9 @@
 import type { InlineKeyboardMarkup } from 'telegraf/types';
 import type { Locale } from '../../i18n/index.js';
-import { escapeHtml } from '../../lib/format.js';
 
 export const DUEL_VOTE_PREFIX = 'd:';
 export const DUEL_PAID_PREFIX = 'dp:';
 export const DUEL_CLOSED = 'dx';
-
-export interface DuelCaptionData {
-  battleTitle: string;
-  round: number;
-  position: number;
-  stage: number;
-}
-
-/**
- * Fills the duel template. Placeholders: {battle}, {round}, {duel}, {stage}.
- * The template is HTML (admin-designed, may contain premium emoji); values are escaped.
- */
-export function renderDuelCaption(template: string, locale: Locale, data: DuelCaptionData): string {
-  const stageLabel = data.stage === 0 ? locale.duel.stageMain({ round: data.round, duel: data.position }) : locale.duel.stageTiebreak({ round: data.round, duel: data.position });
-  const values: Record<string, string> = {
-    battle: escapeHtml(data.battleTitle),
-    round: String(data.round),
-    duel: String(data.position),
-    stage: escapeHtml(stageLabel),
-  };
-  return template.replace(/\{(battle|round|duel|stage)\}/g, (_, key: string) => values[key] ?? '');
-}
 
 export interface DuelKeyboardData {
   id: number;
