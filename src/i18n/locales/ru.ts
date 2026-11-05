@@ -11,31 +11,26 @@ export const ru = {
   intl: 'ru-RU',
 
   menu: {
-    submit: '📸 Отправить фотографию',
-    myPhotos: '🏆 Мои фотографии',
-    myStats: '📊 Моя статистика',
-    rating: '🥇 Рейтинг',
+    submit: '📸 Отправить фото или видео',
+    votes: '⭐ Купить голоса',
     battle: '⚔️ Текущий батл',
     rules: 'ℹ️ Правила',
     help: '❓ Помощь',
-    votes: '⭐ Купить голоса',
-    language: '🌐 Язык',
     admin: '🛠 Админ-панель',
   },
 
   /** Descriptions of bot commands shown in the Telegram command menu. */
   commands: {
     start: 'Главное меню',
-    myphotos: 'Мои фотографии',
-    stats: 'Моя статистика',
-    rating: 'Рейтинг участников',
     battle: 'Текущий батл',
     votes: 'Купить голоса',
+    myphotos: 'Мои работы',
+    stats: 'Моя статистика',
     rules: 'Правила',
     help: 'Помощь',
     language: 'Сменить язык',
     cancel: 'Отменить действие',
-    deletedata: 'Удалить мои фотографии',
+    deletedata: 'Удалить мои работы',
     paysupport: 'Помощь с оплатой',
   },
 
@@ -64,85 +59,78 @@ export const ru = {
   start: {
     welcome:
       'Добро пожаловать в Photo Battle! 📸\n' +
-      'Загружай свои фотографии, участвуй в фотобатлах и попадай в Telegram-канал!',
+      'Отправляй фото или видео, сражайся в дуэлях и побеждай в батлах нашего канала!',
   },
 
   rules: {
-    text: (p: { maxPerDay: number; maxSizeMb: number; minSide: number; moderation: boolean }) =>
+    text: (p: { maxPerBattle: number; maxSizeMb: number; maxVideoSec: number; moderation: boolean }) =>
       '<b>ℹ️ Правила Photo Battle</b>\n\n' +
-      '1. Отправляй только свои фотографии, на публикацию которых у тебя есть права.\n' +
-      '2. Запрещены: чужие работы, откровенный, жестокий и оскорбительный контент, реклама, ' +
-      'личные данные других людей без их согласия.\n' +
-      '3. Одна и та же фотография не может участвовать повторно.\n' +
-      `4. Лимит: ${p.maxPerDay > 0 ? `до ${p.maxPerDay} фото в сутки` : 'без ограничения в сутки'}.\n` +
-      `5. Форматы: JPG, PNG, WEBP; размер до ${p.maxSizeMb} МБ; минимальная сторона — ${p.minSide} px.\n` +
-      `6. ${p.moderation ? 'Каждая фотография проходит модерацию перед публикацией.' : 'Фотографии публикуются в порядке очереди.'}\n` +
-      '7. Опубликованная фотография появляется в публичном канале вместе с твоим @username ' +
-      '(или именем, если username нет).\n' +
-      '8. Ты можешь удалить любую свою фотографию в разделе «Мои фотографии» или все данные командой /deletedata.\n' +
-      '9. За нарушение правил администратор может отклонить фото или заблокировать участника.',
+      '1. До начала батла участники присылают фото или видео. Работы не публикуются до старта.\n' +
+      '2. В назначенное время работы случайно делятся на пары, и каждая пара выходит в канал отдельным постом.\n' +
+      '3. Голосуют подписчики канала: один бесплатный голос в каждой паре, передумать можно до конца голосования.\n' +
+      '4. Работа с большим числом голосов проходит в следующий раунд — и так до финала.\n' +
+      '5. Ничья — пару публикуют заново на короткое переголосование.\n' +
+      '6. Авторы не указываются: побеждает работа, а не имя.\n' +
+      `7. ${p.maxPerBattle > 0 ? `Не больше ${p.maxPerBattle} работ от одного участника в батле.` : 'Количество работ в батле не ограничено.'}\n` +
+      `8. Фото: JPG, PNG, WEBP до ${p.maxSizeMb} МБ. Видео: до ${p.maxVideoSec} сек.\n` +
+      `9. ${p.moderation ? 'Каждую работу проверяет модератор.' : 'Работы с нарушениями удаляются администратором.'}\n` +
+      '10. Запрещены чужие работы, откровенный, жестокий и оскорбительный контент, реклама.\n' +
+      '11. Удалить свои работы: /myphotos или /deletedata.',
   },
 
   help: {
     text:
       '<b>❓ Помощь</b>\n\n' +
       '<b>Как участвовать:</b>\n' +
-      '1. Нажми «📸 Отправить фотографию».\n' +
-      '2. Отправь одно фото (как фото или как файл-изображение).\n' +
-      '3. Проверь предпросмотр и нажми «✅ Подтвердить».\n' +
-      '4. Фото встанет в очередь и будет опубликовано в канале автоматически.\n\n' +
-      '<b>Голосование:</b> под каждой публикацией в канале есть кнопка «🔥 Поддержать». ' +
-      'Повторное нажатие отменяет голос. За свои фото голосовать нельзя.\n\n' +
+      '1. Нажми «📸 Отправить фото или видео».\n' +
+      '2. Отправь одну работу и подтверди её.\n' +
+      '3. В момент старта батла твоя работа выйдет в канал в паре с другой — бот пришлёт ссылку.\n\n' +
+      '<b>Голосование:</b> под постом пары нажми «Поддержать 1» или «Поддержать 2». ' +
+      'Голосовать могут подписчики канала. «⭐ +1» — дополнительные голоса за Звёзды или картой.\n\n' +
       '<b>Команды:</b>\n' +
-      '/start — главное меню\n' +
-      '/myphotos — мои фотографии\n' +
+      '/battle — текущий батл\n' +
+      '/myphotos — мои работы\n' +
       '/stats — моя статистика\n' +
-      '/rules — правила\n' +
-      '/votes — купить дополнительные голоса\n' +
+      '/votes — купить голоса\n' +
       '/language — сменить язык\n' +
-      '/cancel — отменить текущее действие\n' +
-      '/deletedata — удалить все мои фотографии\n' +
+      '/deletedata — удалить мои работы\n' +
       '/paysupport — помощь с оплатой',
   },
 
   consent: {
     request:
       '<b>Согласие на публикацию</b>\n\n' +
-      'Отправляя фотографию, ты подтверждаешь, что:\n' +
-      '• являешься автором фото или имеешь право его публиковать;\n' +
-      '• согласен(на) на публикацию фото в публичном Telegram-канале вместе с твоим @username или именем;\n' +
+      'Отправляя работу, ты подтверждаешь, что:\n' +
+      '• являешься её автором или имеешь право её публиковать;\n' +
+      '• согласен(на) на её публикацию в публичном Telegram-канале (без указания твоего имени);\n' +
       '• ознакомлен(а) с правилами (/rules).\n\n' +
-      'Ты в любой момент можешь удалить свои фотографии.',
+      'Ты в любой момент можешь удалить свои работы.',
     accept: '✅ Согласен(на)',
     accepted: '✅ Спасибо! Согласие сохранено.',
   },
 
   submission: {
-    prompt: (p: { battle: string | null }) =>
-      '📸 Отправь одну фотографию, которую хочешь опубликовать в Photo Battle.\n\n' +
-      'Можно отправить как обычное фото или как файл (JPG, PNG, WEBP).' +
-      (p.battle ? `\n\n⚔️ Фото будет участвовать в батле «${p.battle}».` : ''),
-    processing: '⏳ Проверяю фотографию…',
-    onlyOne: '⚠️ Пожалуйста, отправляй фотографии по одной. Я обработаю только первую из альбома.',
-    notAnImage: '⚠️ Это не изображение. Отправь фотографию (JPG, PNG или WEBP).',
-    previewCaption: (p: { id: string; battle: string | null; moderation: boolean }) =>
-      `<b>Предпросмотр</b> — фото ${p.id}\n` +
-      (p.battle ? `⚔️ Батл: ${p.battle}\n` : '') +
-      '\nПроверь фотографию. Нажимая «✅ Подтвердить», ты соглашаешься на её публикацию в канале.' +
-      (p.moderation ? '\nПеред публикацией фото проверит модератор.' : ''),
+    prompt: (p: { battle: string; start: string }) =>
+      `📸 Отправь одно фото или видео для батла «${p.battle}».\n\n` +
+      `Приём работ — до ${p.start}. Фото можно отправить как обычное фото или как файл (JPG, PNG, WEBP).`,
+    processing: '⏳ Проверяю работу…',
+    onlyOne: '⚠️ Отправляй работы по одной. Я обработаю только первую из альбома.',
+    notMedia: '⚠️ Это не фото и не видео. Отправь фото (JPG, PNG, WEBP) или видео.',
+    previewCaption: (p: { id: string; battle: string; start: string; moderation: boolean }) =>
+      `<b>Предпросмотр</b> — работа ${p.id}\n` +
+      `⚔️ Батл: ${p.battle} (старт ${p.start})\n` +
+      '\nПроверь работу. Нажимая «✅ Подтвердить», ты соглашаешься на её публикацию в канале.' +
+      (p.moderation ? '\nПеред батлом работу проверит модератор.' : ''),
     confirm: '✅ Подтвердить',
     cancel: '❌ Отменить',
-    accepted:
-      '✅ Твоя фотография успешно принята!\n' +
-      'Теперь она ожидает публикации в Photo Battle.',
-    acceptedModeration:
-      '✅ Твоя фотография успешно принята!\n' +
-      'Она отправлена на модерацию и после проверки встанет в очередь публикации.',
-    queuePosition: (position: number) => `📍 Позиция в очереди: ${position}.`,
-    cancelledByUser: '❌ Отправка отменена. Фотография не будет опубликована.',
-    previewConfirmed: (id: string) => `✅ Фото ${id} подтверждено.`,
-    previewCancelled: (id: string) => `❌ Фото ${id} — отправка отменена.`,
-    previewExpired: 'Этот предпросмотр больше не действителен (истёк срок или ты отправил другое фото). Отправь фотографию заново.',
+    accepted: (p: { battle: string; start: string }) =>
+      `✅ Работа принята в батл «${p.battle}»!\nСтарт — ${p.start}. Когда твоя пара выйдет в канал, я пришлю ссылку.`,
+    acceptedModeration: (p: { battle: string; start: string }) =>
+      `✅ Работа отправлена на модерацию для батла «${p.battle}» (старт ${p.start}).`,
+    cancelledByUser: '❌ Отправка отменена.',
+    previewConfirmed: (id: string) => `✅ Работа ${id} подтверждена.`,
+    previewCancelled: (id: string) => `❌ Работа ${id} — отправка отменена.`,
+    previewExpired: 'Этот предпросмотр больше не действителен (истёк срок или ты отправил другую работу). Отправь её ещё раз.',
   },
 
   errors: {
@@ -150,19 +138,19 @@ export const ru = {
     FORBIDDEN: () => '⛔ Недостаточно прав для этого действия.',
     USER_BLOCKED: () => '🚫 Твой доступ к Photo Battle ограничен администратором.',
     CONSENT_REQUIRED: () => 'Сначала нужно дать согласие на публикацию.',
-    INVALID_STATE: () => 'Это действие уже недоступно для этой фотографии.',
-    DAILY_LIMIT: (p) => `⚠️ Достигнут лимит: не более ${p.limit} фото за 24 часа. Попробуй позже.`,
-    QUEUE_LIMIT: (p) => `⚠️ У тебя уже ${p.limit} фото ожидают публикации. Дождись, пока они выйдут.`,
-    BATTLE_LIMIT: (p) => `⚠️ В этом батле можно участвовать не более чем ${p.limit} фото.`,
-    NO_ACTIVE_BATTLE: () => '⏳ Сейчас приём фотографий закрыт. Дождись начала следующего батла!',
-    DUPLICATE_PHOTO: () => '⚠️ Эта фотография уже была отправлена в Photo Battle. Повторная отправка невозможна.',
+    INVALID_STATE: () => 'Это действие уже недоступно.',
+    BATTLE_LIMIT: (p) => `⚠️ В этом батле можно участвовать не более чем ${p.limit} работ(ой).`,
+    NO_ACTIVE_BATTLE: () => '⏳ Сейчас приём работ закрыт. Следи за анонсами в канале — скоро новый батл!',
+    DUPLICATE_PHOTO: () => '⚠️ Эта работа уже отправлялась в Photo Battle. Повторная отправка невозможна.',
     INVALID_IMAGE: () => '⚠️ Не удалось прочитать изображение: файл повреждён или это не фото. Попробуй другой файл.',
     FILE_TOO_LARGE: (p) => `⚠️ Файл слишком большой. Максимальный размер — ${p.maxMb} МБ.`,
-    UNSUPPORTED_FORMAT: () => '⚠️ Формат не поддерживается. Допустимы JPG, PNG и WEBP.',
+    UNSUPPORTED_FORMAT: () => '⚠️ Формат не поддерживается. Допустимы фото JPG, PNG, WEBP и видео.',
     DIMENSIONS: (p) => `⚠️ Неподходящее разрешение. Каждая сторона должна быть от ${p.min} до ${p.max} px.`,
-    BATTLE_EXISTS: () => 'Уже есть активный батл. Заверши или отмени его, прежде чем создавать новый.',
-    SELF_VOTE: () => 'Нельзя голосовать за свою фотографию 🙂',
-    VOTING_DISABLED: () => 'Голосование сейчас отключено.',
+    VIDEO_TOO_LONG: (p) => `⚠️ Видео слишком длинное. Максимум — ${p.max} сек.`,
+    BATTLE_EXISTS: () => 'Уже есть запланированный или идущий батл. Заверши или отмени его, прежде чем создавать новый.',
+    SELF_VOTE: () => 'Нельзя голосовать за свою работу 🙂',
+    VOTING_CLOSED: () => 'Голосование в этой паре уже завершено.',
+    NOT_SUBSCRIBED: () => 'Голосовать могут только подписчики канала. Подпишись и нажми ещё раз 🙌',
     INSUFFICIENT_BALANCE: (p) => `Недостаточно купленных голосов на балансе (сейчас: ${p.balance}).`,
     PAYMENTS_DISABLED: () => 'Покупка голосов сейчас недоступна.',
   } satisfies Record<DomainErrorCode, (p: Record<string, string | number>) => string>,
@@ -170,123 +158,122 @@ export const ru = {
   status: {
     DRAFT: '📝 Ожидает подтверждения',
     PENDING_MODERATION: '🛡 На модерации',
-    QUEUED: '⏳ В очереди',
-    PUBLISHED: '✅ Опубликована',
+    ACCEPTED: '⏳ Ждёт старта батла',
+    IN_BATTLE: '⚔️ В батле',
+    ELIMINATED: '🏁 Выбыла',
+    WINNER: '🏆 Победитель',
     REJECTED: '⛔ Отклонена',
     DELETED: '🗑 Удалена',
     CANCELLED: '❌ Отменена',
-    FAILED: '⚠️ Ошибка публикации',
+  },
+
+  mediaType: {
+    PHOTO: '📷 Фото',
+    VIDEO: '🎬 Видео',
   },
 
   myPhotos: {
-    title: (total: number) => `<b>🏆 Мои фотографии</b> (${total})\n\nНажми на фото, чтобы открыть его.`,
-    empty: 'У тебя пока нет фотографий. Нажми «📸 Отправить фотографию», чтобы участвовать!',
+    title: (total: number) => `<b>🗂 Мои работы</b> (${total})\n\nНажми на работу, чтобы открыть её.`,
+    empty: 'У тебя пока нет работ. Нажми «📸 Отправить фото или видео», чтобы участвовать!',
     card: (p: { id: string; status: string; date: string; votes: number; battle: string | null; link: string | null; reason: string | null }) =>
-      `<b>Фото ${p.id}</b>\n` +
+      `<b>Работа ${p.id}</b>\n` +
       `Статус: ${p.status}\n` +
-      `Отправлено: ${p.date}\n` +
+      `Отправлена: ${p.date}\n` +
       `🔥 Голосов: ${p.votes}` +
       (p.battle ? `\n⚔️ Батл: ${p.battle}` : '') +
       (p.reason ? `\nПричина: ${p.reason}` : '') +
-      (p.link ? `\n\n<a href="${p.link}">Открыть публикацию</a>` : ''),
-    delete: '🗑 Удалить фото',
-    deleteConfirm: (id: string) =>
-      `Удалить фото ${id}? Если оно опубликовано, публикация будет удалена из канала. Действие необратимо.`,
-    deleted: (id: string) => `🗑 Фото ${id} удалено.`,
-    deletedChannelFailed: (id: string) =>
-      `🗑 Фото ${id} удалено из Photo Battle. Публикацию в канале не удалось удалить автоматически — администраторы уведомлены.`,
-    deleteAllConfirm:
-      '⚠️ Удалить <b>все</b> твои фотографии и публикации в канале? Действие необратимо.',
-    deleteAllDone: (count: number) => `🗑 Удалено фотографий: ${count}. Твои данные удалены из Photo Battle.`,
+      (p.link ? `\n\n<a href="${p.link}">Открыть пару в канале</a>` : ''),
+    delete: '🗑 Удалить работу',
+    deleteConfirm: (id: string) => `Удалить работу ${id}? Если она сейчас в батле, она выбывает, а пост пары удаляется из канала.`,
+    deleted: (id: string) => `🗑 Работа ${id} удалена.`,
+    deleteAllConfirm: '⚠️ Удалить <b>все</b> твои работы? Работы в идущем батле выбудут. Действие необратимо.',
+    deleteAllDone: (count: number) => `🗑 Удалено работ: ${count}.`,
   },
 
   stats: {
-    text: (p: { since: string; submitted: number; published: number; queued: number; votes: number; rank: number | null; balance: number }) =>
+    text: (p: { since: string; submitted: number; waiting: number; votes: number; balance: number }) =>
       '<b>📊 Моя статистика</b>\n\n' +
       `📅 Участник с: ${p.since}\n` +
-      `📸 Отправлено фото: ${p.submitted}\n` +
-      `✅ Опубликовано: ${p.published}\n` +
-      `⏳ Ожидают публикации: ${p.queued}\n` +
+      `📸 Отправлено работ: ${p.submitted}\n` +
+      `⏳ Сейчас в батле или ждут старта: ${p.waiting}\n` +
       `🔥 Получено голосов: ${p.votes}\n` +
-      `🥇 Место в рейтинге: ${p.rank ? p.rank : '—'}\n` +
       `⭐ Купленных голосов на балансе: ${p.balance}`,
   },
 
-  rating: {
-    title: '<b>🥇 Рейтинг участников</b> (по голосам)',
-    empty: 'Рейтинг пока пуст — голосуй за участников в канале!',
-    row: (p: { place: number; name: string; votes: number; published: number }) =>
-      `${p.place <= 3 ? ['🥇', '🥈', '🥉'][p.place - 1] : `${p.place}.`} ${p.name} — 🔥 ${p.votes} (фото: ${p.published})`,
-    battleTitle: (title: string) => `\n<b>⚔️ Лидеры батла «${title}»</b>`,
-    battleRow: (p: { place: number; id: string; name: string; votes: number }) => `${p.place}. Фото ${p.id} — ${p.name} — 🔥 ${p.votes}`,
-  },
-
   battle: {
-    none: 'Сейчас нет активного батла. Следи за анонсами в канале!',
-    info: (p: { title: string; theme: string | null; status: string; submissionsEnd: string; end: string; participants: number }) =>
+    none: 'Сейчас нет батла. Следи за анонсами в канале!',
+    info: (p: { title: string; status: string; start: string; round: number; entries: number }) =>
       `<b>⚔️ ${p.title}</b>\n` +
-      (p.theme ? `Тема: ${p.theme}\n` : '') +
       `Статус: ${p.status}\n` +
-      `Приём фото до: ${p.submissionsEnd}\n` +
-      `Итоги: ${p.end}\n` +
-      `Участников (фото): ${p.participants}`,
-    statusActive: '📸 Идёт приём фотографий',
-    statusVoting: '🔥 Идёт голосование',
+      `Старт: ${p.start}\n` +
+      (p.round > 0 ? `Раунд: ${p.round}\n` : '') +
+      `Работ: ${p.entries}`,
+    statusScheduled: '📸 Идёт приём работ',
+    statusRunning: '🔥 Идёт голосование',
     statusFinished: '🏁 Завершён',
     statusCancelled: '❌ Отменён',
-    announceStart: (p: { title: string; theme: string | null; submissionsEnd: string; end: string; botUsername: string }) =>
+    announceScheduled: (p: { title: string; start: string; botUsername: string }) =>
       `🏆 <b>НОВЫЙ ФОТОБАТЛ: ${p.title}</b>\n\n` +
-      (p.theme ? `Тема: <b>${p.theme}</b>\n` : '') +
-      `📸 Приём фотографий до: ${p.submissionsEnd}\n` +
-      `🏁 Подведение итогов: ${p.end}\n\n` +
-      `Отправляй свои фото в бота @${p.botUsername} и поддерживай участников 🔥`,
-    announceVoting: (p: { title: string; end: string }) =>
-      `⏳ <b>Приём фотографий в батл «${p.title}» завершён!</b>\n\n` +
-      `Голосование продолжается до ${p.end}. Поддерживай любимые фото кнопкой 🔥`,
-    announceWinner: (p: { title: string; winner: string; id: string; votes: number }) =>
-      `🏆 <b>Итоги батла «${p.title}»</b>\n\n` +
-      `Победитель: <b>${p.winner}</b>\nФото ${p.id} — 🔥 ${p.votes}\n\nПоздравляем! 🎉`,
-    announceNoWinner: (title: string) => `🏁 Батл «${title}» завершён. В этот раз победителя нет — не было опубликованных фото.`,
-    winnerDm: (p: { title: string; id: string; votes: number }) =>
-      `🏆 Поздравляем! Твоё фото ${p.id} победило в батле «${p.title}» с результатом 🔥 ${p.votes}!`,
-    weeklyTitle: (n: number) => `Еженедельный фотобатл #${n}`,
+      `📸 Приём фото и видео — до ${p.start}\n` +
+      `⚔️ В ${p.start} все работы выйдут в канал парами — голосуй за лучшую!\n\n` +
+      `Отправляй свою работу в бота @${p.botUsername}`,
+    announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
+    announceRound: (p: { title: string; round: number; entries: number }) =>
+      `⚔️ <b>${p.title} — раунд ${p.round}</b>\n\nВ борьбе ${p.entries} работ. Голосуй в парах ниже! 🔥`,
+    announceWinner: (p: { title: string; votes: number }) =>
+      `🏆 <b>Победитель батла «${p.title}»</b>\n\n🔥 Голосов за весь батл: ${p.votes}\n\nПоздравляем автора! 🎉`,
+    winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
+    entryPosted: (p: { round: number; link: string }) =>
+      `⚔️ Твоя работа вышла в канал — раунд ${p.round}!\n<a href="${p.link}">Открыть пару</a> — зови друзей голосовать 🔥`,
+    duelWon: (p: { round: number; link: string }) => `🎉 Твоя работа выиграла пару в раунде ${p.round} и проходит дальше! <a href="${p.link}">Пост</a>`,
+    duelLost: (p: { round: number; link: string }) => `😔 В раунде ${p.round} твоя работа уступила сопернику. Спасибо за участие! <a href="${p.link}">Пост</a>`,
   },
 
-  vote: {
-    button: (count: number) => (count > 0 ? `🔥 Поддержать · ${count}` : '🔥 Поддержать'),
-    added: '🔥 Голос учтён! Спасибо за поддержку.',
-    removed: 'Голос отменён.',
-    unavailable: 'Голосование за эту фотографию недоступно.',
-    boostButton: '⭐ +1 голос',
-    boosted: (left: number) => `⭐ Платный голос отдан! Осталось на балансе: ${left}.`,
-    noBalance: 'На балансе нет купленных голосов. Открываю покупку…',
+  duel: {
+    /** Used until an admin uploads a custom design. Placeholders: {battle} {round} {duel} {stage}. */
+    defaultTemplate:
+      '⚔️ <b>PHOTO BATTLE</b> · {battle}\n' +
+      '{stage}\n\n' +
+      '1️⃣ или 2️⃣ — какая работа сильнее?\n' +
+      '🔥 Поддержи свою!',
+    stageMain: (p: { round: number; duel: number }) => `Раунд ${p.round} · Пара ${p.duel}`,
+    stageTiebreak: (p: { round: number; duel: number }) => `⚡ Переголосование! Раунд ${p.round} · Пара ${p.duel}`,
+    voteButton: (p: { side: 1 | 2; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
+    paidButton: '⭐ +1 голос',
+    closedButton: '🏁 Голосование завершено',
+    tieButton: '⚡ Ничья — переголосование ниже',
+    voted: (side: 1 | 2) => `🔥 Голос за работу ${side} учтён!`,
+    withdrawn: 'Голос отменён.',
+    closed: 'Голосование в этой паре завершено.',
+    chooseSide: (p: { round: number; duel: number }) => `<b>⭐ Голоса — раунд ${p.round}, пара ${p.duel}</b>\n\nЗа какую работу?`,
+    side: (side: 1 | 2) => `Работа ${side}`,
   },
 
   payments: {
     menu: (p: { balance: number }) =>
       '<b>⭐ Дополнительные голоса</b>\n\n' +
-      'Купленные голоса добавляются к голосам за фото и помогают подняться в рейтинге и выиграть батл.\n\n' +
+      'Купленные голоса добавляются к работе в её текущей паре.\n' +
+      'Удобнее всего — нажать «⭐ +1 голос» под нужной парой в канале.\n\n' +
       `Твой баланс: <b>${p.balance}</b>\n\n` +
-      'Как отдать голос: кнопка «⭐ +1 голос» под постом в канале или «🎁 Отдать голоса фото» ниже.\n\n' +
-      'Выбери пакет и способ оплаты:',
-    menuForPhoto: (id: string) =>
-      `<b>⭐ Голоса для фото ${id}</b>\n\nКупленные голоса сразу будут добавлены этому фото. Выбери пакет и способ оплаты:`,
+      'Купить голоса на баланс:',
+    menuForSide: (p: { side: 1 | 2; round: number; duel: number; balance: number }) =>
+      `<b>⭐ Голоса за работу ${p.side}</b> (раунд ${p.round}, пара ${p.duel})\n\n` +
+      'Купленные голоса сразу добавятся этой работе.' +
+      (p.balance > 0 ? `\nНа балансе: ${p.balance} — можно отдать прямо сейчас.` : ''),
     packStars: (p: { votes: number; price: number }) => `${p.votes} гол. — ${p.price} ⭐`,
     packCard: (p: { votes: number; price: string }) => `${p.votes} гол. — ${p.price} 💳`,
-    give: '🎁 Отдать голоса фото',
-    askGive: 'Введи ID фото и количество голосов, например: <code>#0012 5</code>',
-    giveInvalid: 'Не понял. Формат: <code>#0012 5</code>',
-    given: (p: { amount: number; id: string; left: number }) => `⭐ Фото ${p.id} получило +${p.amount} гол. Осталось на балансе: ${p.left}.`,
+    spendButton: (amount: number) => `🎁 +${amount} с баланса`,
+    spent: (p: { amount: number; side: 1 | 2; left: number }) => `⭐ Работа ${p.side} получила +${p.amount}. Осталось на балансе: ${p.left}.`,
     invoiceTitle: (votes: number) => `${votes} голосов — Photo Battle`,
-    invoiceToBalance: (votes: number) => `${votes} дополнительных голосов на баланс. Отдавай их фото кнопкой «⭐ +1 голос».`,
-    invoiceToPhoto: (p: { votes: number; id: string }) => `${p.votes} дополнительных голосов для фото ${p.id}.`,
+    invoiceToBalance: (votes: number) => `${votes} дополнительных голосов на баланс.`,
+    invoiceToSide: (p: { votes: number; side: 1 | 2 }) => `${p.votes} дополнительных голосов за работу ${p.side} в текущей паре.`,
     invoiceLabel: (votes: number) => `${votes} голосов`,
     paidToBalance: (p: { votes: number; balance: number }) => `✅ Оплата прошла! На баланс зачислено ${p.votes} гол. Сейчас на балансе: ${p.balance}.`,
-    paidToPhoto: (p: { votes: number; id: string }) => `✅ Оплата прошла! Фото ${p.id} получило +${p.votes} гол.`,
+    paidToPhoto: (votes: number) => `✅ Оплата прошла! Работа получила +${votes} гол.`,
     paidPhotoGone: (p: { votes: number; balance: number }) =>
-      `✅ Оплата прошла! Фото больше недоступно, поэтому ${p.votes} гол. зачислены на баланс (${p.balance}).`,
+      `✅ Оплата прошла! Голосование в паре уже закончилось, поэтому ${p.votes} гол. зачислены на баланс (${p.balance}).`,
     checkoutExpired: 'Этот счёт устарел. Открой «⭐ Купить голоса» и создай новый.',
-    checkoutUnavailable: 'Фото больше недоступно для голосования. Выбери другое.',
+    checkoutUnavailable: 'Голосование в этой паре уже завершено.',
     support:
       '<b>💬 Помощь с оплатой</b>\n\n' +
       'Если голоса не начислились или возникла другая проблема с оплатой, напиши администратору канала. ' +
@@ -294,26 +281,16 @@ export const ru = {
     terms:
       '<b>Условия покупки голосов</b>\n\n' +
       '• Голоса — цифровой товар внутри Photo Battle; они зачисляются сразу после оплаты.\n' +
-      '• Отданные фото голоса нельзя вернуть на баланс.\n' +
-      '• Если фото удалено или отклонено, отданные ему голоса сгорают.\n' +
+      '• Голоса действуют в текущей паре; отданные голоса нельзя вернуть на баланс.\n' +
+      '• Если голосование закончилось до оплаты, голоса зачисляются на баланс.\n' +
       '• Возврат возможен, если голоса не были начислены: /paysupport.',
     refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
   },
 
-  channel: {
-    caption: (p: { participant: string; id: string; battle: string | null }) =>
-      '📸 <b>PHOTO BATTLE</b>\n\n' +
-      `Участник: ${p.participant}\n` +
-      `ID фотографии: ${p.id}\n` +
-      (p.battle ? `⚔️ Батл: ${p.battle}\n` : '') +
-      '\n🔥 Поддержи участника!',
-  },
-
   notifications: {
-    published: (p: { id: string; link: string }) => `🎉 Твоё фото ${p.id} опубликовано в канале!\n<a href="${p.link}">Посмотреть публикацию</a>`,
-    approved: (id: string) => `✅ Фото ${id} прошло модерацию и добавлено в очередь публикации.`,
-    rejected: (p: { id: string; reason: string }) => `⛔ Фото ${p.id} отклонено модератором.\nПричина: ${p.reason}`,
-    deletedByAdmin: (id: string) => `🗑 Фото ${id} удалено администратором.`,
+    approved: (id: string) => `✅ Работа ${id} прошла модерацию и примет участие в батле.`,
+    rejected: (p: { id: string; reason: string }) => `⛔ Работа ${p.id} отклонена модератором.\nПричина: ${p.reason}`,
+    deletedByAdmin: (id: string) => `🗑 Работа ${id} удалена администратором.`,
     blocked: '🚫 Твой доступ к Photo Battle ограничен администратором.',
     unblocked: '🔓 Доступ к Photo Battle восстановлен. Добро пожаловать обратно!',
   },
@@ -322,33 +299,29 @@ export const ru = {
     rules: 'Нарушение правил',
     quality: 'Низкое качество',
     theme: 'Не соответствует теме батла',
-    duplicate: 'Повтор или чужая фотография',
+    duplicate: 'Повтор или чужая работа',
     blocked: 'Пользователь заблокирован',
   },
 
   admin: {
     accessDenied: '⛔ У тебя нет доступа к админ-панели.',
-    panelTitle: (p: { paused: boolean; interval: string; moderation: boolean; queued: number; pending: number }) =>
+    panelTitle: (p: { battle: string | null; pending: number; paid: boolean }) =>
       '<b>🛠 Админ-панель Photo Battle</b>\n\n' +
-      `Публикации: ${p.paused ? '⏸ остановлены' : '▶️ активны'}\n` +
-      `Интервал: ${p.interval}\n` +
-      `Модерация: ${p.moderation ? 'включена' : 'выключена'}\n` +
-      `В очереди: ${p.queued} · На модерации: ${p.pending}`,
+      `Батл: ${p.battle ?? 'не запланирован'}\n` +
+      `На модерации: ${p.pending}\n` +
+      `Продажа голосов: ${p.paid ? 'включена' : 'выключена'}`,
     buttons: {
-      stats: '📊 Статистика бота',
+      stats: '📊 Статистика',
       users: '👥 Пользователи',
-      photos: '📸 Все фотографии',
-      queue: '⏳ Очередь публикаций',
+      photos: '🗂 Все работы',
       moderation: '🛡 Модерация',
-      publish: '🚀 Опубликовать вручную',
-      delete: '🗑 Удалить фото',
+      battles: '⚔️ Батлы',
+      design: '🎨 Оформление поста',
+      delete: '🗑 Удалить работу',
       block: '🚫 Заблокировать',
       unblock: '🔓 Разблокировать',
-      pause: '⏸ Остановить публикации',
-      resume: '▶️ Возобновить публикации',
       settings: '⚙️ Настройки',
       broadcast: '📢 Объявление',
-      battles: '⚔️ Батлы',
       payments: '💰 Платежи',
       panel: '🛠 В админ-панель',
     },
@@ -357,27 +330,24 @@ export const ru = {
       newUsers24h: number;
       blockedUsers: number;
       received: number;
-      published: number;
       waiting: number;
       pending: number;
+      inBattle: number;
       rejected: number;
-      failed: number;
       deleted: number;
-      published24h: number;
-      votes: number;
+      battlesFinished: number;
+      duelsFinished: number;
+      freeVotes: number;
+      paidVotes: number;
     }) =>
-      '<b>📊 Статистика бота</b>\n\n' +
-      `👥 Всего пользователей: ${p.users} (+${p.newUsers24h} за сутки)\n` +
-      `🚫 Заблокировано: ${p.blockedUsers}\n\n` +
-      `📸 Всего получено фотографий: ${p.received}\n` +
-      `✅ Опубликовано: ${p.published}\n` +
-      `⏳ Ожидают публикации: ${p.waiting}\n` +
-      `🛡 На модерации: ${p.pending}\n` +
-      `⛔ Отклонено: ${p.rejected}\n` +
-      `⚠️ Ошибки публикации: ${p.failed}\n` +
-      `🗑 Удалено: ${p.deleted}\n\n` +
-      `🚀 Публикаций за сутки: ${p.published24h}\n` +
-      `🔥 Всего голосов: ${p.votes}`,
+      '<b>📊 Статистика</b>\n\n' +
+      `👥 Пользователей: ${p.users} (+${p.newUsers24h} за сутки), заблокировано: ${p.blockedUsers}\n\n` +
+      `📸 Получено работ: ${p.received}\n` +
+      `⏳ Ждут старта: ${p.waiting} · 🛡 На модерации: ${p.pending}\n` +
+      `⚔️ Сейчас в батле: ${p.inBattle}\n` +
+      `⛔ Отклонено: ${p.rejected} · 🗑 Удалено: ${p.deleted}\n\n` +
+      `🏆 Проведено батлов: ${p.battlesFinished} · пар: ${p.duelsFinished}\n` +
+      `🔥 Бесплатных голосов: ${p.freeVotes} · ⭐ платных: ${p.paidVotes}`,
     usersTitle: (total: number) => `<b>👥 Пользователи</b> (${total})`,
     userCard: (p: {
       name: string;
@@ -385,8 +355,8 @@ export const ru = {
       since: string;
       lastActive: string;
       submitted: number;
-      published: number;
       votes: number;
+      balance: number;
       blocked: boolean;
       reason: string | null;
       admin: boolean;
@@ -395,118 +365,71 @@ export const ru = {
       `Telegram ID: <code>${p.telegramId}</code>\n` +
       `Регистрация: ${p.since}\n` +
       `Активность: ${p.lastActive}\n` +
-      `📸 Отправлено: ${p.submitted} · ✅ Опубликовано: ${p.published} · 🔥 Голосов: ${p.votes}\n` +
+      `📸 Работ: ${p.submitted} · 🔥 Голосов: ${p.votes} · ⭐ Баланс: ${p.balance}\n` +
       `Статус: ${p.blocked ? `🚫 заблокирован${p.reason ? ` (${p.reason})` : ''}` : '✅ активен'}`,
-    userPhotos: '📸 Фото пользователя',
-    photosTitle: (p: { filter: string; total: number }) => `<b>📸 Фотографии</b> — ${p.filter} (${p.total})`,
+    userPhotos: '🗂 Работы пользователя',
+    photosTitle: (p: { filter: string; total: number }) => `<b>🗂 Работы</b> — ${p.filter} (${p.total})`,
     filterAll: 'Все',
-    queueTitle: (p: { waiting: number; processing: number; failed: number; paused: boolean; interval: string }) =>
-      '<b>⏳ Очередь публикаций</b>\n\n' +
-      `Ожидают: ${p.waiting} · Публикуются: ${p.processing} · Ошибки: ${p.failed}\n` +
-      `Публикации: ${p.paused ? '⏸ остановлены' : '▶️ активны'} · Интервал: ${p.interval}\n\n` +
-      'Нажми на фото, чтобы управлять им.',
-    queueEmpty: 'Очередь пуста.',
     moderationTitle: (total: number) => `<b>🛡 Модерация</b> — ожидают решения: ${total}`,
-    moderationEmpty: 'Нет фотографий, ожидающих модерации.',
+    moderationEmpty: 'Нет работ, ожидающих модерации.',
     photoCard: (p: {
       id: string;
+      type: string;
       author: string;
       authorId: string;
       status: string;
       created: string;
-      votes: number;
       size: string;
+      votes: number;
       battle: string | null;
       reason: string | null;
-      error: string | null;
-      link: string | null;
     }) =>
-      `<b>Фото ${p.id}</b>\n` +
+      `<b>Работа ${p.id}</b> · ${p.type}\n` +
       `Автор: ${p.author} (<code>${p.authorId}</code>)\n` +
       `Статус: ${p.status}\n` +
-      `Создано: ${p.created}\n` +
+      `Создана: ${p.created}\n` +
       `Размер: ${p.size} · 🔥 ${p.votes}` +
       (p.battle ? `\n⚔️ Батл: ${p.battle}` : '') +
-      (p.reason ? `\nПричина отклонения: ${p.reason}` : '') +
-      (p.error ? `\nПоследняя ошибка: ${p.error}` : '') +
-      (p.link ? `\n<a href="${p.link}">Публикация в канале</a>` : ''),
+      (p.reason ? `\nПричина отклонения: ${p.reason}` : ''),
     actions: {
       approve: '✅ Одобрить',
       reject: '⛔ Отклонить',
-      publishNow: '🚀 Опубликовать сейчас',
-      retry: '🔁 Повторить публикацию',
       delete: '🗑 Удалить',
       author: '👤 Автор',
       block: '🚫 Заблокировать',
       unblock: '🔓 Разблокировать',
     },
     chooseRejectReason: 'Выбери причину отклонения:',
-    deleteConfirm: (id: string) => `Удалить фото ${id}? Публикация в канале (если есть) тоже будет удалена.`,
-    approved: (id: string) => `✅ Фото ${id} одобрено и добавлено в очередь.`,
-    rejected: (id: string) => `⛔ Фото ${id} отклонено.`,
-    deleted: (id: string) => `🗑 Фото ${id} удалено.`,
-    deletedChannelFailed: (id: string) =>
-      `🗑 Фото ${id} удалено, но публикацию в канале удалить не удалось (нет прав или сообщение старше 48 ч). Удали её вручную.`,
-    publishQueued: (id: string) => `🚀 Фото ${id} отправлено на публикацию. Результат придёт сообщением.`,
-    requeued: (id: string) => `🔁 Фото ${id} возвращено в очередь.`,
-    askPhotoIdPublish: 'Введи ID фотографии для немедленной публикации (например, #0012):',
-    askPhotoIdDelete: 'Введи ID фотографии для удаления (например, #0012):',
-    askUserBlock: 'Введи Telegram ID, @username пользователя или ID его фото (#0012), чтобы заблокировать:',
-    askUserUnblock: 'Введи Telegram ID, @username пользователя или ID его фото (#0012), чтобы разблокировать:',
-    invalidPhotoId: 'Некорректный ID фотографии. Пример: #0012',
+    deleteConfirm: (id: string) => `Удалить работу ${id}? Если она в батле — она выбывает, а пост её пары удаляется из канала.`,
+    approved: (id: string) => `✅ Работа ${id} одобрена.`,
+    rejected: (id: string) => `⛔ Работа ${id} отклонена.`,
+    deleted: (id: string) => `🗑 Работа ${id} удалена.`,
+    deletedForfeit: (id: string) => `🗑 Работа ${id} удалена и выбыла из батла: соперник проходит дальше, пост пары удалён.`,
+    askPhotoIdDelete: 'Введи ID работы для удаления (например, #0012):',
+    askUserBlock: 'Введи Telegram ID, @username пользователя или ID его работы (#0012), чтобы заблокировать:',
+    askUserUnblock: 'Введи Telegram ID, @username пользователя или ID его работы (#0012), чтобы разблокировать:',
+    invalidPhotoId: 'Некорректный ID работы. Пример: #0012',
     userNotFound: 'Пользователь не найден.',
-    photoNotFound: 'Фотография не найдена.',
+    photoNotFound: 'Работа не найдена.',
     cannotBlockAdmin: 'Нельзя заблокировать администратора.',
-    userBlocked: (p: { name: string; cancelled: number }) =>
-      `🚫 Пользователь ${p.name} заблокирован. Снято с очереди фото: ${p.cancelled}.`,
+    userBlocked: (p: { name: string; cancelled: number }) => `🚫 Пользователь ${p.name} заблокирован. Снято работ: ${p.cancelled}.`,
     userUnblocked: (name: string) => `🔓 Пользователь ${name} разблокирован.`,
     alreadyBlocked: 'Пользователь уже заблокирован.',
     notBlocked: 'Пользователь не заблокирован.',
-    paused: '⏸ Автоматические публикации остановлены. Ручная публикация по-прежнему доступна.',
-    resumed: '▶️ Автоматические публикации возобновлены.',
-    publishedNotice: (p: { id: string; link: string; manual: boolean }) =>
-      `${p.manual ? '🚀 Ручная публикация' : '✅ Публикация'}: фото ${p.id} — <a href="${p.link}">открыть</a>`,
-    publishFailed: (p: { id: string; error: string }) =>
-      `⚠️ Не удалось опубликовать фото ${p.id}.\nОшибка: <code>${p.error}</code>\n\nПроверь права бота в канале и повтори публикацию из карточки фото.`,
-    newForModeration: (p: { id: string; author: string }) => `🛡 Новое фото на модерацию: ${p.id} от ${p.author}`,
-    channelDeleteFailed: (p: { id: string; link: string }) =>
-      `⚠️ Фото ${p.id} удалено автором, но публикацию в канале удалить не удалось. Удали вручную: ${p.link}`,
-    settingsTitle: (p: {
-      interval: string;
-      paused: boolean;
-      moderation: boolean;
-      voting: boolean;
-      maxPerDay: number;
-      maxQueued: number;
-      maxPerBattle: number;
-      onlyBattle: boolean;
-      weekly: boolean;
-    }) =>
+    newForModeration: (p: { id: string; author: string }) => `🛡 Новая работа на модерацию: ${p.id} от ${p.author}`,
+    duelPostFailed: (error: string) =>
+      `⚠️ Не удаётся опубликовать пару в канал.\nОшибка: <code>${error}</code>\n\nПроверь, что бот — администратор канала с правом публикации. Бот будет повторять попытки.`,
+    settingsTitle: (p: { moderation: boolean; subscribersOnly: boolean; maxPerBattle: number }) =>
       '<b>⚙️ Настройки</b>\n\n' +
-      `⏱ Интервал публикаций: ${p.interval}\n` +
-      `Публикации: ${p.paused ? '⏸ остановлены' : '▶️ активны'}\n` +
-      `🛡 Модерация перед публикацией: ${p.moderation ? 'вкл' : 'выкл'}\n` +
-      `🔥 Голосование: ${p.voting ? 'вкл' : 'выкл'}\n` +
-      `📅 Лимит фото в сутки: ${p.maxPerDay || 'без лимита'}\n` +
-      `⏳ Лимит фото в очереди на пользователя: ${p.maxQueued || 'без лимита'}\n` +
-      `⚔️ Лимит фото на батл: ${p.maxPerBattle || 'без лимита'}\n` +
-      `🔒 Приём фото только во время батла: ${p.onlyBattle ? 'да' : 'нет'}\n` +
-      `🗓 Еженедельные батлы (автоматически): ${p.weekly ? 'вкл' : 'выкл'}`,
+      `🛡 Модерация работ: ${p.moderation ? 'вкл' : 'выкл'}\n` +
+      `📢 Голосуют только подписчики канала: ${p.subscribersOnly ? 'да' : 'нет'}\n` +
+      `📸 Работ от участника в батле: ${p.maxPerBattle || 'без лимита'}`,
     settingsButtons: {
-      interval: '⏱ Интервал',
       moderation: '🛡 Модерация',
-      voting: '🔥 Голосование',
-      maxPerDay: '📅 Лимит в сутки',
-      maxQueued: '⏳ Лимит очереди',
-      maxPerBattle: '⚔️ Лимит на батл',
-      onlyBattle: '🔒 Только в батле',
-      weekly: '🗓 Еженедельные батлы',
+      subscribersOnly: '📢 Только подписчики',
+      maxPerBattle: '📸 Лимит работ',
     },
-    chooseInterval: 'Выбери интервал между автоматическими публикациями:',
-    intervalManual: 'Вручную',
-    intervalLabel: (minutes: number) =>
-      minutes === 0 ? 'только вручную' : minutes % 60 === 0 ? `каждые ${minutes / 60} ч` : `каждые ${minutes} мин`,
-    chooseLimit: (name: string) => `${name}: выбери значение (0 — без лимита):`,
+    chooseLimit: 'Сколько работ может отправить один участник в батл? (0 — без лимита)',
     settingsSaved: '✅ Настройки сохранены.',
     broadcastAsk:
       '📢 Отправь сообщение для рассылки всем пользователям (текст, фото, видео — любое сообщение).\n' +
@@ -517,30 +440,38 @@ export const ru = {
     broadcastDone: (p: { sent: number; failed: number }) => `📢 Рассылка завершена.\n✅ Доставлено: ${p.sent}\n⚠️ Не доставлено: ${p.failed}`,
     battlesTitle: '<b>⚔️ Батлы</b>',
     battlesEmpty: 'Батлов пока не было.',
-    battleCreate: '➕ Создать батл',
-    battleFinishNow: '🏁 Подвести итоги сейчас',
-    battleCloseSubmissions: '⏳ Закрыть приём фото',
+    battleInfo: (p: { title: string; status: string; start: string; roundMinutes: number; tiebreakMinutes: number; entries: number; round: number; progress: string | null }) =>
+      `<b>${p.title}</b> — ${p.status}\n` +
+      `Старт: ${p.start} · Голосование в паре: ${p.roundMinutes} мин · Переголосование: ${p.tiebreakMinutes} мин\n` +
+      `Работ: ${p.entries}` +
+      (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
+    battleCreate: '➕ Запланировать батл',
     battleCancel: '❌ Отменить батл',
+    battleCancelConfirm: (title: string) => `Отменить батл «${title}»? Все работы снимаются, открытые пары закрываются.`,
     battleAskTitle: 'Введи название батла (до 64 символов):',
-    battleAskTheme: 'Введи тему батла (до 200 символов) или нажми «Без темы»:',
-    battleNoTheme: 'Без темы',
-    battleAskSubmission: 'Сколько длится приём фотографий?',
-    battleAskVoting: 'Сколько длится голосование после закрытия приёма?',
-    battleCreated: (title: string) => `⚔️ Батл «${title}» создан и анонсирован в канале.`,
-    battleFinished: (title: string) => `🏁 Батл «${title}» завершён.`,
+    battleAskStart: (p: { timeZone: string; example: string }) =>
+      `Когда старт? До этого времени бот собирает работы, затем публикует пары.\n\n` +
+      `Формат: <code>14:00</code> (сегодня/завтра) или <code>${p.example}</code>.\nЧасовой пояс: ${p.timeZone}.`,
+    battleStartInvalid: 'Не понял время или оно уже прошло. Пример: <code>14:00</code> или <code>06.11 14:00</code>',
+    battleAskRound: 'Сколько длится голосование в каждой паре?',
+    battleCreated: (p: { title: string; start: string }) => `⚔️ Батл «${p.title}» запланирован на ${p.start} и анонсирован в канале.`,
     battleCancelled: (title: string) => `❌ Батл «${title}» отменён.`,
-    battleVotingStarted: (title: string) => `⏳ Приём фото в батл «${title}» закрыт.`,
-    hours: (h: number) => (h % 24 === 0 ? `${h / 24} дн.` : `${h} ч`),
-    paymentsTitle: (p: {
-      enabled: boolean;
-      card: boolean;
-      paid: number;
-      stars: number;
-      card24: string;
-      cardTotal: string;
-      votesSold: number;
-      paid24h: number;
-    }) =>
+    minutes: (m: number) => (m % 60 === 0 ? `${m / 60} ч` : `${m} мин`),
+    designTitle: (custom: boolean) =>
+      '<b>🎨 Оформление поста пары</b>\n\n' +
+      (custom ? 'Сейчас используется <b>твоё оформление</b>. Пример ниже.' : 'Сейчас стандартное оформление. Пример ниже.') +
+      '\n\nЧтобы поменять — нажми «✏️ Загрузить своё» и пришли сообщение, оформленное как пост: жирный, курсив, ссылки, премиум-эмодзи.\n\n' +
+      'Подстановки: <code>{battle}</code> — название батла, <code>{round}</code> — раунд, <code>{duel}</code> — номер пары, ' +
+      '<code>{stage}</code> — «Раунд 1 · Пара 3» / «Переголосование».\n\n' +
+      '⚠️ Премиум-эмодзи в канале отображаются, только если у бота есть username, купленный на Fragment. Без него бот автоматически опубликует обычные эмодзи.',
+    designUpload: '✏️ Загрузить своё',
+    designReset: '↩️ Стандартное оформление',
+    designAsk: 'Пришли одним сообщением текст поста с нужным оформлением и эмодзи. Можно использовать подстановки {battle}, {round}, {duel}, {stage}.',
+    designNeedsText: 'Нужно текстовое сообщение (без фото). Попробуй ещё раз.',
+    designSaved: '✅ Оформление сохранено. Так будет выглядеть подпись к паре:',
+    designResetDone: '↩️ Вернул стандартное оформление.',
+    textTooLong: (max: number) => `Слишком длинный текст. Максимум ${max} символов.`,
+    paymentsTitle: (p: { enabled: boolean; card: boolean; paid: number; stars: number; card24: string; cardTotal: string; votesSold: number; paid24h: number }) =>
       '<b>💰 Платежи и голоса</b>\n\n' +
       `Продажа голосов: ${p.enabled ? '✅ включена' : '⛔ выключена'}\n` +
       `Оплата картой: ${p.card ? '✅ подключена' : '— не подключена (нет PAYMENT_PROVIDER_TOKEN)'}\n\n` +
@@ -551,8 +482,7 @@ export const ru = {
       'Пакеты (нажми, чтобы изменить цену):',
     paymentsToggleOn: '✅ Включить продажу голосов',
     paymentsToggleOff: '⛔ Выключить продажу голосов',
-    packageRow: (p: { votes: number; stars: number; card: string; active: boolean }) =>
-      `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.stars}⭐ · ${p.card}`,
+    packageRow: (p: { votes: number; stars: number; card: string; active: boolean }) => `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.stars}⭐ · ${p.card}`,
     packageCard: (p: { votes: number; stars: number; card: string; active: boolean }) =>
       `<b>Пакет: ${p.votes} голосов</b>\nЦена: ${p.stars} ⭐ / ${p.card}\nСтатус: ${p.active ? 'продаётся' : 'скрыт'}`,
     packageEditPrice: '✏️ Изменить цену',
@@ -569,11 +499,10 @@ export const ru = {
       `#${p.id} · ${p.date} · ${p.user} · ${p.votes} гол. · ${p.amount} · ${p.status}`,
     refund: (id: number) => `↩️ Вернуть звёзды по оплате #${id}`,
     refundConfirm: (p: { id: number; amount: string; user: string }) =>
-      `Вернуть оплату #${p.id} (${p.amount}) пользователю ${p.user}? Купленные голоса будут списаны (сколько возможно).`,
+      `Вернуть оплату #${p.id} (${p.amount}) пользователю ${p.user}? Голоса, ещё не учтённые в завершённых парах, будут списаны.`,
     refundDone: (p: { id: number; reclaimed: number }) => `↩️ Оплата #${p.id} возвращена. Списано голосов: ${p.reclaimed}.`,
     refundOnlyStars: 'Автоматический возврат доступен только для оплат звёздами. Оплату картой возвращайте в кабинете платёжного провайдера.',
     paymentStatus: { PENDING: '⏳ ожидает', PAID: '✅ оплачено', REFUNDED: '↩️ возврат' },
-    textTooLong: (max: number) => `Слишком длинный текст. Максимум ${max} символов.`,
   },
 };
 

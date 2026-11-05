@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseEnv } from '../../src/config/env.js';
-import { getLocale } from '../../src/i18n/index.js';
 import { maskSecrets } from '../../src/lib/logger.js';
-import { buildChannelCaption, buildVoteKeyboard } from '../../src/modules/publications/channel-post.js';
 
 const base = {
   BOT_TOKEN: '123456789:AAFakeTokenForTestingPurposesOnly_1234',
@@ -37,23 +35,5 @@ describe('secrets masking', () => {
     const text = 'GET https://api.telegram.org/file/bot123456789:AAFakeTokenForTestingPurposesOnly_1234/photos/1.jpg failed';
     expect(maskSecrets(text)).not.toContain('AAFake');
     expect(maskSecrets(text)).toContain('<bot-token>');
-  });
-});
-
-describe('channel post', () => {
-  const locale = getLocale('ru');
-
-  it('renders the required caption format and escapes user names', () => {
-    const caption = buildChannelCaption(locale, { id: 1 }, { username: null, firstName: '<Kate>', lastName: null }, null);
-    expect(caption).toContain('📸 <b>PHOTO BATTLE</b>');
-    expect(caption).toContain('Участник: &lt;Kate&gt;');
-    expect(caption).toContain('ID фотографии: #0001');
-    expect(caption).toContain('🔥 Поддержи участника!');
-    expect(buildChannelCaption(locale, { id: 2 }, { username: 'kate', firstName: 'K', lastName: null }, 'Осень')).toContain('Участник: @kate');
-  });
-
-  it('shows vote count on the button', () => {
-    expect(buildVoteKeyboard(locale, 5, 0).inline_keyboard[0]?.[0]).toMatchObject({ text: '🔥 Поддержать', callback_data: 'v:5' });
-    expect(buildVoteKeyboard(locale, 5, 3).inline_keyboard[0]?.[0]?.text).toBe('🔥 Поддержать · 3');
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ADMIN_TG_ID, createAdmin, createQueuedPhoto, createTestContext, createUser, type TestContext } from '../helpers/context.js';
+import { ADMIN_TG_ID, createAdmin, createEntry, createTestContext, createUser, openBattle, type TestContext } from '../helpers/context.js';
 
 let ctx: TestContext;
 beforeEach(async () => {
@@ -50,16 +50,16 @@ describe('8. admin rights', () => {
 });
 
 describe('9. blocking', () => {
-  it('blocks a user, withdraws their queued photos and forbids new submissions', async () => {
+  it('blocks a user, withdraws their waiting entries and forbids new submissions', async () => {
+    await openBattle(ctx);
     const admin = await createAdmin(ctx);
     const user = await createUser(ctx);
-    const photo = await createQueuedPhoto(ctx, user);
+    const photo = await createEntry(ctx, user);
 
     const { user: blocked, cancelledPhotos } = await ctx.services.users.block(user.id, admin.id, 'spam');
     expect(blocked.isBlocked).toBe(true);
     expect(cancelledPhotos).toBe(1);
     expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).status).toBe('REJECTED');
-    expect((await ctx.prisma.publicationQueue.findUniqueOrThrow({ where: { photoId: photo.id } })).status).toBe('CANCELLED');
     await expect(ctx.services.photos.assertCanSubmit(blocked)).rejects.toMatchObject({ code: 'USER_BLOCKED' });
     await expect(ctx.services.users.block(user.id, admin.id, 'again')).rejects.toMatchObject({ code: 'INVALID_STATE' });
 
@@ -69,8 +69,9 @@ describe('9. blocking', () => {
   });
 
   it('finds users by id, @username and photo id', async () => {
+    await openBattle(ctx);
     const user = await createUser(ctx, { username: 'FindMe' });
-    const photo = await createQueuedPhoto(ctx, user);
+    const photo = await createEntry(ctx, user);
     expect((await ctx.services.users.findByQuery(String(user.telegramId)))?.id).toBe(user.id);
     expect((await ctx.services.users.findByQuery('@findme'))?.id).toBe(user.id);
     expect((await ctx.services.users.findByQuery(`#${photo.id}`))?.id).toBe(user.id);

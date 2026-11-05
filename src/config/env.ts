@@ -62,8 +62,16 @@ const envSchema = z
     MIN_PHOTO_DIMENSION: z.coerce.number().int().positive().default(320),
     MAX_PHOTO_DIMENSION: z.coerce.number().int().positive().default(10000),
     RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
+    /** Attempts to post a duel on temporary Telegram errors, and the first retry delay. */
     PUBLISH_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
     PUBLISH_RETRY_BASE_MS: z.coerce.number().int().min(1000).default(30_000),
+    /** Pause between duel posts — Telegram allows about 20 posts per minute in one channel. */
+    DUEL_POST_INTERVAL_SECONDS: z.coerce.number().int().min(3).max(600).default(5),
+    /** Default voting time of a tiebreak repost (admins can change it per battle). */
+    TIEBREAK_MINUTES: z.coerce.number().int().min(1).max(1440).default(10),
+    /** Tiebreak reposts before the earlier entry wins a tie. */
+    MAX_TIEBREAKS: z.coerce.number().int().min(0).max(10).default(3),
+    MAX_VIDEO_DURATION_SECONDS: z.coerce.number().int().min(1).max(3600).default(180),
     DRAFT_TTL_HOURS: z.coerce.number().int().positive().default(24),
     BROADCAST_RATE_PER_SECOND: z.coerce.number().int().min(1).max(30).default(20),
     RUN_STARTUP_CHECKS: booleanString.default(true),

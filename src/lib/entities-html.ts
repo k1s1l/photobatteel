@@ -1,0 +1,96 @@
+import { escapeHtml } from './format.js';
+
+/** Minimal shape of a Telegram MessageEntity. */
+export interface TextEntity {
+  type: string;
+  offset: number;
+  length: number;
+  url?: string;
+  language?: string;
+  custom_emoji_id?: string;
+  user?: { id: number };
+}
+
+function tags(entity: TextEntity): [string, string] | null {
+  switch (entity.type) {
+    case 'bold':
+      return ['<b>', '</b>'];
+    case 'italic':
+      return ['<i>', '</i>'];
+    case 'underline':
+      return ['<u>', '</u>'];
+    case 'strikethrough':
+      return ['<s>', '</s>'];
+    case 'spoiler':
+      return ['<tg-spoiler>', '</tg-spoiler>'];
+    case 'code':
+      return ['<code>', '</code>'];
+    case 'pre':
+      return entity.language ? [`<pre><code class="language-${escapeHtml(entity.language)}">`, '</code></pre>'] : ['<pre>', '</pre>'];
+    case 'text_link':
+      return entity.url ? [`<a href="${escapeHtml(entity.url).replace(/"/g, '&quot;')}">`, '</a>'] : null;
+    case 'text_mention':
+      return entity.user ? [`<a href="tg://user?id=${entity.user.id}">`, '</a>'] : null;
+    case 'custom_emoji':
+      return entity.custom_emoji_id ? [`<tg-emoji emoji-id="${escapeHtml(entity.custom_emoji_id)}">`, '</tg-emoji>'] : null;
+    case 'blockquote':
+      return ['<blockquote>', '</blockquote>'];
+    case 'expandable_blockquote':
+      return ['<blockquote expandable>', '</blockquote>'];
+    default:
+      // mention, hashtag, url, … are detected by Telegram automatically.
+      return null;
+  }
+}
+
+/**
+ * Converts a Telegram message (text + entities) to HTML for parse_mode=HTML,
+ * keeping formatting and premium (custom) emoji. Overlapping entities are
+ * closed and reopened so the result is always well-formed.
+ */
+export function entitiesToHtml(text: string, entities: readonly TextEntity[] = []): string {
+  const items = entities
+    .map((entity, index) => ({ entity, index, tag: tags(entity), end: entity.offset + entity.length }))
+    .filter((item): item is typeof item & { tag: [string, string] } => item.tag !== null && item.entity.length > 0)
+    .sort((a, b) => a.entity.offset - b.entity.offset || b.entity.length - a.entity.length || a.index - b.index);
+
+  let html = '';
+  const open: typeof items = [];
+  let next = 0;
+  for (let i = 0; i <= text.length; i += 1) {
+    // Close everything that ends here; reopen entities that were closed only to keep nesting valid.
+    if (open.some((item) => item.end === i)) {
+      const reopen: typeof items = [];
+      while (open.length > 0) {
+        const top = open.pop()!;
+        html += top.tag[1];
+        if (top.end !== i) reopen.unshift(top);
+        if (!open.some((item) => item.end === i)) break;
+      }
+      for (const item of reopen) {
+        html += item.tag[0];
+        open.push(item);
+      }
+    }
+    while (next < items.length && items[next]!.entity.offset === i) {
+      const item = items[next]!;
+      html += item.tag[0];
+      open.push(item);
+      next += 1;
+    }
+    if (i < text.length) html += escapeHtml(text[i]!);
+  }
+  return html;
+}
+
+/** Replaces premium emoji with their regular fallback (for chats where custom emoji are not allowed). */
+export function stripCustomEmoji(html: string): string {
+  return html.replace(/<tg-emoji emoji-id="[^"]*">([\s\S]*?)<\/tg-emoji>/g, '$1');
+}
+
+/** Visible length of an HTML caption (Telegram limits captions to 1024 characters). */
+export function visibleLength(html: string): number {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(lt|gt|amp|quot);/g, '_').length;
+}

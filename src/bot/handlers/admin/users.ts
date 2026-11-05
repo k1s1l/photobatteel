@@ -25,7 +25,7 @@ async function showUserCard(ctx: BotContext, userId: number): Promise<void> {
     since: formatDateTime(user.createdAt, tz, ctx.locale.intl),
     lastActive: formatDateTime(user.lastActiveAt, tz, ctx.locale.intl),
     submitted: user.photosSubmitted,
-    published: user.photosPublished,
+    balance: user.voteBalance,
     votes: user.votesReceived,
     blocked: user.isBlocked,
     reason: user.blockedReason ? escapeHtml(user.blockedReason) : null,

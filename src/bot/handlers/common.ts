@@ -5,7 +5,7 @@ import { getState, setState } from '../context.js';
 import { answer } from '../helpers.js';
 import { button, inline, mainMenu, NOOP } from '../keyboards.js';
 import { currentUser } from '../context.js';
-import { showVotesMenu } from './payments.js';
+import { showDuelSides } from './payments.js';
 
 export async function showMainMenu(ctx: BotContext, text: string): Promise<void> {
   await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...mainMenu(ctx.locale, ctx.isAdmin) });
@@ -15,9 +15,9 @@ export function registerCommonHandlers(bot: Telegraf<BotContext>): void {
   bot.start(async (ctx) => {
     setState(ctx, undefined);
     await showMainMenu(ctx, ctx.locale.start.welcome);
-    // Deep link from the "⭐ +1 vote" button: t.me/<bot>?start=boost_<photoId>
-    const boost = /^boost_(\d{1,9})$/.exec(ctx.payload ?? '');
-    if (boost?.[1]) await showVotesMenu(ctx, Number(boost[1]));
+    // Deep link from the "⭐ +1" button under a duel: t.me/<bot>?start=duel_<id>
+    const duel = /^duel_(\d{1,9})$/.exec(ctx.payload ?? '');
+    if (duel?.[1]) await showDuelSides(ctx, Number(duel[1]));
   });
 
   bot.command('menu', async (ctx) => {
@@ -35,9 +35,9 @@ export function registerCommonHandlers(bot: Telegraf<BotContext>): void {
     const settings = await ctx.deps.services.settings.get();
     await ctx.reply(
       ctx.locale.rules.text({
-        maxPerDay: settings.maxPhotosPerDay,
+        maxPerBattle: settings.maxPhotosPerBattle,
         maxSizeMb: ctx.deps.env.MAX_PHOTO_SIZE_MB,
-        minSide: ctx.deps.env.MIN_PHOTO_DIMENSION,
+        maxVideoSec: ctx.deps.env.MAX_VIDEO_DURATION_SECONDS,
         moderation: settings.moderationEnabled,
       }),
       { parse_mode: 'HTML' },
@@ -55,7 +55,6 @@ export function registerCommonHandlers(bot: Telegraf<BotContext>): void {
       reply_markup: inline([SUPPORTED_LANGUAGES.map((code) => button(getLocale(code).languageName, `lang:${code}`))]),
     });
   bot.command('language', chooseLanguage);
-  bot.hears(allTranslations((l) => l.menu.language), chooseLanguage);
 
   bot.action(/^lang:(\w+)$/, async (ctx) => {
     const code = ctx.match[1];
@@ -75,7 +74,7 @@ export function registerFallback(bot: Telegraf<BotContext>): void {
   bot.on('message', async (ctx) => {
     const state = getState(ctx);
     if (state?.kind === 'awaiting_photo') {
-      await ctx.reply(ctx.locale.submission.notAnImage);
+      await ctx.reply(ctx.locale.submission.notMedia);
       return;
     }
     await showMainMenu(ctx, ctx.locale.common.useMenu);

@@ -7,14 +7,13 @@ import { AdminService } from './modules/admins/admin.service.js';
 import { BattleService } from './modules/battles/battle.service.js';
 import { BroadcastService } from './modules/broadcasts/broadcast.service.js';
 import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from './modules/contracts.js';
+import { DuelVoteService } from './modules/duels/duel-vote.service.js';
 import { NotificationService } from './modules/notifications/notification.service.js';
 import { PaymentService } from './modules/payments/payment.service.js';
 import { PhotoService } from './modules/photos/photo.service.js';
-import { PublicationService } from './modules/publications/publication.service.js';
 import { SettingsService } from './modules/settings/settings.service.js';
 import { StatsService } from './modules/stats/stats.service.js';
 import { UserService } from './modules/users/user.service.js';
-import { VoteService } from './modules/votes/vote.service.js';
 
 export interface ServiceDeps {
   prisma: PrismaClient;
@@ -23,7 +22,7 @@ export interface ServiceDeps {
   channel: ChannelInfo;
   bot: BotIdentity;
   logger: Logger;
-  env: Pick<Env, 'DEFAULT_LANGUAGE' | 'TIMEZONE' | 'PUBLISH_MAX_ATTEMPTS' | 'BROADCAST_RATE_PER_SECOND' | 'CARD_CURRENCY'> & {
+  env: Pick<Env, 'DEFAULT_LANGUAGE' | 'TIMEZONE' | 'BROADCAST_RATE_PER_SECOND' | 'CARD_CURRENCY' | 'MAX_TIEBREAKS'> & {
     PAYMENT_PROVIDER_TOKEN?: string | undefined;
   };
 }
@@ -35,9 +34,8 @@ export interface Services {
   users: UserService;
   notifications: NotificationService;
   battles: BattleService;
+  duelVotes: DuelVoteService;
   photos: PhotoService;
-  publications: PublicationService;
-  votes: VoteService;
   stats: StatsService;
   broadcasts: BroadcastService;
   payments: PaymentService;
@@ -53,23 +51,22 @@ export function createServices(deps: ServiceDeps): Services {
   const locale = getLocale(env.DEFAULT_LANGUAGE);
 
   const activity = new ActivityService(prisma, logger);
-  const settings = new SettingsService(prisma, activity, scheduler);
+  const settings = new SettingsService(prisma, activity);
   const admins = new AdminService(prisma, activity, logger);
   const users = new UserService(prisma, activity);
   const notifications = new NotificationService(telegram, users, admins, env.DEFAULT_LANGUAGE, logger);
-  const battles = new BattleService(prisma, settings, activity, notifications, telegram, channel, deps.bot, locale, env.TIMEZONE, logger);
-  const photos = new PhotoService(prisma, settings, battles, activity, notifications, telegram, scheduler, channel, logger);
-  const publications = new PublicationService(prisma, telegram, scheduler, settings, activity, notifications, channel, locale, logger, {
-    maxAttempts: env.PUBLISH_MAX_ATTEMPTS,
+  const battles = new BattleService(prisma, settings, activity, notifications, telegram, scheduler, channel, deps.bot, locale, logger, {
+    timeZone: env.TIMEZONE,
+    maxTiebreaks: env.MAX_TIEBREAKS,
   });
-  const votes = new VoteService(prisma, settings, scheduler, telegram, channel, locale);
+  const duelVotes = new DuelVoteService(prisma, settings, scheduler, telegram, channel);
+  const photos = new PhotoService(prisma, settings, battles, activity, notifications, logger);
   const stats = new StatsService(prisma);
   const broadcasts = new BroadcastService(prisma, telegram, scheduler, activity, notifications, logger, env.BROADCAST_RATE_PER_SECOND);
-
   const payments = new PaymentService(prisma, settings, activity, scheduler, telegram, logger, {
     cardEnabled: !!env.PAYMENT_PROVIDER_TOKEN,
     cardCurrency: env.CARD_CURRENCY,
   });
 
-  return { activity, settings, admins, users, notifications, battles, photos, publications, votes, stats, broadcasts, payments };
+  return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments };
 }

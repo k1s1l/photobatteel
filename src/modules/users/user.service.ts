@@ -14,11 +14,11 @@ export interface TelegramProfile {
 
 export interface UserStats {
   user: User;
+  /** Entries waiting for the start or still playing. */
   queued: number;
-  rank: number | null;
 }
 
-const ACTIVE_PHOTO_STATUSES = ['PENDING_MODERATION', 'QUEUED'] as const;
+const WAITING_PHOTO_STATUSES = ['PENDING_MODERATION', 'ACCEPTED'] as const;
 const LAST_ACTIVE_RESOLUTION_MS = 5 * 60_000;
 
 export class UserService {
@@ -101,8 +101,8 @@ export class UserService {
   }
 
   /**
-   * Blocks a user and withdraws their photos that are not published yet.
-   * Returns the number of withdrawn photos.
+   * Blocks a user and withdraws their entries that have not started playing.
+   * Entries already in duels stay (an admin can delete them). Returns the number withdrawn.
    */
   async block(targetId: number, actorUserId: number, reason: string): Promise<{ user: User; cancelledPhotos: number }> {
     return this.prisma.$transaction(async (tx) => {
@@ -114,7 +114,7 @@ export class UserService {
         data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.slice(0, 200) },
       });
       const pending = await tx.photo.findMany({
-        where: { userId: targetId, status: { in: [...ACTIVE_PHOTO_STATUSES, 'DRAFT', 'FAILED'] } },
+        where: { userId: targetId, status: { in: [...WAITING_PHOTO_STATUSES, 'DRAFT'] } },
         select: { id: true },
       });
       const ids = pending.map((photo) => photo.id);
@@ -122,10 +122,6 @@ export class UserService {
         await tx.photo.updateMany({
           where: { id: { in: ids } },
           data: { status: 'REJECTED', rejectionReason: reason.slice(0, 200), moderatedById: actorUserId, moderatedAt: new Date() },
-        });
-        await tx.publicationQueue.updateMany({
-          where: { photoId: { in: ids }, status: { in: ['WAITING', 'PROCESSING', 'FAILED'] } },
-          data: { status: 'CANCELLED', finishedAt: new Date() },
         });
       }
       await this.activity.log(
@@ -152,9 +148,8 @@ export class UserService {
 
   async getStats(userId: number): Promise<UserStats> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const queued = await this.prisma.photo.count({ where: { userId, status: { in: [...ACTIVE_PHOTO_STATUSES] } } });
-    const rank = user.votesReceived > 0 ? (await this.prisma.user.count({ where: { votesReceived: { gt: user.votesReceived } } })) + 1 : null;
-    return { user, queued, rank };
+    const queued = await this.prisma.photo.count({ where: { userId, status: { in: [...WAITING_PHOTO_STATUSES, 'IN_BATTLE'] } } });
+    return { user, queued };
   }
 
   async list(page: number, pageSize: number): Promise<{ items: User[]; total: number }> {
@@ -163,13 +158,5 @@ export class UserService {
       this.prisma.user.count(),
     ]);
     return { items, total };
-  }
-
-  async topByVotes(limit: number): Promise<User[]> {
-    return this.prisma.user.findMany({
-      where: { votesReceived: { gt: 0 }, isBlocked: false },
-      orderBy: [{ votesReceived: 'desc' }, { photosPublished: 'desc' }, { id: 'asc' }],
-      take: limit,
-    });
   }
 }

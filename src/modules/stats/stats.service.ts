@@ -5,14 +5,15 @@ export interface BotStats {
   newUsers24h: number;
   blockedUsers: number;
   received: number;
-  published: number;
   waiting: number;
   pending: number;
+  inBattle: number;
   rejected: number;
-  failed: number;
   deleted: number;
-  published24h: number;
-  votes: number;
+  battlesFinished: number;
+  duelsFinished: number;
+  freeVotes: number;
+  paidVotes: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -22,14 +23,16 @@ export class StatsService {
 
   async botStats(now: Date = new Date()): Promise<BotStats> {
     const dayAgo = new Date(now.getTime() - DAY_MS);
-    const [users, newUsers24h, blockedUsers, byStatus, received, published24h, votes] = await Promise.all([
+    const [users, newUsers24h, blockedUsers, byStatus, received, battlesFinished, duelsFinished, freeVotes, paid] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { createdAt: { gte: dayAgo } } }),
       this.prisma.user.count({ where: { isBlocked: true } }),
       this.prisma.photo.groupBy({ by: ['status'], _count: { _all: true }, orderBy: { status: 'asc' } }),
       this.prisma.photo.count({ where: { confirmedAt: { not: null } } }),
-      this.prisma.publication.count({ where: { publishedAt: { gte: dayAgo } } }),
-      this.prisma.vote.count(),
+      this.prisma.battle.count({ where: { status: 'FINISHED' } }),
+      this.prisma.duel.count({ where: { status: 'FINISHED', photoBId: { not: null } } }),
+      this.prisma.duelVote.count(),
+      this.prisma.paidVote.aggregate({ _sum: { amount: true } }),
     ]);
     const count = (status: string) => byStatus.find((row) => row.status === status)?._count?._all ?? 0;
     return {
@@ -37,23 +40,19 @@ export class StatsService {
       newUsers24h,
       blockedUsers,
       received,
-      // "Published" counts every photo that reached the channel, even if later deleted.
-      published: await this.prisma.publication.count(),
-      waiting: count('QUEUED'),
+      waiting: count('ACCEPTED'),
       pending: count('PENDING_MODERATION'),
+      inBattle: count('IN_BATTLE'),
       rejected: count('REJECTED'),
-      failed: count('FAILED'),
       deleted: count('DELETED'),
-      published24h,
-      votes,
+      battlesFinished,
+      duelsFinished,
+      freeVotes,
+      paidVotes: paid._sum.amount ?? 0,
     };
   }
 
-  async queueCounters(): Promise<{ queued: number; pending: number }> {
-    const [queued, pending] = await Promise.all([
-      this.prisma.photo.count({ where: { status: 'QUEUED' } }),
-      this.prisma.photo.count({ where: { status: 'PENDING_MODERATION' } }),
-    ]);
-    return { queued, pending };
+  async pendingModeration(): Promise<number> {
+    return this.prisma.photo.count({ where: { status: 'PENDING_MODERATION' } });
   }
 }

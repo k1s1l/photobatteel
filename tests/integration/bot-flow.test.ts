@@ -6,7 +6,7 @@ import { createBot } from '../../src/bot/bot.js';
 import type { BotContext } from '../../src/bot/context.js';
 import { parseEnv } from '../../src/config/env.js';
 import { LockService } from '../../src/lib/locks.js';
-import { ADMIN_TG_ID, CHANNEL, createTestContext, type TestContext } from '../helpers/context.js';
+import { ADMIN_TG_ID, CHANNEL, createTestContext, openBattle, postPendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 import { TEST_REDIS_URL } from '../helpers/env.js';
 import { silentLogger } from '../helpers/fakes.js';
 import { makeJpeg, makeUniqueJpeg } from '../helpers/images.js';
@@ -46,6 +46,7 @@ beforeEach(async () => {
     api.push({ method, payload });
     const id = messageId++;
     if (method === 'sendPhoto') return { message_id: id, date: 0, chat: { id: payload.chat_id }, photo: [{ file_id: `preview-${id}`, file_unique_id: `pu-${id}`, width: 800, height: 600 }] };
+    if (method === 'sendVideo') return { message_id: id, date: 0, chat: { id: payload.chat_id }, video: { file_id: 'v', file_unique_id: 'vu', width: 1, height: 1, duration: 1 } };
     if (method.startsWith('send') || method === 'copyMessage') return { message_id: id, date: 0, chat: { id: payload.chat_id } };
     return true;
   }) as typeof Telegram.prototype.callApi);
@@ -56,23 +57,32 @@ function from(id: number, username = `u${id}`, languageCode?: string) {
   return { id, is_bot: false, first_name: `Name${id}`, username, ...(languageCode ? { language_code: languageCode } : {}) };
 }
 
-async function sendText(userId: number, text: string, username?: string) {
+const privateChat = (id: number) => ({ id, type: 'private' as const, first_name: 'N' });
+
+async function sendText(userId: number, text: string, extra: Record<string, unknown> = {}) {
   const entities = text.startsWith('/') ? [{ type: 'bot_command' as const, offset: 0, length: text.split(' ')[0]!.length }] : undefined;
   await bot.handleUpdate({
     update_id: updateId++,
-    message: { message_id: messageId++, date: 0, chat: { id: userId, type: 'private', first_name: 'N' }, from: from(userId, username), text, ...(entities ? { entities } : {}) },
+    message: { message_id: messageId++, date: 0, chat: privateChat(userId), from: from(userId), text, ...(entities ? { entities } : {}), ...extra },
   } as Update);
 }
 
 async function sendPhoto(userId: number, fileId: string, fileUniqueId: string) {
   await bot.handleUpdate({
     update_id: updateId++,
+    message: { message_id: messageId++, date: 0, chat: privateChat(userId), from: from(userId), photo: [{ file_id: fileId, file_unique_id: fileUniqueId, width: 800, height: 600, file_size: 50_000 }] },
+  } as Update);
+}
+
+async function sendVideo(userId: number, duration: number) {
+  await bot.handleUpdate({
+    update_id: updateId++,
     message: {
       message_id: messageId++,
       date: 0,
-      chat: { id: userId, type: 'private', first_name: 'N' },
+      chat: privateChat(userId),
       from: from(userId),
-      photo: [{ file_id: fileId, file_unique_id: fileUniqueId, width: 800, height: 600, file_size: 50_000 }],
+      video: { file_id: `video-${userId}`, file_unique_id: `vu-${userId}`, width: 1280, height: 720, duration, file_size: 5_000_000, mime_type: 'video/mp4' },
     },
   } as Update);
 }
@@ -85,7 +95,7 @@ async function press(userId: number, data: string, chat: { id: number; type: 'pr
       from: from(userId),
       chat_instance: 'ci',
       data,
-      message: { message_id: 1, date: 0, chat: chat.type === 'private' ? { id: chat.id, type: 'private', first_name: 'N' } : { id: chat.id, type: 'channel', title: 'C' }, text: 'x' },
+      message: { message_id: 1, date: 0, chat: chat.type === 'private' ? privateChat(chat.id) : { id: chat.id, type: 'channel', title: 'C' }, text: 'x' },
     },
   } as Update);
 }
@@ -93,229 +103,193 @@ async function press(userId: number, data: string, chat: { id: number; type: 'pr
 const texts = (method: string) => api.filter((c) => c.method === method).map((c) => String(c.payload.text ?? c.payload.caption ?? ''));
 const answers = () => api.filter((c) => c.method === 'answerCallbackQuery').map((c) => String(c.payload.text ?? ''));
 
+async function consent(userId: number) {
+  const { user } = await ctx.services.users.upsertFromTelegram({ id: userId, first_name: 'C' });
+  await ctx.services.users.giveConsent(user.id);
+}
+
 describe('bot: registration and menu', () => {
-  it('registers the user on /start and shows the welcome message with the menu', async () => {
+  it('registers the user on /start and shows the short menu', async () => {
     await sendText(10, '/start');
     expect(await ctx.prisma.user.count({ where: { telegramId: 10n } })).toBe(1);
     const reply = api.find((c) => c.method === 'sendMessage')!;
     expect(String(reply.payload.text)).toContain('Добро пожаловать в Photo Battle! 📸');
     const keyboard = JSON.stringify(reply.payload.reply_markup);
-    for (const label of ['📸 Отправить фотографию', '⭐ Купить голоса', '⚔️ Текущий батл', 'ℹ️ Правила', '❓ Помощь']) expect(keyboard).toContain(label);
-    for (const label of ['🏆 Мои фотографии', '📊 Моя статистика', '🥇 Рейтинг', '🌐 Язык']) expect(keyboard).not.toContain(label);
+    for (const label of ['📸 Отправить фото или видео', '⭐ Купить голоса', '⚔️ Текущий батл', 'ℹ️ Правила', '❓ Помощь']) expect(keyboard).toContain(label);
     expect(keyboard).not.toContain('Админ-панель');
   });
 
-  it('shows the admin button to admins only', async () => {
-    await sendText(ADMIN_TG_ID, '/start');
-    expect(JSON.stringify(api.find((c) => c.method === 'sendMessage')?.payload.reply_markup)).toContain('🛠 Админ-панель');
+  it('greets Ukrainian Telegram users in Ukrainian and lets them switch language', async () => {
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: { message_id: messageId++, date: 0, chat: privateChat(90), from: from(90, 'olena', 'uk'), text: '/start', entities: [{ type: 'bot_command', offset: 0, length: 6 }] },
+    } as Update);
+    expect(texts('sendMessage').at(-1)).toContain('Ласкаво просимо до Photo Battle! 📸');
+    await press(90, 'lang:ru');
+    expect(texts('sendMessage').at(-1)).toContain('Язык интерфейса: русский');
   });
 });
 
-describe('bot: photo submission flow', () => {
-  it('goes through consent → photo → preview → confirm, and ignores a second confirm', async () => {
+describe('bot: submission', () => {
+  it('says submissions are closed when no battle is scheduled', async () => {
+    await consent(19);
+    await sendText(19, '📸 Отправить фото или видео');
+    expect(texts('sendMessage').at(-1)).toContain('приём работ закрыт');
+  });
+
+  it('goes consent → photo → preview → confirm, keeps the entry until the start, and ignores a second confirm', async () => {
+    await openBattle(ctx);
     ctx.telegram.files.set('tg-file-1', await makeJpeg());
-    await sendText(20, '📸 Отправить фотографию');
+    await sendText(20, '📸 Отправить фото или видео');
     expect(texts('sendMessage').at(-1)).toContain('Согласие на публикацию');
     await press(20, 'consent');
-    expect(texts('sendMessage').at(-1)).toContain('Отправь одну фотографию');
+    expect(texts('sendMessage').at(-1)).toContain('для батла «Осень»');
 
     await sendPhoto(20, 'tg-file-1', 'tg-unique-1');
-    const preview = api.filter((c) => c.method === 'sendPhoto').at(-1)!;
-    expect(String(preview.payload.caption)).toContain('Предпросмотр');
     const photo = await ctx.prisma.photo.findFirstOrThrow();
-    expect(photo.status).toBe('DRAFT');
-    expect(JSON.stringify(preview.payload.reply_markup)).toContain(`ph:ok:${photo.id}`);
-
+    expect(String(api.filter((c) => c.method === 'sendPhoto').at(-1)!.payload.caption)).toContain('Предпросмотр');
     await press(20, `ph:ok:${photo.id}`);
-    expect(texts('sendMessage').some((t) => t.includes('✅ Твоя фотография успешно принята!'))).toBe(true);
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).status).toBe('QUEUED');
+    expect(texts('sendMessage').some((t) => t.includes('Работа принята в батл «Осень»'))).toBe(true);
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).status).toBe('ACCEPTED');
 
     await press(20, `ph:ok:${photo.id}`);
     expect(answers().at(-1)).toBe('Это действие уже выполнено.');
-    expect(await ctx.prisma.publicationQueue.count()).toBe(1);
+    expect(ctx.telegram.callsOf('sendPhoto')).toHaveLength(0); // nothing posted to the channel yet
   });
 
-  it('rejects non-images and corrupted files with a clear message', async () => {
-    const jpeg = await makeUniqueJpeg(1);
-    ctx.telegram.files.set('broken', jpeg.subarray(0, 200));
-    await ctx.services.users.giveConsent((await ctx.services.users.upsertFromTelegram({ id: 30, first_name: 'C' })).user.id);
-    await sendText(30, '📸 Отправить фотографию');
+  it('accepts videos and rejects ones that are too long', async () => {
+    await openBattle(ctx);
+    await consent(21);
+    await sendVideo(21, 999);
+    expect(texts('sendMessage').at(-1)).toContain('Видео слишком длинное');
+    await sendVideo(21, 30);
+    expect(api.some((c) => c.method === 'sendVideo' && String(c.payload.caption).includes('Предпросмотр'))).toBe(true);
+    expect(await ctx.prisma.photo.findFirstOrThrow()).toMatchObject({ mediaType: 'VIDEO', durationSec: 30, status: 'DRAFT' });
+  });
+
+  it('rejects non-media and corrupted files with a clear message', async () => {
+    await openBattle(ctx);
+    ctx.telegram.files.set('broken', (await makeUniqueJpeg(1)).subarray(0, 200));
+    await consent(30);
+    await sendText(30, '📸 Отправить фото или видео');
     await sendText(30, 'hello');
-    expect(texts('sendMessage').at(-1)).toContain('Это не изображение');
+    expect(texts('sendMessage').at(-1)).toContain('Это не фото и не видео');
     await sendPhoto(30, 'broken', 'broken-u');
     expect(texts('sendMessage').at(-1)).toContain('Не удалось прочитать изображение');
-    expect(await ctx.prisma.photo.count()).toBe(0);
-  });
-
-  it('lets the user cancel before confirmation', async () => {
-    ctx.telegram.files.set('f', await makeUniqueJpeg(2));
-    await ctx.services.users.giveConsent((await ctx.services.users.upsertFromTelegram({ id: 31, first_name: 'C' })).user.id);
-    await sendPhoto(31, 'f', 'fu');
-    const photo = await ctx.prisma.photo.findFirstOrThrow();
-    await press(31, `ph:no:${photo.id}`);
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).status).toBe('CANCELLED');
-    await press(31, `ph:ok:${photo.id}`);
-    expect(await ctx.prisma.publicationQueue.count()).toBe(0);
   });
 });
 
-describe('bot: stale previews', () => {
-  it('explains that an older preview is no longer valid after a new photo is sent', async () => {
-    ctx.telegram.files.set('a', await makeUniqueJpeg(11));
-    ctx.telegram.files.set('b', await makeUniqueJpeg(12));
-    await ctx.services.users.giveConsent((await ctx.services.users.upsertFromTelegram({ id: 32, first_name: 'S' })).user.id);
-    await sendPhoto(32, 'a', 'au');
-    await sendPhoto(32, 'b', 'bu');
-    const [first, second] = await ctx.prisma.photo.findMany({ orderBy: { id: 'asc' } });
-    await press(32, `ph:ok:${first!.id}`);
-    expect(answers().at(-1)).toContain('предпросмотр больше не действителен');
-    await press(32, `ph:ok:${second!.id}`);
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: second!.id } })).status).toBe('QUEUED');
-  });
-});
-
-describe('bot: admin access control', () => {
-  it('denies admin buttons and commands to regular users', async () => {
-    await press(40, 'a:stats');
-    expect(answers().at(-1)).toContain('нет доступа');
-    await press(40, 'a:pause');
-    expect((await ctx.services.settings.get()).publishingPaused).toBe(false);
-    await sendText(40, '/admin');
-    expect(texts('sendMessage').at(-1)).toContain('нет доступа');
-    expect(await ctx.prisma.activityLog.count({ where: { action: 'ADMIN_ACCESS_DENIED' } })).toBe(3);
-  });
-
-  it('lets an admin open the panel, pause publishing and block a user by @username', async () => {
-    await sendText(50, '/start', 'victim');
-    await sendText(ADMIN_TG_ID, '/admin');
-    expect(texts('sendMessage').at(-1)).toContain('Админ-панель Photo Battle');
-
-    await press(ADMIN_TG_ID, 'a:pause');
-    ctx.services.settings.invalidate();
-    expect((await ctx.services.settings.get()).publishingPaused).toBe(true);
-
-    await press(ADMIN_TG_ID, 'a:in:block');
-    await sendText(ADMIN_TG_ID, '@victim');
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { telegramId: 50n } })).isBlocked).toBe(true);
-
-    api.length = 0;
-    await sendText(50, '/start', 'victim');
-    expect(texts('sendMessage').at(-1)).toContain('доступ к Photo Battle ограничен');
-  });
-});
-
-describe('bot: channel voting', () => {
-  it('counts a vote pressed under a channel post', async () => {
-    const owner = (await ctx.services.users.upsertFromTelegram({ id: 60, first_name: 'Owner' })).user;
-    await ctx.services.users.giveConsent(owner.id);
-    ctx.telegram.files.set('v', await makeUniqueJpeg(3));
-    await sendPhoto(60, 'v', 'vu');
-    const photo = await ctx.prisma.photo.findFirstOrThrow();
-    await press(60, `ph:ok:${photo.id}`);
-    const item = await ctx.services.publications.claimNext();
-    await ctx.services.publications.processItem(item!.id);
-
-    await press(61, `v:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
-    expect(answers().at(-1)).toContain('Голос учтён');
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).votesCount).toBe(1);
-    await press(60, `v:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
-    expect(answers().at(-1)).toContain('Нельзя голосовать за свою');
-  });
-});
-
-describe('bot: Ukrainian language', () => {
-  it('greets Ukrainian Telegram users in Ukrainian and lets them switch to Russian', async () => {
-    await bot.handleUpdate({
-      update_id: updateId++,
-      message: { message_id: messageId++, date: 0, chat: { id: 90, type: 'private', first_name: 'N' }, from: from(90, 'olena', 'uk'), text: '/start', entities: [{ type: 'bot_command', offset: 0, length: 6 }] },
-    } as Update);
-    const welcome = api.find((c) => c.method === 'sendMessage')!;
-    expect(String(welcome.payload.text)).toContain('Ласкаво просимо до Photo Battle! 📸');
-    expect(JSON.stringify(welcome.payload.reply_markup)).toContain('📸 Надіслати фотографію');
-
-    await press(90, 'lang:ru');
-    expect(texts('sendMessage').at(-1)).toContain('Язык интерфейса: русский');
-    await sendText(90, '📊 Моя статистика');
-    expect(texts('sendMessage').at(-1)).toContain('Моя статистика');
-    await sendText(90, '🌐 Язык');
-    await press(90, 'lang:uk');
-    await sendText(90, '📊 Моя статистика');
-    expect(texts('sendMessage').at(-1)).toContain('Отримано голосів');
-  });
-});
-
-describe('bot: paid votes', () => {
-  async function publishedPhotoOf(ownerTgId: number) {
-    const owner = (await ctx.services.users.upsertFromTelegram({ id: ownerTgId, first_name: 'Owner' })).user;
-    await ctx.services.users.giveConsent(owner.id);
-    ctx.telegram.files.set(`p${ownerTgId}`, await makeUniqueJpeg(ownerTgId));
-    await sendPhoto(ownerTgId, `p${ownerTgId}`, `pu${ownerTgId}`);
-    const photo = await ctx.prisma.photo.findFirstOrThrow({ where: { userId: owner.id } });
-    await press(ownerTgId, `ph:ok:${photo.id}`);
-    await ctx.services.publications.processItem((await ctx.services.publications.claimNext())!.id);
-    return photo;
+describe('bot: voting under duel posts', () => {
+  async function runningDuel() {
+    const battle = await openBattle(ctx);
+    for (const userId of [60, 61]) {
+      await consent(userId);
+      ctx.telegram.files.set(`p${userId}`, await makeUniqueJpeg(userId));
+      await sendPhoto(userId, `p${userId}`, `pu${userId}`);
+      const photo = await ctx.prisma.photo.findFirstOrThrow({ where: { user: { telegramId: BigInt(userId) } } });
+      await press(userId, `ph:ok:${photo.id}`);
+    }
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    return ctx.prisma.duel.findFirstOrThrow();
   }
 
-  it('sells votes for Stars and spends them with the channel button', async () => {
+  it('counts a free vote from a channel subscriber and lets them switch', async () => {
+    const duel = await runningDuel();
+    await press(70, `d:${duel.id}:0:a`, { id: CHANNEL.id, type: 'channel' });
+    expect(answers().at(-1)).toContain('Голос за работу 1 учтён');
+    await press(70, `d:${duel.id}:0:b`, { id: CHANNEL.id, type: 'channel' });
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).toMatchObject({ votesA: 0, votesB: 1 });
+  });
+
+  it('asks non-subscribers to subscribe', async () => {
+    const duel = await runningDuel();
+    ctx.telegram.nonMembers.add(71);
+    await press(71, `d:${duel.id}:0:a`, { id: CHANNEL.id, type: 'channel' });
+    expect(answers().at(-1)).toContain('Голосовать могут только подписчики');
+  });
+
+  it('"⭐ +1" opens the bot, lets the user pick a side and pay with Stars', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true }, null);
-    const photo = await publishedPhotoOf(70);
+    const duel = await runningDuel();
+    await press(72, `dp:${duel.id}`, { id: CHANNEL.id, type: 'channel' });
+    expect(api.filter((c) => c.method === 'answerCallbackQuery').at(-1)!.payload.url).toBe(`https://t.me/photobattle_bot?start=duel_${duel.id}`);
 
-    await sendText(71, '⭐ Купить голоса');
-    const menu = api.filter((c) => c.method === 'sendMessage').at(-1)!;
-    expect(String(menu.payload.text)).toContain('Дополнительные голоса');
+    await sendText(72, `/start duel_${duel.id}`);
+    expect(texts('sendMessage').at(-1)).toContain('За какую работу?');
+    await press(72, `pay:side:${duel.id}:b`);
+    expect(texts('sendMessage').at(-1)).toContain('Голоса за работу 2');
     const [pack] = await ctx.services.payments.listPackages(true);
-    expect(JSON.stringify(menu.payload.reply_markup)).toContain(`pay:s:${pack!.id}:0`);
-    expect(JSON.stringify(menu.payload.reply_markup)).toContain(`pay:c:${pack!.id}:0`);
-
-    await press(71, `pay:s:${pack!.id}:0`);
+    await press(72, `pay:s:${pack!.id}:${duel.photoBId}`);
     const invoice = api.find((c) => c.method === 'sendInvoice')!;
     expect(invoice.payload).toMatchObject({ currency: 'XTR', provider_token: '', prices: [{ amount: pack!.priceStars }] });
+    expect(String(invoice.payload.description)).toContain('работу 2');
 
     await bot.handleUpdate({
       update_id: updateId++,
-      pre_checkout_query: { id: 'pcq1', from: from(71), currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: String(invoice.payload.payload) },
+      pre_checkout_query: { id: 'pcq1', from: from(72), currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: String(invoice.payload.payload) },
     } as Update);
     expect(api.find((c) => c.method === 'answerPreCheckoutQuery')?.payload).toMatchObject({ ok: true });
-
     await bot.handleUpdate({
       update_id: updateId++,
       message: {
         message_id: messageId++,
         date: 0,
-        chat: { id: 71, type: 'private', first_name: 'N' },
-        from: from(71),
-        successful_payment: {
-          currency: 'XTR',
-          total_amount: pack!.priceStars,
-          invoice_payload: String(invoice.payload.payload),
-          telegram_payment_charge_id: 'stars-charge-1',
-          provider_payment_charge_id: '',
-        },
+        chat: privateChat(72),
+        from: from(72),
+        successful_payment: { currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: String(invoice.payload.payload), telegram_payment_charge_id: 'c1', provider_payment_charge_id: '' },
       },
     } as Update);
-    expect(texts('sendMessage').at(-1)).toContain('На баланс зачислено 5');
+    expect(texts('sendMessage').at(-1)).toContain('Работа получила +5');
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(5);
+  });
+});
 
-    await press(71, `b:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
-    expect(answers().at(-1)).toContain('Осталось на балансе: 4');
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).votesCount).toBe(1);
+describe('bot: admin', () => {
+  it('denies admin buttons and commands to regular users', async () => {
+    await press(40, 'a:stats');
+    expect(answers().at(-1)).toContain('нет доступа');
+    await sendText(40, '/admin');
+    expect(texts('sendMessage').at(-1)).toContain('нет доступа');
+    expect(await ctx.prisma.activityLog.count({ where: { action: 'ADMIN_ACCESS_DENIED' } })).toBe(2);
   });
 
-  it('opens the purchase in the bot when the balance is empty', async () => {
-    await ctx.services.settings.update({ paidVotesEnabled: true }, null);
-    const photo = await publishedPhotoOf(72);
-    await press(73, `b:${photo.id}`, { id: CHANNEL.id, type: 'channel' });
-    const reply = api.filter((c) => c.method === 'answerCallbackQuery').at(-1)!;
-    expect(String(reply.payload.url)).toBe(`https://t.me/photobattle_bot?start=boost_${photo.id}`);
-
-    await sendText(73, `/start boost_${photo.id}`);
-    expect(texts('sendMessage').at(-1)).toContain(`Голоса для фото #000${photo.id}`);
+  it('schedules a battle: title → start time → round duration', async () => {
+    await sendText(ADMIN_TG_ID, '/admin');
+    expect(texts('sendMessage').at(-1)).toContain('Админ-панель Photo Battle');
+    await press(ADMIN_TG_ID, 'a:bt:new');
+    await sendText(ADMIN_TG_ID, 'Зимний батл');
+    await sendText(ADMIN_TG_ID, 'вчера');
+    expect(texts('sendMessage').at(-1)).toContain('Не понял время');
+    await sendText(ADMIN_TG_ID, '23:59');
+    expect(texts('sendMessage').at(-1)).toContain('Сколько длится голосование');
+    await press(ADMIN_TG_ID, 'a:bt:round:120');
+    const battle = await ctx.prisma.battle.findFirstOrThrow();
+    expect(battle).toMatchObject({ title: 'Зимний батл', status: 'SCHEDULED', roundMinutes: 120, tiebreakMinutes: 10 });
+    expect(battle.startsAt.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('rejects a stale pre-checkout query', async () => {
-    await bot.handleUpdate({
-      update_id: updateId++,
-      pre_checkout_query: { id: 'pcq2', from: from(74), currency: 'XTR', total_amount: 25, invoice_payload: 'order:424242' },
-    } as Update);
-    expect(api.find((c) => c.method === 'answerPreCheckoutQuery')?.payload).toMatchObject({ ok: false });
+  it('saves a duel design with premium emoji from a formatted message', async () => {
+    await press(ADMIN_TG_ID, 'a:tpl');
+    expect(texts('editMessageText').some((t) => t.includes('Оформление поста пары'))).toBe(true);
+    await press(ADMIN_TG_ID, 'a:tpl:up');
+    await sendText(ADMIN_TG_ID, '🔥 БАТЛ {stage}', {
+      entities: [
+        { type: 'custom_emoji', offset: 0, length: 2, custom_emoji_id: '5368324170671202286' },
+        { type: 'bold', offset: 3, length: 4 },
+      ],
+    });
+    expect((await ctx.services.settings.get()).duelTemplate).toBe('<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>БАТЛ</b> {stage}');
+    expect(texts('sendMessage').some((t) => t.includes('<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>БАТЛ</b> Раунд 1 · Пара 3'))).toBe(true);
+  });
+
+  it('blocks a user by @username', async () => {
+    await sendText(50, '/start');
+    await press(ADMIN_TG_ID, 'a:in:block');
+    await sendText(ADMIN_TG_ID, '@u50');
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { telegramId: 50n } })).isBlocked).toBe(true);
+    api.length = 0;
+    await sendText(50, '/start');
+    expect(texts('sendMessage').at(-1)).toContain('доступ к Photo Battle ограничен');
   });
 });

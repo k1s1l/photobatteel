@@ -1,4 +1,4 @@
-import type { Payment, PaymentMethod, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
+import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import type { Logger } from '../../lib/logger.js';
 import type { ActivityService } from '../activity/activity.service.js';
@@ -33,9 +33,20 @@ export interface Invoice {
 
 export type CheckoutProblem = 'expired' | 'unavailable' | 'disabled';
 
+type Db = PrismaClient | Prisma.TransactionClient;
+
+/** The open duel an entry is playing right now, and its side in it. */
+export async function findActiveDuel(db: Db, photoId: number, now: Date = new Date()): Promise<{ duel: Duel; side: DuelSide } | null> {
+  const duel = await db.duel.findFirst({
+    where: { status: 'ACTIVE', endsAt: { gt: now }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
+  });
+  if (!duel) return null;
+  return { duel, side: duel.photoAId === photoId ? 'A' : 'B' };
+}
+
 export interface CompletedPayment {
   payment: Payment;
-  /** 'photo' — votes went to the target photo; 'balance' — to the buyer's balance. */
+  /** 'photo' — votes went to the target entry's current duel; 'balance' — to the buyer's balance. */
   creditedTo: 'photo' | 'balance';
   /** Set when the target photo was no longer votable and votes went to the balance instead. */
   targetUnavailable: boolean;
@@ -116,10 +127,7 @@ export class PaymentService {
     if (method === 'CARD' && !this.options.cardEnabled) throw new DomainError('PAYMENTS_DISABLED');
     const pack = await this.prisma.votePackage.findUnique({ where: { id: packageId } });
     if (!pack?.isActive) throw new DomainError('NOT_FOUND');
-    if (targetPhotoId !== null) {
-      const photo = await this.prisma.photo.findUnique({ where: { id: targetPhotoId }, select: { status: true } });
-      if (photo?.status !== 'PUBLISHED') throw new DomainError('NOT_FOUND');
-    }
+    if (targetPhotoId !== null && !(await findActiveDuel(this.prisma, targetPhotoId))) throw new DomainError('VOTING_CLOSED');
     const currency = method === 'STARS' ? STARS_CURRENCY : this.options.cardCurrency;
     const amount = method === 'STARS' ? pack.priceStars : pack.priceCard;
     const payment = await this.prisma.payment.create({
@@ -140,10 +148,7 @@ export class PaymentService {
     if (payment.user.isBlocked) return 'disabled';
     const settings = await this.settings.get();
     if (!settings.paidVotesEnabled) return 'disabled';
-    if (payment.targetPhotoId !== null) {
-      const photo = await this.prisma.photo.findUnique({ where: { id: payment.targetPhotoId }, select: { status: true } });
-      if (photo?.status !== 'PUBLISHED') return 'unavailable';
-    }
+    if (payment.targetPhotoId !== null && !(await findActiveDuel(this.prisma, payment.targetPhotoId))) return 'unavailable';
     return null;
   }
 
@@ -167,7 +172,7 @@ export class PaymentService {
       const payment = await tx.payment.findUniqueOrThrow({ where: { id }, include: { user: true } });
       if (payment.user.telegramId !== BigInt(input.telegramUserId)) throw new Error(`Payment ${id} belongs to another user`);
       if (payment.status !== 'PENDING') {
-        return { payment, creditedTo: 'balance' as const, targetUnavailable: false, balance: payment.user.voteBalance, alreadyProcessed: true };
+        return { payment, creditedTo: 'balance' as const, targetUnavailable: false, balance: payment.user.voteBalance, alreadyProcessed: true, duelId: null };
       }
       if (payment.currency !== input.currency || payment.amount !== input.totalAmount) {
         this.logger.error({ paymentId: id, expected: [payment.currency, payment.amount], got: [input.currency, input.totalAmount] }, 'Paid amount differs from the order');
@@ -179,11 +184,14 @@ export class PaymentService {
 
       let creditedTo: 'photo' | 'balance' = 'balance';
       let targetUnavailable = false;
+      let duelId: number | null = null;
       if (payment.targetPhotoId !== null) {
         const photo = await tx.photo.findUnique({ where: { id: payment.targetPhotoId } });
-        if (photo?.status === 'PUBLISHED') {
-          await this.applyVotes(tx, photo.id, photo.userId, payment.userId, payment.votes, payment.id);
+        const active = photo ? await findActiveDuel(tx, photo.id) : null;
+        if (photo && active) {
+          await this.applyVotes(tx, photo, active.duel, active.side, payment.userId, payment.votes, payment.id);
           creditedTo = 'photo';
+          duelId = active.duel.id;
         } else {
           targetUnavailable = true;
         }
@@ -202,37 +210,40 @@ export class PaymentService {
         },
         tx,
       );
-      return { payment: paid, creditedTo, targetUnavailable, balance, alreadyProcessed: false };
+      return { payment: paid, creditedTo, targetUnavailable, balance, alreadyProcessed: false, duelId };
     });
 
-    if (result.creditedTo === 'photo' && result.payment.targetPhotoId) await this.scheduler.scheduleVoteRefresh(result.payment.targetPhotoId);
-    return result;
+    if (result.duelId) await this.scheduler.scheduleVoteRefresh(result.duelId);
+    const { duelId: _duelId, ...completed } = result;
+    return completed;
   }
 
-  /** Spends purchased votes from the balance on a published photo. */
+  /** Spends purchased votes from the balance on an entry that is playing a duel right now. */
   async spendVotes(user: User, photoId: number, amount: number): Promise<{ balance: number; votes: number }> {
     if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) throw new RangeError('Invalid amount');
     if (user.isBlocked) throw new DomainError('USER_BLOCKED');
     const result = await this.prisma.$transaction(async (tx) => {
       const photo = await tx.photo.findUnique({ where: { id: photoId } });
-      if (photo?.status !== 'PUBLISHED') throw new DomainError('NOT_FOUND');
+      const active = photo ? await findActiveDuel(tx, photoId) : null;
+      if (!photo || !active) throw new DomainError('VOTING_CLOSED');
       const debited = await tx.user.updateMany({ where: { id: user.id, voteBalance: { gte: amount } }, data: { voteBalance: { decrement: amount } } });
       if (debited.count === 0) {
         const current = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
         throw new DomainError('INSUFFICIENT_BALANCE', { balance: current.voteBalance });
       }
-      const votes = await this.applyVotes(tx, photo.id, photo.userId, user.id, amount, null);
-      await this.activity.log({ action: 'PAID_VOTES_SPENT', userId: user.id, entityType: 'Photo', entityId: photoId, details: { amount } }, tx);
+      const votes = await this.applyVotes(tx, photo, active.duel, active.side, user.id, amount, null);
+      await this.activity.log({ action: 'PAID_VOTES_SPENT', userId: user.id, entityType: 'Photo', entityId: photoId, details: { amount, duelId: active.duel.id } }, tx);
       const { voteBalance } = await tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { voteBalance: true } });
-      return { balance: voteBalance, votes };
+      return { balance: voteBalance, votes, duelId: active.duel.id };
     });
-    await this.scheduler.scheduleVoteRefresh(photoId);
-    return result;
+    await this.scheduler.scheduleVoteRefresh(result.duelId);
+    return { balance: result.balance, votes: result.votes };
   }
 
   /**
-   * Refunds a Stars payment and takes back the purchased votes where still possible
-   * (from the target photo or the remaining balance). Returns the number of votes taken back.
+   * Refunds a Stars payment and takes back the purchased votes where still possible:
+   * from a duel that is still being voted on, or from the remaining balance.
+   * Votes already counted in a finished duel stay. Returns the number of votes taken back.
    */
   async refundStars(paymentId: number, adminUserId: number): Promise<{ payment: Payment; reclaimed: number }> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, include: { user: true } });
@@ -243,13 +254,22 @@ export class PaymentService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       let reclaimed = 0;
-      const toPhoto = await tx.paidVote.findFirst({ where: { paymentId: payment.id } });
-      if (toPhoto) {
-        const photo = await tx.photo.findUniqueOrThrow({ where: { id: toPhoto.photoId } });
-        reclaimed = Math.min(toPhoto.amount, photo.paidVotes);
-        if (reclaimed > 0) {
-          await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { decrement: reclaimed }, paidVotes: { decrement: reclaimed } } });
-          if (photo.status === 'PUBLISHED') await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { decrement: reclaimed } } });
+      let duelId: number | null = null;
+      const given = await tx.paidVote.findFirst({ where: { paymentId: payment.id }, include: { duel: true, photo: true } });
+      if (given) {
+        const stillOpen = given.duel.status === 'ACTIVE' && given.duel.stage === given.stage;
+        if (stillOpen) {
+          const sideVotes = given.side === 'A' ? given.duel.votesA : given.duel.votesB;
+          reclaimed = Math.min(given.amount, sideVotes);
+          if (reclaimed > 0) {
+            await tx.duel.update({
+              where: { id: given.duelId },
+              data: given.side === 'A' ? { votesA: { decrement: reclaimed } } : { votesB: { decrement: reclaimed } },
+            });
+            await tx.photo.update({ where: { id: given.photoId }, data: { votesCount: { decrement: reclaimed }, paidVotes: { decrement: reclaimed } } });
+            await tx.user.update({ where: { id: given.photo.userId }, data: { votesReceived: { decrement: reclaimed } } });
+            duelId = given.duelId;
+          }
         }
       } else {
         const user = await tx.user.findUniqueOrThrow({ where: { id: payment.userId } });
@@ -261,9 +281,9 @@ export class PaymentService {
         { action: 'PAYMENT_REFUNDED', userId: adminUserId, entityType: 'Payment', entityId: payment.id, details: { reclaimed } },
         tx,
       );
-      return { payment: refunded, reclaimed, photoId: toPhoto?.photoId ?? null };
+      return { payment: refunded, reclaimed, duelId };
     });
-    if (result.photoId) await this.scheduler.scheduleVoteRefresh(result.photoId);
+    if (result.duelId) await this.scheduler.scheduleVoteRefresh(result.duelId);
     return { payment: result.payment, reclaimed: result.reclaimed };
   }
 
@@ -300,23 +320,25 @@ export class PaymentService {
     return { paid, paid24h, stars, cardTotal, card24h, votesSold: votes._sum.votes ?? 0 };
   }
 
-  /** Adds paid votes to a photo and its author's rating. Returns the new vote count. */
+  /** Adds paid votes to the entry's side of its current duel stage. Returns that side's new count. */
   private async applyVotes(
-    tx: Parameters<Parameters<PrismaClient['$transaction']>[0]>[0],
-    photoId: number,
-    ownerId: number,
+    tx: Prisma.TransactionClient,
+    photo: Photo,
+    duel: Duel,
+    side: DuelSide,
     buyerId: number,
     amount: number,
     paymentId: number | null,
   ): Promise<number> {
-    const photo = await tx.photo.update({
-      where: { id: photoId },
-      data: { votesCount: { increment: amount }, paidVotes: { increment: amount } },
-      select: { votesCount: true },
+    const updated = await tx.duel.update({
+      where: { id: duel.id },
+      data: side === 'A' ? { votesA: { increment: amount } } : { votesB: { increment: amount } },
+      select: { votesA: true, votesB: true },
     });
-    await tx.user.update({ where: { id: ownerId }, data: { votesReceived: { increment: amount } } });
-    await tx.paidVote.create({ data: { photoId, userId: buyerId, amount, paymentId } });
-    return photo.votesCount;
+    await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: amount }, paidVotes: { increment: amount } } });
+    await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: amount } } });
+    await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });
+    return side === 'A' ? updated.votesA : updated.votesB;
   }
 }
 

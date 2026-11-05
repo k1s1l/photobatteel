@@ -1,25 +1,17 @@
 import type { Composer } from 'telegraf';
+import { escapeHtml } from '../../../lib/format.js';
 import type { BotContext } from '../../context.js';
 import { setState } from '../../context.js';
 import { answer, respond } from '../../helpers.js';
 import { adminPanelKeyboard, backToPanel } from './keyboards.js';
-import { adminUserId } from './shared.js';
 
 export async function showPanel(ctx: BotContext, forceNew = false): Promise<void> {
-  const { settings, stats } = ctx.deps.services;
-  const current = await settings.get();
-  const counters = await stats.queueCounters();
-  await respond(
-    ctx,
-    ctx.locale.admin.panelTitle({
-      paused: current.publishingPaused,
-      interval: ctx.locale.admin.intervalLabel(current.publishIntervalMinutes),
-      moderation: current.moderationEnabled,
-      queued: counters.queued,
-      pending: counters.pending,
-    }),
-    { keyboard: adminPanelKeyboard(ctx.locale, current.publishingPaused, counters.pending), forceNew },
-  );
+  const { settings, stats, battles } = ctx.deps.services;
+  const [current, pending, battle] = await Promise.all([settings.get(), stats.pendingModeration(), battles.getCurrent()]);
+  await respond(ctx, ctx.locale.admin.panelTitle({ battle: battle ? escapeHtml(battle.title) : null, pending, paid: current.paidVotesEnabled }), {
+    keyboard: adminPanelKeyboard(ctx.locale, pending),
+    forceNew,
+  });
 }
 
 export function registerPanelHandlers(admin: Composer<BotContext>): void {
@@ -41,12 +33,4 @@ export function registerPanelHandlers(admin: Composer<BotContext>): void {
     const stats = await ctx.deps.services.stats.botStats();
     await respond(ctx, ctx.locale.admin.stats(stats), { keyboard: backToPanel(ctx.locale) });
   });
-
-  const setPaused = async (ctx: BotContext, paused: boolean) => {
-    await ctx.deps.services.settings.update({ publishingPaused: paused }, adminUserId(ctx));
-    await answer(ctx, paused ? ctx.locale.admin.paused : ctx.locale.admin.resumed, true);
-    await showPanel(ctx);
-  };
-  admin.action('a:pause', (ctx) => setPaused(ctx, true));
-  admin.action('a:resume', (ctx) => setPaused(ctx, false));
 }

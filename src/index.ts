@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   if (!Number.isSafeInteger(channel.id)) throw new Error('CHANNEL_ID must be numeric when RUN_STARTUP_CHECKS=false');
 
   const gateway = new TelegrafGateway(bot.telegram);
-  const queues = new AppQueues({ redisUrl: env.REDIS_URL, prefix: QUEUE_PREFIX, publishMaxAttempts: env.PUBLISH_MAX_ATTEMPTS, timeZone: env.TIMEZONE });
+  const queues = new AppQueues({ redisUrl: env.REDIS_URL, prefix: QUEUE_PREFIX, postMaxAttempts: env.PUBLISH_MAX_ATTEMPTS });
   const services = createServices({ prisma, telegram: gateway, scheduler: queues, channel, bot: { username: me.username }, logger, env });
 
   await initializeDatabase(services, env.ADMIN_IDS);
@@ -55,7 +55,13 @@ async function main(): Promise<void> {
   if (env.APP_ROLE !== 'bot') {
     workers = startWorkers(
       services,
-      { redisUrl: env.REDIS_URL, prefix: QUEUE_PREFIX, retryBaseMs: env.PUBLISH_RETRY_BASE_MS, draftTtlHours: env.DRAFT_TTL_HOURS },
+      {
+        redisUrl: env.REDIS_URL,
+        prefix: QUEUE_PREFIX,
+        retryBaseMs: env.PUBLISH_RETRY_BASE_MS,
+        draftTtlHours: env.DRAFT_TTL_HOURS,
+        duelPostIntervalMs: env.DUEL_POST_INTERVAL_SECONDS * 1000,
+      },
       logger,
     );
     logger.info('Background workers started');

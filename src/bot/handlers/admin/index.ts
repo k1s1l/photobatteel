@@ -7,26 +7,18 @@ import { getState, setState } from '../../context.js';
 import { answer, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
 import { handleBattleWizardText, registerBattleHandlers } from './battles.js';
+import { handleTemplateMessage, registerDesignHandlers } from './design.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
 import { handlePackagePriceInput, registerPaymentAdminHandlers } from './payments.js';
 import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
-import { adminUserId } from './shared.js';
 import { blockUser, registerUserHandlers, unblockUser } from './users.js';
 
-const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'battle_create']);
+const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create']);
 const MENU_BUTTONS = new Set(
-  allTranslations((l) => l.menu.submit)
-    .concat(allTranslations((l) => l.menu.myPhotos))
-    .concat(allTranslations((l) => l.menu.myStats))
-    .concat(allTranslations((l) => l.menu.rating))
-    .concat(allTranslations((l) => l.menu.battle))
-    .concat(allTranslations((l) => l.menu.rules))
-    .concat(allTranslations((l) => l.menu.help))
-    .concat(allTranslations((l) => l.menu.votes))
-    .concat(allTranslations((l) => l.menu.language)),
+  (['submit', 'votes', 'battle', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
 );
 const ADMIN_BUTTONS = new Set(allTranslations((l) => l.menu.admin));
 
@@ -71,6 +63,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   }
 
   if (state.kind === 'admin_broadcast') return previewBroadcast(ctx, message.message_id);
+  if (state.kind === 'admin_template') return handleTemplateMessage(ctx, message);
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind !== 'admin_input') return next();
@@ -83,26 +76,13 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   const { services } = ctx.deps;
   const retry = inline([[button(ctx.locale.common.cancel, 'a:cancel')]]);
 
-  if (state.action === 'publish' || state.action === 'delete') {
+  if (state.action === 'delete') {
     const photoId = parsePhotoId(text);
     if (!photoId) {
       await ctx.reply(ctx.locale.admin.invalidPhotoId, { reply_markup: retry });
       return;
     }
     setState(ctx, undefined);
-    if (state.action === 'publish') {
-      try {
-        await services.publications.publishNow(photoId, adminUserId(ctx));
-      } catch (error) {
-        if (isDomainError(error) && error.code === 'NOT_FOUND') {
-          await ctx.reply(ctx.locale.admin.photoNotFound, { reply_markup: backToPanel(ctx.locale) });
-          return;
-        }
-        throw error;
-      }
-      await ctx.reply(ctx.locale.admin.publishQueued(formatPhotoId(photoId)), { reply_markup: backToPanel(ctx.locale) });
-      return;
-    }
     const photo = await services.photos.getDetails(photoId);
     if (!photo) {
       await ctx.reply(ctx.locale.admin.photoNotFound, { reply_markup: backToPanel(ctx.locale) });
@@ -143,14 +123,14 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>): void {
   registerBroadcastHandlers(admin);
   registerBattleHandlers(admin);
   registerPaymentAdminHandlers(admin);
+  registerDesignHandlers(admin);
 
   const prompts = {
-    publish: (ctx: BotContext) => ctx.locale.admin.askPhotoIdPublish,
     delete: (ctx: BotContext) => ctx.locale.admin.askPhotoIdDelete,
     block: (ctx: BotContext) => ctx.locale.admin.askUserBlock,
     unblock: (ctx: BotContext) => ctx.locale.admin.askUserUnblock,
   } as const;
-  admin.action(/^a:in:(publish|delete|block|unblock)$/, async (ctx) => {
+  admin.action(/^a:in:(delete|block|unblock)$/, async (ctx) => {
     const action = ctx.match[1] as keyof typeof prompts;
     setState(ctx, { kind: 'admin_input', action });
     await answer(ctx);

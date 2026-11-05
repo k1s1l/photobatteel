@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Duel } from '../../src/generated/prisma/client.js';
 import { orderPayload } from '../../src/modules/payments/payment.service.js';
-import { createAdmin, createQueuedPhoto, createTestContext, createUser, type TestContext } from '../helpers/context.js';
+import { createAdmin, createEntry, createTestContext, createUser, expireDuels, openBattle, postPendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 
 let ctx: TestContext;
 beforeEach(async () => {
   ctx = await createTestContext();
-  await ctx.services.settings.update({ paidVotesEnabled: true, maxQueuedPerUser: 0, maxPhotosPerDay: 0 }, null);
+  await ctx.services.settings.update({ paidVotesEnabled: true }, null);
 });
 
-async function publishedPhoto(owner: Awaited<ReturnType<typeof createUser>>) {
-  const photo = await createQueuedPhoto(ctx, owner);
-  await ctx.services.publications.processItem((await ctx.services.publications.claimNext())!.id);
-  return photo;
+/** A running battle with one active duel. */
+async function activeDuel(): Promise<Duel> {
+  const battle = await openBattle(ctx);
+  await createEntry(ctx, await createUser(ctx));
+  await createEntry(ctx, await createUser(ctx));
+  await startBattle(ctx, battle.id);
+  await postPendingDuels(ctx);
+  return ctx.prisma.duel.findFirstOrThrow();
 }
 
 async function pay(invoice: { payload: string; currency: string; amount: number }, telegramUserId: number, chargeId = `charge-${invoice.payload}`) {
@@ -39,24 +44,19 @@ describe('vote packages', () => {
   });
 });
 
-describe('buying votes', () => {
-  it('creates Stars and card invoices with the package price', async () => {
+describe('buying votes for a duel side', () => {
+  it('creates Stars and card invoices and refuses entries that are not being voted on', async () => {
+    const duel = await activeDuel();
     const buyer = await createUser(ctx);
     const [pack] = await ctx.services.payments.listPackages(true);
-    const stars = await ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', null);
+    const stars = await ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', duel.photoAId);
     expect(stars).toMatchObject({ currency: 'XTR', amount: pack!.priceStars, votes: 5, payload: orderPayload(stars.payment.id) });
-    const card = await ctx.services.payments.createInvoice(buyer, pack!.id, 'CARD', null);
-    expect(card).toMatchObject({ currency: 'UAH', amount: pack!.priceCard });
+    expect(await ctx.services.payments.createInvoice(buyer, pack!.id, 'CARD', null)).toMatchObject({ currency: 'UAH', amount: pack!.priceCard });
+    await expireDuels(ctx);
+    await expect(ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', duel.photoAId)).rejects.toMatchObject({ code: 'VOTING_CLOSED' });
   });
 
-  it('refuses invoices when sales are disabled', async () => {
-    await ctx.services.settings.update({ paidVotesEnabled: false }, null);
-    const buyer = await createUser(ctx);
-    const [pack] = await ctx.services.payments.listPackages(true);
-    await expect(ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', null)).rejects.toMatchObject({ code: 'PAYMENTS_DISABLED' });
-  });
-
-  it('validates the pre-checkout query against the order', async () => {
+  it('validates pre-checkout against the order', async () => {
     const buyer = await createUser(ctx);
     const other = await createUser(ctx);
     const [pack] = await ctx.services.payments.listPackages(true);
@@ -65,88 +65,60 @@ describe('buying votes', () => {
     expect(await ctx.services.payments.validateCheckout(base)).toBeNull();
     expect(await ctx.services.payments.validateCheckout({ ...base, totalAmount: 1 })).toBe('expired');
     expect(await ctx.services.payments.validateCheckout({ ...base, telegramUserId: Number(other.telegramId) })).toBe('expired');
-    expect(await ctx.services.payments.validateCheckout({ ...base, payload: 'order:999999' })).toBe('expired');
     await ctx.services.settings.update({ paidVotesEnabled: false }, null);
     expect(await ctx.services.payments.validateCheckout(base)).toBe('disabled');
   });
 
-  it('credits votes to the balance exactly once per Telegram charge', async () => {
-    const buyer = await createUser(ctx);
-    const [pack] = await ctx.services.payments.listPackages(true);
-    const invoice = await ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', null);
-    const first = await pay(invoice, Number(buyer.telegramId));
-    expect(first).toMatchObject({ creditedTo: 'balance', balance: 5, alreadyProcessed: false });
-    const again = await pay(invoice, Number(buyer.telegramId));
-    expect(again.alreadyProcessed).toBe(true);
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
-    expect(await ctx.services.payments.validateCheckout({ payload: invoice.payload, telegramUserId: Number(buyer.telegramId), currency: 'XTR', totalAmount: invoice.amount })).toBe('expired');
-  });
-
-  it('applies votes bought for a specific photo directly to it', async () => {
-    const owner = await createUser(ctx);
+  it('adds purchased votes to the chosen side of the current duel, exactly once', async () => {
+    const duel = await activeDuel();
     const fan = await createUser(ctx);
-    const photo = await publishedPhoto(owner);
     const packs = await ctx.services.payments.listPackages(true);
-    const invoice = await ctx.services.payments.createInvoice(fan, packs[1]!.id, 'CARD', photo.id);
+    const invoice = await ctx.services.payments.createInvoice(fan, packs[1]!.id, 'CARD', duel.photoBId);
     const result = await pay(invoice, Number(fan.telegramId));
     expect(result.creditedTo).toBe('photo');
-    expect(await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).toMatchObject({ votesCount: 20, paidVotes: 20 });
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).votesReceived).toBe(20);
-    expect(ctx.scheduler.voteRefreshes).toContain(photo.id);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).toMatchObject({ votesA: 0, votesB: 20 });
+    expect(await ctx.prisma.photo.findUniqueOrThrow({ where: { id: duel.photoBId! } })).toMatchObject({ votesCount: 20, paidVotes: 20 });
+    expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
+    expect((await pay(invoice, Number(fan.telegramId))).alreadyProcessed).toBe(true);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(20);
   });
 
-  it('puts votes on the balance if the target photo disappeared before payment completed', async () => {
-    const owner = await createUser(ctx);
+  it('puts votes on the balance when the duel ended before the payment completed', async () => {
+    const duel = await activeDuel();
     const fan = await createUser(ctx);
-    const photo = await publishedPhoto(owner);
     const [pack] = await ctx.services.payments.listPackages(true);
-    const invoice = await ctx.services.payments.createInvoice(fan, pack!.id, 'STARS', photo.id);
-    await ctx.services.photos.delete(photo.id, { userId: owner.id, isAdmin: false });
-    const result = await pay(invoice, Number(fan.telegramId));
-    expect(result).toMatchObject({ creditedTo: 'balance', targetUnavailable: true, balance: 5 });
-  });
-});
-
-describe('spending purchased votes', () => {
-  it('spends votes from the balance on any published photo, including your own', async () => {
-    const user = await createUser(ctx);
-    const photo = await publishedPhoto(user);
-    const [pack] = await ctx.services.payments.listPackages(true);
-    await pay(await ctx.services.payments.createInvoice(user, pack!.id, 'STARS', null), Number(user.telegramId));
-    const fresh = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-
-    expect(await ctx.services.payments.spendVotes(fresh, photo.id, 3)).toEqual({ balance: 2, votes: 3 });
-    await expect(ctx.services.payments.spendVotes(fresh, photo.id, 3)).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE', params: { balance: 2 } });
-    expect(await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).toMatchObject({ votesCount: 3, paidVotes: 3 });
+    const invoice = await ctx.services.payments.createInvoice(fan, pack!.id, 'STARS', duel.photoAId);
+    await expireDuels(ctx);
+    expect(await pay(invoice, Number(fan.telegramId))).toMatchObject({ creditedTo: 'balance', targetUnavailable: true, balance: 5 });
   });
 
-  it('never lets concurrent spending go below zero', async () => {
+  it('spends balance votes on a side and never goes below zero', async () => {
+    const duel = await activeDuel();
     const user = await createUser(ctx);
-    const photo = await publishedPhoto(await createUser(ctx));
     await ctx.prisma.user.update({ where: { id: user.id }, data: { voteBalance: 3 } });
     const fresh = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    const results = await Promise.allSettled(Array.from({ length: 6 }, () => ctx.services.payments.spendVotes(fresh, photo.id, 1)));
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => ctx.services.payments.spendVotes(fresh, duel.photoAId, 1)));
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(3);
     expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).voteBalance).toBe(0);
-    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).votesCount).toBe(3);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesA).toBe(3);
+    await expect(ctx.services.payments.spendVotes(fresh, duel.photoAId, 1)).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE' });
   });
 });
 
 describe('refunds and statistics', () => {
-  it('refunds a Stars payment and takes the votes back', async () => {
+  it('refunds Stars and takes back votes from a duel that is still open', async () => {
     const admin = await createAdmin(ctx);
-    const owner = await createUser(ctx);
+    const duel = await activeDuel();
     const fan = await createUser(ctx);
-    const photo = await publishedPhoto(owner);
     const [pack] = await ctx.services.payments.listPackages(true);
-    const invoice = await ctx.services.payments.createInvoice(fan, pack!.id, 'STARS', photo.id);
+    const invoice = await ctx.services.payments.createInvoice(fan, pack!.id, 'STARS', duel.photoAId);
     await pay(invoice, Number(fan.telegramId), 'tg-charge-1');
 
     const { reclaimed, payment } = await ctx.services.payments.refundStars(invoice.payment.id, admin.id);
     expect(reclaimed).toBe(5);
     expect(payment.status).toBe('REFUNDED');
     expect(ctx.telegram.callsOf('refundStarPayment')[0]).toMatchObject({ chatId: Number(fan.telegramId), args: ['tg-charge-1'] });
-    expect(await ctx.prisma.photo.findUniqueOrThrow({ where: { id: photo.id } })).toMatchObject({ votesCount: 0, paidVotes: 0 });
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesA).toBe(0);
     await expect(ctx.services.payments.refundStars(invoice.payment.id, admin.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
   });
 

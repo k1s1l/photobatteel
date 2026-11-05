@@ -1,4 +1,4 @@
-import type { ChatId, JobScheduler, SendOptions, SentMessage, TelegramGateway } from '../../src/modules/contracts.js';
+import type { AlbumItem, ChatId, JobScheduler, SendOptions, SentMessage, TelegramGateway } from '../../src/modules/contracts.js';
 import { createLogger } from '../../src/lib/logger.js';
 
 export const silentLogger = createLogger('silent' as 'fatal', false);
@@ -22,6 +22,8 @@ export function telegramError(code: number, description: string, retryAfter?: nu
 export class FakeTelegram implements TelegramGateway {
   readonly calls: RecordedCall[] = [];
   readonly files = new Map<string, Buffer>();
+  /** Telegram ids that are NOT channel members (everyone else is). */
+  readonly nonMembers = new Set<number>();
   private nextMessageId = 1000;
   private readonly failures = new Map<string, unknown[]>();
 
@@ -50,6 +52,11 @@ export class FakeTelegram implements TelegramGateway {
     return { message_id: id, photo: [{ file_id: `photo-file-${id}`, file_unique_id: `unique-${id}`, width: 800, height: 600 }] };
   }
 
+  async sendMediaGroup(chatId: ChatId, items: AlbumItem[]): Promise<number[]> {
+    this.record('sendMediaGroup', chatId, [items]);
+    return items.map(() => this.nextMessageId++);
+  }
+
   async copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number): Promise<void> {
     this.record('copyMessage', chatId, [fromChatId, messageId]);
   }
@@ -60,6 +67,11 @@ export class FakeTelegram implements TelegramGateway {
 
   async editMessageReplyMarkup(chatId: ChatId, messageId: number, markup: unknown): Promise<void> {
     this.record('editMessageReplyMarkup', chatId, [messageId, markup]);
+  }
+
+  async isChatMember(chatId: ChatId, userId: number): Promise<boolean> {
+    this.record('isChatMember', chatId, [userId]);
+    return !this.nonMembers.has(userId);
   }
 
   async refundStarPayment(userId: number, telegramChargeId: string): Promise<void> {
@@ -75,21 +87,25 @@ export class FakeTelegram implements TelegramGateway {
 }
 
 export class FakeScheduler implements JobScheduler {
-  readonly publications: number[] = [];
+  readonly duelPosts: { duelId: number; stage: number }[] = [];
   readonly voteRefreshes: number[] = [];
   readonly broadcasts: number[] = [];
   ticks = 0;
 
-  async enqueuePublication(queueItemId: number): Promise<void> {
-    this.publications.push(queueItemId);
+  async enqueueDuelPost(duelId: number, stage: number): Promise<void> {
+    this.duelPosts.push({ duelId, stage });
   }
-  async scheduleVoteRefresh(photoId: number): Promise<void> {
-    this.voteRefreshes.push(photoId);
+  async scheduleVoteRefresh(duelId: number): Promise<void> {
+    this.voteRefreshes.push(duelId);
   }
   async enqueueBroadcast(broadcastId: number): Promise<void> {
     this.broadcasts.push(broadcastId);
   }
-  async triggerPublishTick(): Promise<void> {
+  async triggerTick(): Promise<void> {
     this.ticks += 1;
+  }
+  readonly timedTicks: { at: Date; key: string }[] = [];
+  async scheduleTickAt(at: Date, key: string): Promise<void> {
+    this.timedTicks.push({ at, key });
   }
 }

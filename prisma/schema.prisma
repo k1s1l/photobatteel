@@ -13,32 +13,42 @@ datasource db {
 enum PhotoStatus {
   DRAFT              // uploaded, waiting for the author's confirmation
   PENDING_MODERATION // confirmed, waiting for an admin decision
-  QUEUED             // in the publication queue
-  PUBLISHED          // posted to the channel
+  ACCEPTED           // accepted into a scheduled battle, waiting for the start
+  IN_BATTLE          // posted in a duel and still in the tournament
+  ELIMINATED         // lost a duel
+  WINNER             // won the whole battle
   REJECTED           // rejected by a moderator
   DELETED            // deleted by the author or an admin
   CANCELLED          // the author cancelled the draft (or it expired)
-  FAILED             // publication failed permanently, admin attention required
 }
 
 enum PhotoSource {
   PHOTO    // sent as a compressed Telegram photo
   DOCUMENT // sent as an image file
+  VIDEO    // sent as a video
 }
 
-enum QueueStatus {
-  WAITING
-  PROCESSING
-  DONE
-  FAILED
-  CANCELLED
+enum MediaType {
+  PHOTO
+  VIDEO
 }
 
 enum BattleStatus {
-  ACTIVE    // accepting submissions
-  VOTING    // submissions closed, voting continues
+  SCHEDULED // accepting entries until startsAt
+  RUNNING   // duels are being played
   FINISHED  // winner selected
   CANCELLED
+}
+
+enum DuelStatus {
+  PENDING  // created, not posted yet
+  ACTIVE   // posted, voting is open until endsAt
+  FINISHED // winner decided
+}
+
+enum DuelSide {
+  A
+  B
 }
 
 enum AdminRole {
@@ -72,21 +82,19 @@ enum ActivityAction {
   PHOTO_CANCELLED
   PHOTO_APPROVED
   PHOTO_REJECTED
-  PHOTO_PUBLISHED
-  PHOTO_PUBLISH_FAILED
-  PHOTO_REQUEUED
   PHOTO_DELETED
   USER_BLOCKED
   USER_UNBLOCKED
-  PUBLISHING_PAUSED
-  PUBLISHING_RESUMED
   SETTINGS_UPDATED
+  TEMPLATE_UPDATED
   BROADCAST_CREATED
   BROADCAST_FINISHED
   BATTLE_CREATED
-  BATTLE_VOTING_STARTED
+  BATTLE_STARTED
+  BATTLE_ROUND_STARTED
   BATTLE_FINISHED
   BATTLE_CANCELLED
+  DUEL_POST_FAILED
   ADMIN_ACCESS_DENIED
   USER_DATA_DELETED
   PAYMENT_SUCCEEDED
@@ -97,30 +105,30 @@ enum ActivityAction {
 }
 
 model User {
-  id             Int       @id @default(autoincrement())
-  telegramId     BigInt    @unique
-  username       String?
-  firstName      String
-  lastName       String?
-  languageCode   String    @default("ru")
-  isBlocked      Boolean   @default(false)
-  blockedAt      DateTime?
-  blockedReason  String?
-  botBlockedAt   DateTime? // user stopped/blocked the bot (detected during broadcasts)
-  consentAt      DateTime? // consent to publish photos in the public channel
-  photosSubmitted Int      @default(0)
-  photosPublished Int      @default(0)
-  votesReceived   Int      @default(0)
-  voteBalance     Int      @default(0) // purchased votes not spent yet
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  lastActiveAt   DateTime  @default(now())
+  id              Int       @id @default(autoincrement())
+  telegramId      BigInt    @unique
+  username        String?
+  firstName       String
+  lastName        String?
+  languageCode    String    @default("")
+  isBlocked       Boolean   @default(false)
+  blockedAt       DateTime?
+  blockedReason   String?
+  botBlockedAt    DateTime? // user stopped/blocked the bot (detected during broadcasts)
+  consentAt       DateTime? // consent to publish entries in the public channel
+  photosSubmitted Int       @default(0)
+  photosPublished Int       @default(0)
+  votesReceived   Int       @default(0)
+  voteBalance     Int       @default(0) // purchased votes not spent yet
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastActiveAt    DateTime  @default(now())
 
   photos         Photo[]
-  votes          Vote[]
+  duelVotes      DuelVote[]
   admin          Admin?
   activities     ActivityLog[]
-  moderated      Photo[]   @relation("PhotoModerator")
+  moderated      Photo[]     @relation("PhotoModerator")
   battlesCreated Battle[]
   broadcasts     Broadcast[]
   payments       Payment[]
@@ -141,130 +149,135 @@ model Admin {
   updatedAt  DateTime  @updatedAt
 }
 
+/** An entry (photo or video) submitted to a battle. */
 model Photo {
-  id              Int         @id @default(autoincrement())
-  userId          Int
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  battleId        Int?
-  battle          Battle?     @relation("BattlePhotos", fields: [battleId], references: [id], onDelete: SetNull)
-  source          PhotoSource
-  fileId          String      // Telegram photo file_id used for publishing
-  fileUniqueId    String
-  contentHash     String      // SHA-256 of the image bytes, used for duplicate detection
-  mimeType        String
-  width           Int
-  height          Int
-  fileSize        Int
-  status          PhotoStatus @default(DRAFT)
-  votesCount      Int         @default(0) // free + paid votes
-  paidVotes       Int         @default(0) // paid part of votesCount
+  id               Int         @id @default(autoincrement())
+  userId           Int
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  battleId         Int?
+  battle           Battle?     @relation("BattlePhotos", fields: [battleId], references: [id], onDelete: SetNull)
+  mediaType        MediaType   @default(PHOTO)
+  source           PhotoSource
+  fileId           String      // Telegram file_id used for publishing
+  fileUniqueId     String
+  contentHash      String      // SHA-256 of image bytes (photos) or file_unique_id (videos)
+  mimeType         String
+  width            Int
+  height           Int
+  fileSize         Int
+  durationSec      Int?        // videos only
+  status           PhotoStatus @default(DRAFT)
+  votesCount       Int         @default(0) // all votes received in duels (free + paid)
+  paidVotes        Int         @default(0) // paid part of votesCount
   previewMessageId Int?
-  rejectionReason String?
-  moderatedById   Int?
-  moderatedBy     User?       @relation("PhotoModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
-  moderatedAt     DateTime?
-  confirmedAt     DateTime?
-  publishedAt     DateTime?
-  deletedAt       DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  rejectionReason  String?
+  moderatedById    Int?
+  moderatedBy      User?       @relation("PhotoModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  moderatedAt      DateTime?
+  confirmedAt      DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
-  publication     Publication?
-  queueItem       PublicationQueue?
-  votes           Vote[]
+  duelsAsA        Duel[]     @relation("DuelPhotoA")
+  duelsAsB        Duel[]     @relation("DuelPhotoB")
+  duelsWon        Duel[]     @relation("DuelWinner")
   paidVoteEntries PaidVote[]
   payments        Payment[]
-  wonBattle       Battle?     @relation("BattleWinner")
+  wonBattle       Battle?    @relation("BattleWinner")
 
   @@index([userId, status])
+  @@index([battleId, status])
   @@index([status, createdAt])
   @@index([contentHash])
   @@index([fileUniqueId])
-  @@index([battleId, votesCount])
 }
 
-model PublicationQueue {
-  id         Int         @id @default(autoincrement())
-  photoId    Int         @unique
-  photo      Photo       @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  status     QueueStatus @default(WAITING)
-  priority   Int         @default(0) // higher goes first; FIFO inside one priority
-  attempts   Int         @default(0)
-  lastError  String?
-  manual     Boolean     @default(false)
-  requestedById Int?     // admin user id for manual publications
-  enqueuedAt DateTime    @default(now())
-  startedAt  DateTime?
-  finishedAt DateTime?
-  updatedAt  DateTime    @updatedAt
-
-  @@index([status, priority, enqueuedAt])
-}
-
-model Publication {
-  id            Int       @id @default(autoincrement())
-  photoId       Int       @unique
-  photo         Photo     @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  channelId     BigInt
-  messageId     Int
-  manual        Boolean   @default(false)
-  publishedById Int?
-  publishedAt   DateTime  @default(now())
-  removedAt     DateTime? // channel post was deleted
-
-  @@unique([channelId, messageId])
-  @@index([publishedAt])
-}
-
-model Vote {
-  id        Int      @id @default(autoincrement())
-  photoId   Int
-  photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-
-  @@unique([photoId, userId])
-  @@index([userId])
-}
-
+/** A tournament: entries are collected until startsAt, then played in rounds of duels. */
 model Battle {
-  id               Int          @id @default(autoincrement())
-  title            String
-  theme            String?
-  status           BattleStatus @default(ACTIVE)
-  isWeekly         Boolean      @default(false)
-  startsAt         DateTime     @default(now())
-  submissionsEndAt DateTime
-  endsAt           DateTime
-  winnerPhotoId    Int?         @unique
-  winnerPhoto      Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
-  createdById      Int?
-  createdBy        User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  finishedAt       DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id              Int          @id @default(autoincrement())
+  title           String
+  status          BattleStatus @default(SCHEDULED)
+  startsAt        DateTime
+  roundMinutes    Int          // voting time of every duel
+  tiebreakMinutes Int          @default(10)
+  currentRound    Int          @default(0)
+  winnerPhotoId   Int?         @unique
+  winnerPhoto     Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
+  createdById     Int?
+  createdBy       User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  photos           Photo[]      @relation("BattlePhotos")
+  photos Photo[] @relation("BattlePhotos")
+  duels  Duel[]
 
-  @@index([status, submissionsEndAt])
+  @@index([status, startsAt])
+}
+
+/** Two entries of one round. photoBId is null for a bye (the entry advances without a vote). */
+model Duel {
+  id              Int        @id @default(autoincrement())
+  battleId        Int
+  battle          Battle     @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  round           Int
+  position        Int
+  photoAId        Int
+  photoA          Photo      @relation("DuelPhotoA", fields: [photoAId], references: [id], onDelete: Cascade)
+  photoBId        Int?
+  photoB          Photo?     @relation("DuelPhotoB", fields: [photoBId], references: [id], onDelete: Cascade)
+  status          DuelStatus @default(PENDING)
+  /// 0 = main vote, 1.. = tiebreak reposts (votes start from zero each stage)
+  stage           Int        @default(0)
+  votesA          Int        @default(0) // votes of the current stage
+  votesB          Int        @default(0)
+  /// Channel message carrying the vote buttons (the collage itself, or the message under a video album)
+  messageId       Int?
+  /// Album message ids for video duels (removed together with the buttons message)
+  mediaMessageIds Int[]      @default([])
+  postedAt        DateTime?
+  endsAt          DateTime?
+  winnerPhotoId   Int?
+  winnerPhoto     Photo?     @relation("DuelWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
+  finishedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  votes     DuelVote[]
+  paidVotes PaidVote[]
+
+  @@unique([battleId, round, position])
   @@index([status, endsAt])
 }
 
+/** Free vote: one per user per duel stage; the user may switch sides. */
+model DuelVote {
+  id        Int      @id @default(autoincrement())
+  duelId    Int
+  duel      Duel     @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  stage     Int
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  side      DuelSide
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([duelId, stage, userId])
+  @@index([userId])
+}
+
 model BotSettings {
-  id                       Int      @id @default(1)
-  publishingPaused         Boolean  @default(false)
-  publishIntervalMinutes   Int      @default(15) // 0 = manual publishing only
-  moderationEnabled        Boolean  @default(false)
-  votingEnabled            Boolean  @default(true)
-  maxPhotosPerDay          Int      @default(3)  // 0 = unlimited
-  maxQueuedPerUser         Int      @default(5)  // 0 = unlimited
-  maxPhotosPerBattle       Int      @default(1)  // 0 = unlimited
-  submissionsOnlyInBattle  Boolean  @default(false)
-  weeklyBattlesEnabled     Boolean  @default(false)
-  paidVotesEnabled         Boolean  @default(false)
-  updatedById              Int?
-  updatedAt                DateTime @updatedAt
+  id                 Int      @id @default(1)
+  moderationEnabled  Boolean  @default(false)
+  subscribersOnly    Boolean  @default(true) // only channel subscribers may vote
+  paidVotesEnabled   Boolean  @default(false)
+  maxPhotosPerBattle Int      @default(1)    // 0 = unlimited
+  /// Duel post caption designed by an admin in Telegram (HTML, may contain <tg-emoji>)
+  duelTemplate       String?
+  updatedById        Int?
+  updatedAt          DateTime @updatedAt
 }
 
 model Broadcast {
@@ -300,8 +313,8 @@ model ActivityLog {
 model VotePackage {
   id         Int       @id @default(autoincrement())
   votes      Int
-  priceStars Int       // in Telegram Stars
-  priceCard  Int       // in minor units of CARD_CURRENCY (kopecks for UAH)
+  priceStars Int // in Telegram Stars
+  priceCard  Int // in minor units of CARD_CURRENCY (kopecks for UAH)
   isActive   Boolean   @default(true)
   sortOrder  Int       @default(0)
   createdAt  DateTime  @default(now())
@@ -310,34 +323,38 @@ model VotePackage {
 }
 
 model Payment {
-  id                      Int           @id @default(autoincrement())
-  userId                  Int
-  user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  packageId               Int?
-  package                 VotePackage?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  votes                   Int
-  method                  PaymentMethod
-  currency                String        // XTR for Stars, e.g. UAH for cards
-  amount                  Int           // Stars, or minor currency units
-  status                  PaymentStatus @default(PENDING)
-  /// When set, purchased votes go straight to this photo instead of the balance.
-  targetPhotoId           Int?
-  targetPhoto             Photo?        @relation(fields: [targetPhotoId], references: [id], onDelete: SetNull)
-  telegramChargeId        String?       @unique
-  providerChargeId        String?
-  createdAt               DateTime      @default(now())
-  paidAt                  DateTime?
-  refundedAt              DateTime?
+  id               Int           @id @default(autoincrement())
+  userId           Int
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId        Int?
+  package          VotePackage?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  votes            Int
+  method           PaymentMethod
+  currency         String // XTR for Stars, e.g. UAH for cards
+  amount           Int // Stars, or minor currency units
+  status           PaymentStatus @default(PENDING)
+  /// When set, purchased votes go straight to this entry's current duel instead of the balance.
+  targetPhotoId    Int?
+  targetPhoto      Photo?        @relation(fields: [targetPhotoId], references: [id], onDelete: SetNull)
+  telegramChargeId String?       @unique
+  providerChargeId String?
+  createdAt        DateTime      @default(now())
+  paidAt           DateTime?
+  refundedAt       DateTime?
 
   @@index([status, paidAt])
   @@index([userId, createdAt])
 }
 
-/** Paid votes given to a photo (from the balance or directly from a purchase). */
+/** Paid votes given to an entry in a specific duel stage. */
 model PaidVote {
   id        Int      @id @default(autoincrement())
   photoId   Int
   photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  duelId    Int
+  duel      Duel     @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  stage     Int
+  side      DuelSide
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount    Int
@@ -345,5 +362,6 @@ model PaidVote {
   createdAt DateTime @default(now())
 
   @@index([photoId])
+  @@index([duelId, stage])
   @@index([userId, createdAt])
 }

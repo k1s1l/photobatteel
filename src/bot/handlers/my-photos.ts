@@ -1,6 +1,5 @@
 import type { Telegraf } from 'telegraf';
-import { allTranslations } from '../../i18n/index.js';
-import { channelPostLink, escapeHtml, formatDateTime, formatPhotoId } from '../../lib/format.js';
+import { escapeHtml, formatDateTime, formatPhotoId } from '../../lib/format.js';
 import { currentUser, type BotContext } from '../context.js';
 import { answer, matchInt, respond } from '../helpers.js';
 import { button, clampPage, inline, paginationRow } from '../keyboards.js';
@@ -30,8 +29,8 @@ async function showCard(ctx: BotContext, photoId: number): Promise<void> {
     await answer(ctx, ctx.locale.common.notFound, true);
     return;
   }
-  const { env, channel } = ctx.deps;
-  const link = photo.publication && !photo.publication.removedAt ? channelPostLink(channel, photo.publication.messageId) : null;
+  const { env, services } = ctx.deps;
+  const link = photo.status === 'DELETED' ? null : await services.battles.entryPostLink(photo.id);
   const caption = ctx.locale.myPhotos.card({
     id: formatPhotoId(photo.id),
     status: ctx.locale.status[photo.status],
@@ -48,11 +47,11 @@ async function showCard(ctx: BotContext, photoId: number): Promise<void> {
     await respond(ctx, caption, { keyboard });
     return;
   }
-  await ctx.replyWithPhoto(photo.fileId, { caption, parse_mode: 'HTML', reply_markup: keyboard });
+  if (photo.mediaType === 'VIDEO') await ctx.replyWithVideo(photo.fileId, { caption, parse_mode: 'HTML', reply_markup: keyboard });
+  else await ctx.replyWithPhoto(photo.fileId, { caption, parse_mode: 'HTML', reply_markup: keyboard });
 }
 
 export function registerMyPhotosHandlers(bot: Telegraf<BotContext>): void {
-  bot.hears(allTranslations((l) => l.menu.myPhotos), (ctx) => showList(ctx, 0));
   bot.command('myphotos', (ctx) => showList(ctx, 0));
 
   bot.action(/^my:(\d+)$/, async (ctx) => {
@@ -73,10 +72,10 @@ export function registerMyPhotosHandlers(bot: Telegraf<BotContext>): void {
   bot.action(/^my:dy:(\d+)$/, async (ctx) => {
     const photoId = matchInt(ctx);
     const user = currentUser(ctx);
-    const result = await ctx.deps.services.photos.delete(photoId, { userId: user.id, isAdmin: false });
+    await ctx.deps.services.photos.delete(photoId, { userId: user.id, isAdmin: false });
     const id = formatPhotoId(photoId);
     await answer(ctx);
-    await respond(ctx, result.channelRemoved === false ? ctx.locale.myPhotos.deletedChannelFailed(id) : ctx.locale.myPhotos.deleted(id), {
+    await respond(ctx, ctx.locale.myPhotos.deleted(id), {
       keyboard: inline([[button(ctx.locale.common.back, 'my:0')]]),
     });
   });
