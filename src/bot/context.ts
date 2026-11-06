@@ -16,7 +16,7 @@ export type ConversationState =
   | { kind: 'admin_input'; action: AdminInputAction; packageId?: number }
   | { kind: 'admin_broadcast' }
   | { kind: 'admin_template'; key: TemplateKey }
-  | { kind: 'battle_create'; step: 'title' | 'start' | 'round' | 'final'; title?: string; startsAt?: string; roundMinutes?: number };
+  | { kind: 'battle_create'; step: 'start' | 'round' | 'final'; startsAt?: string; roundMinutes?: number };
 
 export interface SessionData {
   state?: ConversationState;

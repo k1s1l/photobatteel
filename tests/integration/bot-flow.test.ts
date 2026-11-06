@@ -293,11 +293,11 @@ describe('bot: admin', () => {
     expect(await ctx.prisma.activityLog.count({ where: { action: 'ADMIN_ACCESS_DENIED' } })).toBe(2);
   });
 
-  it('schedules a battle: title → start time → round duration', async () => {
+  it('schedules a battle: start time → round duration → final duration (named automatically)', async () => {
     await sendText(ADMIN_TG_ID, '/admin');
     expect(texts('sendMessage').at(-1)).toContain('Админ-панель Photo Battle');
     await press(ADMIN_TG_ID, 'a:bt:new');
-    await sendText(ADMIN_TG_ID, 'Зимний батл');
+    expect(texts('editMessageText').at(-1)).toContain('Когда старт');
     await sendText(ADMIN_TG_ID, 'вчера');
     expect(texts('sendMessage').at(-1)).toContain('Не понял время');
     await sendText(ADMIN_TG_ID, '23:59');
@@ -306,7 +306,7 @@ describe('bot: admin', () => {
     expect(texts('editMessageText').at(-1)).toContain('голосование в финале');
     await press(ADMIN_TG_ID, 'a:bt:final:360');
     const battle = await ctx.prisma.battle.findFirstOrThrow();
-    expect(battle).toMatchObject({ title: 'Зимний батл', status: 'SCHEDULED', roundMinutes: 120, finalMinutes: 360, tiebreakMinutes: 10 });
+    expect(battle).toMatchObject({ title: 'Фотобатл #1', status: 'SCHEDULED', roundMinutes: 120, finalMinutes: 360, tiebreakMinutes: 10 });
     expect(battle.startsAt.getTime()).toBeGreaterThan(Date.now());
   });
 

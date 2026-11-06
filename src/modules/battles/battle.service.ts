@@ -32,7 +32,8 @@ export interface BattleOptions {
 }
 
 export interface ScheduleBattleInput {
-  title: string;
+  /** Optional: battles are named "Фотобатл #N" automatically. */
+  title?: string;
   startsAt: Date;
   roundMinutes: number;
   /** Voting time of the final; null/undefined = same as roundMinutes. */
@@ -135,8 +136,8 @@ export class BattleService {
   }
 
   async schedule(input: ScheduleBattleInput, now: Date = new Date()): Promise<Battle> {
-    const title = input.title.trim();
-    if (!title || title.length > 64) throw new RangeError('Battle title must be 1-64 characters');
+    const title = input.title?.trim() || this.locale.battle.defaultTitle((await this.prisma.battle.count()) + 1);
+    if (title.length > 64) throw new RangeError('Battle title must be at most 64 characters');
     if (input.startsAt <= now) throw new RangeError('Battle must start in the future');
     if (input.roundMinutes < 5 || input.roundMinutes > 7 * 24 * 60) throw new RangeError('Invalid round duration');
     if (input.tiebreakMinutes < 1 || input.tiebreakMinutes > 24 * 60) throw new RangeError('Invalid tiebreak duration');

@@ -12,7 +12,6 @@ import { adminUserId } from './shared.js';
 
 const ROUND_MINUTES = [15, 30, 60, 120, 180, 360, 720, 1440] as const;
 const RECENT_BATTLES = 5;
-const TITLE_MAX = 64;
 
 async function showBattles(ctx: BotContext): Promise<void> {
   const { battles } = ctx.deps.services;
@@ -56,16 +55,6 @@ export async function handleBattleWizardText(ctx: BotContext, text: string): Pro
   const state = getState(ctx);
   if (state?.kind !== 'battle_create') return;
   const cancel = inline([[button(ctx.locale.common.cancel, 'a:cancel')]]);
-  if (state.step === 'title') {
-    const title = text.trim();
-    if (!title || title.length > TITLE_MAX) {
-      await ctx.reply(ctx.locale.admin.textTooLong(TITLE_MAX));
-      return;
-    }
-    setState(ctx, { kind: 'battle_create', step: 'start', title });
-    await ctx.reply(ctx.locale.admin.battleAskStart({ timeZone: ctx.deps.env.TIMEZONE, example: startExample(ctx) }), { parse_mode: 'HTML', reply_markup: cancel });
-    return;
-  }
   if (state.step === 'start') {
     const startsAt = parseStartTime(text, ctx.deps.env.TIMEZONE);
     if (!startsAt) {
@@ -86,16 +75,19 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await showBattles(ctx);
   });
 
+  // The battle is named automatically ("Фотобатл #N"); the wizard starts with the start time.
   admin.action('a:bt:new', async (ctx) => {
-    setState(ctx, { kind: 'battle_create', step: 'title' });
+    setState(ctx, { kind: 'battle_create', step: 'start' });
     await answer(ctx);
-    await respond(ctx, ctx.locale.admin.battleAskTitle, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]) });
+    await respond(ctx, ctx.locale.admin.battleAskStart({ timeZone: ctx.deps.env.TIMEZONE, example: startExample(ctx) }), {
+      keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
+    });
   });
 
   admin.action(/^a:bt:round:(\d+)$/, async (ctx) => {
     const state = getState(ctx);
     const minutes = matchInt(ctx);
-    if (state?.kind !== 'battle_create' || state.step !== 'round' || !state.title || !state.startsAt) return answer(ctx, ctx.locale.common.alreadyProcessed);
+    if (state?.kind !== 'battle_create' || state.step !== 'round' || !state.startsAt) return answer(ctx, ctx.locale.common.alreadyProcessed);
     if (!(ROUND_MINUTES as readonly number[]).includes(minutes)) return answer(ctx);
     setState(ctx, { ...state, step: 'final', roundMinutes: minutes });
     await answer(ctx);
@@ -108,21 +100,20 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
   admin.action(/^a:bt:final:(\d+)$/, async (ctx) => {
     const state = getState(ctx);
     const finalMinutes = matchInt(ctx);
-    if (state?.kind !== 'battle_create' || state.step !== 'final' || !state.title || !state.startsAt || !state.roundMinutes) {
+    if (state?.kind !== 'battle_create' || state.step !== 'final' || !state.startsAt || !state.roundMinutes) {
       return answer(ctx, ctx.locale.common.alreadyProcessed);
     }
     if (finalMinutes !== 0 && !(ROUND_MINUTES as readonly number[]).includes(finalMinutes)) return answer(ctx);
     const minutes = state.roundMinutes;
     const startsAt = new Date(state.startsAt);
     if (startsAt <= new Date()) {
-      setState(ctx, { kind: 'battle_create', step: 'start', title: state.title });
+      setState(ctx, { kind: 'battle_create', step: 'start' });
       await answer(ctx);
       await ctx.reply(ctx.locale.admin.battleStartInvalid, { parse_mode: 'HTML' });
       return;
     }
     setState(ctx, undefined);
     const battle = await ctx.deps.services.battles.schedule({
-      title: state.title,
       startsAt,
       roundMinutes: minutes,
       finalMinutes: finalMinutes || null,

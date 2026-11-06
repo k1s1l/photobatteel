@@ -212,6 +212,7 @@ export const ru = {
     statusRunning: '🔥 Идёт голосование',
     statusFinished: '🏁 Завершён',
     statusCancelled: '❌ Отменён',
+    defaultTitle: (n: number) => `Фотобатл #${n}`,
     announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
     winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
     entryPosted: (p: { round: number; link: string }) =>
@@ -464,7 +465,6 @@ export const ru = {
     battleCreate: '➕ Запланировать батл',
     battleCancel: '❌ Отменить батл',
     battleCancelConfirm: (title: string) => `Отменить батл «${title}»? Все работы снимаются, открытые пары закрываются.`,
-    battleAskTitle: 'Введи название батла (до 64 символов):',
     battleAskStart: (p: { timeZone: string; example: string }) =>
       `Когда старт? До этого времени бот собирает работы, затем публикует пары.\n\n` +
       `Формат: <code>14:00</code> (сегодня/завтра) или <code>${p.example}</code>.\nЧасовой пояс: ${p.timeZone}.`,

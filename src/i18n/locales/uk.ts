@@ -199,6 +199,7 @@ export const uk: Locale = {
     statusRunning: '🔥 Триває голосування',
     statusFinished: '🏁 Завершено',
     statusCancelled: '❌ Скасовано',
+    defaultTitle: (n) => `Фотобатл #${n}`,
     announceNoEntries: (title) => `😔 Батл «${title}» не відбувся: не було жодної роботи.`,
     winnerDm: (title) => `🏆 Вітаємо! Твоя робота перемогла в батлі «${title}»! 🎉`,
     entryPosted: (p) => `⚔️ Твоя робота вийшла в канал — раунд ${p.round}!\n<a href="${p.link}">Відкрити пару</a> — клич друзів голосувати 🔥`,
@@ -406,7 +407,6 @@ export const uk: Locale = {
     battleCreate: '➕ Запланувати батл',
     battleCancel: '❌ Скасувати батл',
     battleCancelConfirm: (title) => `Скасувати батл «${title}»? Усі роботи знімаються, відкриті пари закриваються.`,
-    battleAskTitle: 'Введи назву батлу (до 64 символів):',
     battleAskStart: (p) =>
       `Коли старт? До цього часу бот збирає роботи, потім публікує пари.\n\n` +
       `Формат: <code>14:00</code> (сьогодні/завтра) або <code>${p.example}</code>.\nЧасовий пояс: ${p.timeZone}.`,
