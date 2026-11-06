@@ -55,6 +55,12 @@ const envSchema = z
     /** Payment provider token from @BotFather → Payments. Enables card payments; Stars work without it. */
     PAYMENT_PROVIDER_TOKEN: z.string().min(10).optional(),
     CARD_CURRENCY: z.string().regex(/^[A-Z]{3}$/, 'CARD_CURRENCY must be a 3-letter ISO code').default('UAH'),
+    /** Monobank personal API token (api.monobank.ua): transfers to your card/jar are verified automatically. */
+    MONOBANK_TOKEN: z.string().min(20).optional(),
+    /** Minutes a buyer has to make a transfer before the order expires. */
+    TRANSFER_TTL_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
+    /** Hours a claimed transfer waits for an admin before it is cancelled. */
+    TRANSFER_REVIEW_HOURS: z.coerce.number().int().min(1).max(7 * 24).default(12),
     DEFAULT_LANGUAGE: z.enum(['uk', 'ru']).default('uk'),
     TIMEZONE: z.string().default('Europe/Kyiv'),
 

@@ -292,6 +292,22 @@ export const ru = {
       '• Если голосование закончилось до оплаты, голоса зачисляются на баланс.\n' +
       '• Возврат возможен, если голоса не были начислены: /paysupport.',
     refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
+    transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean }) =>
+      '<b>💳 Оплата переводом на карту</b>\n\n' +
+      `Сумма: <b>${p.amount}</b>\n` +
+      `Куда: ${p.details}\n` +
+      `Комментарий к переводу: <code>${p.code}</code>\n\n` +
+      '⚠️ Обязательно укажи код в комментарии и переведи <b>точную сумму</b> — по ним мы находим твой платёж.\n' +
+      `На оплату — ${p.minutes} мин. После перевода нажми «✅ Я оплатил».` +
+      (p.automatic ? '\nГолоса начислятся автоматически.' : ''),
+    transferPaidButton: '✅ Я оплатил',
+    transferCancelButton: '❌ Отменить',
+    transferClaimedAuto: '⏳ Проверяю оплату — обычно это 1–2 минуты. Голоса начислятся автоматически, я напишу.',
+    transferClaimedManual: '⏳ Администратор проверит перевод и начислит голоса. Я напишу, как только это произойдёт.',
+    transferCancelled: 'Заказ отменён.',
+    transferExpired: (code: string) => `⌛ Время на оплату заказа ${code} вышло, заказ отменён. Если ты уже перевёл деньги — напиши /paysupport.`,
+    transferNotConfirmed: (code: string) => `⚠️ Перевод по заказу ${code} не подтверждён, заказ отменён. Если деньги списались — напиши /paysupport.`,
+    transferRejected: (code: string) => `⛔ Перевод по заказу ${code} не найден, заказ отменён. Если деньги списались — напиши /paysupport.`,
   },
 
   notifications: {
@@ -532,7 +548,37 @@ export const ru = {
       `Вернуть оплату #${p.id} (${p.amount}) пользователю ${p.user}? Голоса, ещё не учтённые в завершённых парах, будут списаны.`,
     refundDone: (p: { id: number; reclaimed: number }) => `↩️ Оплата #${p.id} возвращена. Списано голосов: ${p.reclaimed}.`,
     refundOnlyStars: 'Автоматический возврат доступен только для оплат звёздами. Оплату картой возвращайте в кабинете платёжного провайдера.',
-    paymentStatus: { PENDING: '⏳ ожидает', PAID: '✅ оплачено', REFUNDED: '↩️ возврат' },
+    paymentStatus: { PENDING: '⏳ ожидает', CLAIMED: '🔎 на проверке', PAID: '✅ оплачено', REFUNDED: '↩️ возврат', CANCELLED: '❌ отменено' },
+    transferStatus: (p: { enabled: boolean; details: string | null; bank: 'off' | 'no-account' | 'on' }) =>
+      '\n\n<b>💳 Перевод на карту</b>: ' +
+      (p.enabled ? '✅ включён' : '⛔ выключен') +
+      `\nРеквизиты: ${p.details ?? '— не заданы'}` +
+      `\nПроверка оплат: ${p.bank === 'on' ? '🤖 автоматически (Monobank)' : p.bank === 'no-account' ? '⚠️ Monobank подключён, но не выбран счёт' : '👤 вручную админом'}`,
+    transferToggleOn: '💳 Включить перевод на карту',
+    transferToggleOff: '💳 Выключить перевод на карту',
+    transferDetailsButton: '✏️ Реквизиты для перевода',
+    monobankButton: '🏦 Счёт Monobank',
+    transfersButton: '🔎 Заявки на перевод',
+    askTransferDetails: 'Пришли реквизиты, которые увидит покупатель: номер карты или ссылку на банку Monobank (можно с пояснением, до 200 символов).',
+    transferDetailsSaved: '✅ Реквизиты сохранены.',
+    monobankNoToken:
+      '<b>🏦 Автоматическая проверка Monobank</b>\n\n' +
+      '1. Открой <b>api.monobank.ua</b> и отсканируй QR-код в приложении Monobank.\n' +
+      '2. Скопируй личный токен (он даёт только просмотр выписки).\n' +
+      '3. В Railway добавь переменную <code>MONOBANK_TOKEN</code> с этим токеном и нажми Deploy.\n' +
+      '4. Вернись сюда и выбери счёт или банку, куда приходят оплаты.\n\n' +
+      'Без этого переводы подтверждаются вручную.',
+    monobankChoose: 'Выбери счёт или банку, куда покупатели переводят деньги. Бот будет проверять её выписку каждую минуту:',
+    monobankSaved: (label: string) => `✅ Бот проверяет оплаты на: ${label}`,
+    monobankError: '⚠️ Не удалось получить счета Monobank (токен неверный или лимит запросов — попробуй через минуту).',
+    transfersTitle: '<b>🔎 Заявки на перевод</b>',
+    transfersEmpty: 'Открытых заявок нет.',
+    transferRow: (p: { id: number; code: string; amount: string; votes: number; buyer: string; status: string }) =>
+      `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
+    transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string }) =>
+      `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\nГолосов: ${p.votes}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — начислить голоса, ❌ — отклонить.`,
+    transferApproved: (id: number) => `✅ Перевод #${id} подтверждён, голоса начислены.`,
+    transferDeclined: (id: number) => `❌ Перевод #${id} отклонён.`,
   },
 };
 

@@ -11,12 +11,12 @@ import { handleTemplateMessage, registerDesignHandlers } from './design.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
-import { handlePackagePriceInput, registerPaymentAdminHandlers } from './payments.js';
+import { handlePackagePriceInput, handleTransferDetailsInput, registerPaymentAdminHandlers } from './payments.js';
 import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
 import { blockUser, registerUserHandlers, unblockUser } from './users.js';
 
-const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create']);
+const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'monobank_pick']);
 const MENU_BUTTONS = new Set(
   (['submit', 'votes', 'battle', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
 );
@@ -67,6 +67,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind !== 'admin_input') return next();
+  if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
   if (state.action === 'package_price') {
     if (state.packageId) await handlePackagePriceInput(ctx, state.packageId, text);
     else setState(ctx, undefined);

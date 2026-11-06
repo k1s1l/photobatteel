@@ -65,14 +65,17 @@ enum BroadcastStatus {
 }
 
 enum PaymentMethod {
-  STARS // Telegram Stars (XTR)
-  CARD  // bank card via a Telegram payment provider
+  STARS    // Telegram Stars (XTR)
+  CARD     // bank card via a Telegram payment provider
+  TRANSFER // transfer to the owner's card / Monobank jar, verified by the bank API or an admin
 }
 
 enum PaymentStatus {
-  PENDING  // invoice sent, not paid yet
-  PAID     // votes credited
-  REFUNDED // Stars returned to the buyer
+  PENDING   // invoice / transfer details sent, not paid yet
+  CLAIMED   // the buyer says the transfer is done, waiting for verification
+  PAID      // votes credited
+  REFUNDED  // Stars returned to the buyer
+  CANCELLED // transfer expired or rejected
 }
 
 enum ActivityAction {
@@ -100,6 +103,7 @@ enum ActivityAction {
   USER_DATA_DELETED
   PAYMENT_SUCCEEDED
   PAYMENT_REFUNDED
+  PAYMENT_CANCELLED
   PAID_VOTES_SPENT
   PACKAGE_UPDATED
   LANGUAGE_CHANGED
@@ -287,6 +291,10 @@ model BotSettings {
   roundTemplate      String?
   winnerTemplate     String?
   buttonsTemplate    String?
+  /// Payment by transfer to the owner's card / Monobank jar
+  transferEnabled    Boolean  @default(false)
+  transferDetails    String?  // shown to buyers: card number or jar link
+  monobankAccountId  String?  // Monobank account or jar whose statement is checked
   updatedById        Int?
   updatedAt          DateTime @updatedAt
 }
@@ -349,12 +357,20 @@ model Payment {
   targetPhoto      Photo?        @relation(fields: [targetPhotoId], references: [id], onDelete: SetNull)
   telegramChargeId String?       @unique
   providerChargeId String?
+  /// Transfers: code the buyer puts into the payment comment, and the matched bank transaction
+  code             String?       @unique
+  bankTransactionId String?      @unique
+  expiresAt        DateTime?
+  claimedAt        DateTime?
+  reviewRequestedAt DateTime?    // admins were asked to check it manually
+  confirmedById    Int?          // admin who confirmed or rejected it manually
   createdAt        DateTime      @default(now())
   paidAt           DateTime?
   refundedAt       DateTime?
 
   @@index([status, paidAt])
   @@index([userId, createdAt])
+  @@index([method, status])
 }
 
 /** Paid votes given to an entry in a specific duel stage. */

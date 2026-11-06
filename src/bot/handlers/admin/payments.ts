@@ -4,8 +4,8 @@ import { displayName, escapeHtml, formatDateTime, truncate } from '../../../lib/
 import { isDomainError } from '../../../lib/errors.js';
 import { formatCardPrice } from '../../../modules/payments/payment.service.js';
 import type { BotContext } from '../../context.js';
-import { setState } from '../../context.js';
-import { answer, matchInt, respond } from '../../helpers.js';
+import { getState, setState } from '../../context.js';
+import { answer, matchInt, matchString, respond } from '../../helpers.js';
 import { button, clampPage, inline, paginationRow } from '../../keyboards.js';
 import { backToPanel, PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
@@ -35,13 +35,17 @@ async function showPayments(ctx: BotContext): Promise<void> {
     card24: money(ctx, stats.card24h),
     votesSold: stats.votesSold,
   });
+  const bank = !payments.bank ? 'off' : current.monobankAccountId ? 'on' : 'no-account';
+  const transfer = a.transferStatus({ enabled: current.transferEnabled, details: current.transferDetails ? escapeHtml(current.transferDetails) : null, bank });
   const rows = [
     [button(current.paidVotesEnabled ? a.paymentsToggleOff : a.paymentsToggleOn, 'a:pay:toggle')],
     ...packs.map((pack) => [button(a.packageRow(packageInfo(ctx, pack)), `a:pkg:${pack.id}`)]),
-    [button(a.paymentsList, 'a:pay:list:0')],
+    [button(current.transferEnabled ? a.transferToggleOff : a.transferToggleOn, 'a:pay:tr:toggle')],
+    [button(a.transferDetailsButton, 'a:pay:tr:details'), button(a.monobankButton, 'a:pay:mono')],
+    [button(a.transfersButton, 'a:pay:trl'), button(a.paymentsList, 'a:pay:list:0')],
     [button(a.buttons.panel, PANEL)],
   ];
-  await respond(ctx, text, { keyboard: inline(rows) });
+  await respond(ctx, text + transfer, { keyboard: inline(rows) });
 }
 
 async function showPackage(ctx: BotContext, id: number): Promise<void> {
@@ -80,7 +84,114 @@ export async function handlePackagePriceInput(ctx: BotContext, packageId: number
   await ctx.reply(ctx.locale.admin.packageSaved, { reply_markup: inline([[button(ctx.locale.admin.buttons.payments, 'a:pay')]]) });
 }
 
+const TRANSFER_DETAILS_MAX = 200;
+
+/** Text answer to "send transfer details": the card number or jar link buyers will see. */
+export async function handleTransferDetailsInput(ctx: BotContext, text: string): Promise<void> {
+  const details = text.trim();
+  if (!details || details.length > TRANSFER_DETAILS_MAX) {
+    await ctx.reply(ctx.locale.admin.textTooLong(TRANSFER_DETAILS_MAX));
+    return;
+  }
+  setState(ctx, undefined);
+  await ctx.deps.services.settings.update({ transferDetails: details }, adminUserId(ctx));
+  await ctx.reply(ctx.locale.admin.transferDetailsSaved, { reply_markup: inline([[button(ctx.locale.admin.buttons.payments, 'a:pay')]]) });
+}
+
+async function showTransfers(ctx: BotContext): Promise<void> {
+  const a = ctx.locale.admin;
+  const open = await ctx.deps.services.payments.openTransfers(15);
+  const lines = [a.transfersTitle, ''];
+  if (open.length === 0) lines.push(a.transfersEmpty);
+  for (const payment of open) {
+    lines.push(
+      a.transferRow({
+        id: payment.id,
+        code: payment.code ?? '',
+        amount: money(ctx, payment.amount),
+        votes: payment.votes,
+        buyer: escapeHtml(truncate(displayName(payment.user), 24)),
+        status: a.paymentStatus[payment.status],
+      }),
+    );
+  }
+  const rows = open.map((payment) => [button(`✅ #${payment.id}`, `a:tr:ok:${payment.id}`), button(`❌ #${payment.id}`, `a:tr:no:${payment.id}`)]);
+  rows.push([button(ctx.locale.common.back, 'a:pay')]);
+  await respond(ctx, lines.join('\n'), { keyboard: inline(rows) });
+}
+
 export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void {
+  admin.action('a:pay:tr:toggle', async (ctx) => {
+    const { settings } = ctx.deps.services;
+    const current = await settings.get();
+    await settings.update({ transferEnabled: !current.transferEnabled }, adminUserId(ctx));
+    await answer(ctx, ctx.locale.admin.settingsSaved);
+    await showPayments(ctx);
+  });
+
+  admin.action('a:pay:tr:details', async (ctx) => {
+    setState(ctx, { kind: 'admin_input', action: 'transfer_details' });
+    await answer(ctx);
+    await respond(ctx, ctx.locale.admin.askTransferDetails, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:pay')]]) });
+  });
+
+  admin.action('a:pay:mono', async (ctx) => {
+    const { payments } = ctx.deps.services;
+    await answer(ctx);
+    const back = inline([[button(ctx.locale.common.back, 'a:pay')]]);
+    if (!payments.bank) return respond(ctx, ctx.locale.admin.monobankNoToken, { keyboard: back });
+    let accounts;
+    try {
+      accounts = await payments.bank.listAccounts();
+    } catch (error) {
+      ctx.deps.logger.warn({ err: error }, 'Monobank client-info failed');
+      return respond(ctx, ctx.locale.admin.monobankError, { keyboard: back });
+    }
+    setState(ctx, { kind: 'monobank_pick', accounts: accounts.map((acc) => ({ id: acc.id, label: acc.label, ...(acc.sendLink ? { sendLink: acc.sendLink } : {}) })) });
+    await respond(ctx, ctx.locale.admin.monobankChoose, {
+      keyboard: inline([...accounts.map((acc, index) => [button(`${acc.kind === 'jar' ? '🫙' : '💳'} ${acc.label}`, `a:pay:mono:${index}`)]), [button(ctx.locale.common.back, 'a:pay')]]),
+    });
+  });
+
+  admin.action(/^a:pay:mono:(\d+)$/, async (ctx) => {
+    const state = getState(ctx);
+    const chosen = state?.kind === 'monobank_pick' ? state.accounts[matchInt(ctx)] : undefined;
+    if (!chosen) return answer(ctx, ctx.locale.common.alreadyProcessed);
+    setState(ctx, undefined);
+    const current = await ctx.deps.services.settings.get();
+    // A jar has a public top-up link: use it as the transfer details unless the admin set their own.
+    await ctx.deps.services.settings.update(
+      { monobankAccountId: chosen.id, ...(chosen.sendLink && !current.transferDetails ? { transferDetails: chosen.sendLink } : {}) },
+      adminUserId(ctx),
+    );
+    await answer(ctx);
+    await respond(ctx, ctx.locale.admin.monobankSaved(escapeHtml(chosen.label)), { keyboard: inline([[button(ctx.locale.admin.buttons.payments, 'a:pay')]]) });
+  });
+
+  admin.action('a:pay:trl', async (ctx) => {
+    await answer(ctx);
+    await showTransfers(ctx);
+  });
+
+  admin.action(/^a:tr:(ok|no):(\d+)$/, async (ctx) => {
+    const approve = matchString(ctx, 1) === 'ok';
+    const id = matchInt(ctx, 2);
+    const done = await ctx.deps.locks.withLock(`transfer:${id}`, 15_000, async () => {
+      try {
+        return await ctx.deps.services.payments.reviewTransfer(id, adminUserId(ctx), approve);
+      } catch (error) {
+        if (isDomainError(error) && error.code === 'INVALID_STATE') return null;
+        throw error;
+      }
+    });
+    if (done === undefined) return answer(ctx, ctx.locale.common.busy);
+    if (done === null) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
+    await answer(ctx);
+    await respond(ctx, approve ? ctx.locale.admin.transferApproved(id) : ctx.locale.admin.transferDeclined(id), {
+      keyboard: inline([[button(ctx.locale.admin.transfersButton, 'a:pay:trl'), button(ctx.locale.admin.buttons.payments, 'a:pay')]]),
+    });
+  });
+
   admin.action('a:pay', async (ctx) => {
     setState(ctx, undefined);
     await answer(ctx);

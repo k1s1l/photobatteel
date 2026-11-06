@@ -56,7 +56,9 @@ export function startWorkers(services: Services, options: WorkerOptions, logger:
     QUEUE_NAMES.maintenance,
     async () => {
       await services.battles.tick();
-      return { expiredDrafts: await services.photos.expireDrafts(options.draftTtlHours) };
+      await services.payments.expireTransfers();
+      const transfersCredited = await services.payments.pollBank();
+      return { expiredDrafts: await services.photos.expireDrafts(options.draftTtlHours), transfersCredited };
     },
     { ...base, concurrency: 1 },
   );

@@ -1,9 +1,13 @@
+import { randomInt } from 'node:crypto';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
+import { escapeHtml } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import type { ActivityService } from '../activity/activity.service.js';
 import type { JobScheduler, TelegramGateway } from '../contracts.js';
+import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
+import { BankRateLimitError, currencyNumericCode, type BankClient } from './monobank.js';
 
 export const STARS_CURRENCY = 'XTR';
 const PAYLOAD_PREFIX = 'order:';
@@ -19,9 +23,19 @@ export const DEFAULT_PACKAGES = [
 ] as const;
 
 export interface PaymentOptions {
+  /** A Telegram payment provider token is configured (in-Telegram card payments). */
   cardEnabled: boolean;
   cardCurrency: string;
+  /** How long a buyer has to make a transfer before the order expires. */
+  transferTtlMinutes: number;
+  /** Without bank verification: how long a claimed transfer waits for an admin. */
+  manualReviewHours: number;
 }
+
+export type TransferOutcome = { kind: 'paid'; completed: CompletedPayment; telegramId: bigint; languageCode: string } | { kind: 'cancelled' };
+
+/** Letters and digits that cannot be confused with each other in a payment comment. */
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export interface Invoice {
   payment: Payment;
@@ -86,7 +100,12 @@ export class PaymentService {
     private readonly telegram: TelegramGateway,
     private readonly logger: Logger,
     readonly options: PaymentOptions,
+    private readonly notifications: NotificationService,
+    /** Monobank client when MONOBANK_TOKEN is set; null means transfers are confirmed by admins. */
+    readonly bank: BankClient | null = null,
   ) {}
+
+  private lastBankPoll = 0;
 
   async ensureDefaultPackages(): Promise<void> {
     if ((await this.prisma.votePackage.count()) > 0) return;
@@ -168,19 +187,28 @@ export class PaymentService {
     const id = parseOrderPayload(input.payload);
     if (!id) throw new Error(`Unknown invoice payload: ${input.payload}`);
 
+    const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id }, include: { user: true } });
+    if (payment.user.telegramId !== BigInt(input.telegramUserId)) throw new Error(`Payment ${id} belongs to another user`);
+    if (payment.currency !== input.currency || payment.amount !== input.totalAmount) {
+      this.logger.error({ paymentId: id, expected: [payment.currency, payment.amount], got: [input.currency, input.totalAmount] }, 'Paid amount differs from the order');
+    }
+    return this.credit(id, { telegramChargeId: input.telegramChargeId, providerChargeId: input.providerChargeId || null });
+  }
+
+  /**
+   * Marks a payment as paid and credits its votes exactly once: to the target
+   * entry's open duel when there is one, otherwise to the buyer's balance.
+   */
+  private async credit(paymentId: number, paidData: Prisma.PaymentUpdateManyMutationInput): Promise<CompletedPayment> {
     const result = await this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.findUniqueOrThrow({ where: { id }, include: { user: true } });
-      if (payment.user.telegramId !== BigInt(input.telegramUserId)) throw new Error(`Payment ${id} belongs to another user`);
-      if (payment.status !== 'PENDING') {
+      const payment = await tx.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { user: true } });
+      const claimed = await tx.payment.updateMany({
+        where: { id: paymentId, status: { in: ['PENDING', 'CLAIMED'] } },
+        data: { ...paidData, status: 'PAID', paidAt: new Date() },
+      });
+      if (claimed.count === 0) {
         return { payment, creditedTo: 'balance' as const, targetUnavailable: false, balance: payment.user.voteBalance, alreadyProcessed: true, duelId: null };
       }
-      if (payment.currency !== input.currency || payment.amount !== input.totalAmount) {
-        this.logger.error({ paymentId: id, expected: [payment.currency, payment.amount], got: [input.currency, input.totalAmount] }, 'Paid amount differs from the order');
-      }
-      const paid = await tx.payment.update({
-        where: { id },
-        data: { status: 'PAID', paidAt: new Date(), telegramChargeId: input.telegramChargeId, providerChargeId: input.providerChargeId || null },
-      });
 
       let creditedTo: 'photo' | 'balance' = 'balance';
       let targetUnavailable = false;
@@ -205,11 +233,12 @@ export class PaymentService {
           action: 'PAYMENT_SUCCEEDED',
           userId: payment.userId,
           entityType: 'Payment',
-          entityId: id,
+          entityId: paymentId,
           details: { method: payment.method, amount: payment.amount, currency: payment.currency, votes: payment.votes, creditedTo },
         },
         tx,
       );
+      const paid = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
       return { payment: paid, creditedTo, targetUnavailable, balance, alreadyProcessed: false, duelId };
     });
 
@@ -309,15 +338,238 @@ export class PaymentService {
           _sum: { amount: true },
         })
       )._sum.amount ?? 0;
+    const sumCard = async (since?: Date) => (await sum('CARD', since)) + (await sum('TRANSFER', since));
     const [paid, paid24h, stars, cardTotal, card24h, votes] = await Promise.all([
       this.prisma.payment.count({ where: { status: 'PAID' } }),
       this.prisma.payment.count({ where: { status: 'PAID', paidAt: { gte: dayAgo } } }),
       sum('STARS'),
-      sum('CARD'),
-      sum('CARD', dayAgo),
+      sumCard(),
+      sumCard(dayAgo),
       this.prisma.payment.aggregate({ where: { status: 'PAID' }, _sum: { votes: true } }),
     ]);
     return { paid, paid24h, stars, cardTotal, card24h, votesSold: votes._sum.votes ?? 0 };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Transfers to the owner's card / Monobank jar
+  // ---------------------------------------------------------------------------
+
+  /** Transfers are offered when enabled in the admin panel and the payment details are filled in. */
+  async transferAvailable(): Promise<boolean> {
+    const settings = await this.settings.get();
+    return settings.paidVotesEnabled && settings.transferEnabled && !!settings.transferDetails;
+  }
+
+  /** Creates a transfer order with a unique code the buyer puts into the payment comment. */
+  async createTransfer(user: User, packageId: number, targetPhotoId: number | null): Promise<{ payment: Payment; details: string; automatic: boolean }> {
+    if (user.isBlocked) throw new DomainError('USER_BLOCKED');
+    const settings = await this.settings.get();
+    if (!settings.paidVotesEnabled || !settings.transferEnabled || !settings.transferDetails) throw new DomainError('PAYMENTS_DISABLED');
+    const pack = await this.prisma.votePackage.findUnique({ where: { id: packageId } });
+    if (!pack?.isActive) throw new DomainError('NOT_FOUND');
+    if (targetPhotoId !== null && !(await findActiveDuel(this.prisma, targetPhotoId))) throw new DomainError('VOTING_CLOSED');
+
+    const expiresAt = new Date(Date.now() + this.options.transferTtlMinutes * 60_000);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const payment = await this.prisma.payment.create({
+          data: {
+            userId: user.id,
+            packageId: pack.id,
+            votes: pack.votes,
+            method: 'TRANSFER',
+            currency: this.options.cardCurrency,
+            amount: pack.priceCard,
+            targetPhotoId,
+            code: generateCode(),
+            expiresAt,
+          },
+        });
+        return { payment, details: settings.transferDetails, automatic: this.bankVerification(settings.monobankAccountId) };
+      } catch (error) {
+        if (attempt >= 4 || (error as { code?: string }).code !== 'P2002') throw error;
+      }
+    }
+  }
+
+  /** The buyer says the transfer is done. Without bank verification the admins are asked right away. */
+  async claimTransfer(paymentId: number, user: User): Promise<{ automatic: boolean }> {
+    const claimed = await this.prisma.payment.updateMany({
+      where: { id: paymentId, userId: user.id, method: 'TRANSFER', status: 'PENDING' },
+      data: { status: 'CLAIMED', claimedAt: new Date() },
+    });
+    if (claimed.count === 0) throw new DomainError('INVALID_STATE');
+    const settings = await this.settings.get();
+    const automatic = this.bankVerification(settings.monobankAccountId);
+    if (!automatic) await this.requestReview(paymentId);
+    else await this.pollBank();
+    return { automatic };
+  }
+
+  async cancelTransfer(paymentId: number, user: User): Promise<void> {
+    const cancelled = await this.prisma.payment.updateMany({
+      where: { id: paymentId, userId: user.id, method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } },
+      data: { status: 'CANCELLED' },
+    });
+    if (cancelled.count === 0) throw new DomainError('INVALID_STATE');
+    await this.activity.log({ action: 'PAYMENT_CANCELLED', userId: user.id, entityType: 'Payment', entityId: paymentId, details: { by: 'buyer' } });
+  }
+
+  /** Admin decision on a transfer that the bank check could not match. */
+  async reviewTransfer(paymentId: number, adminUserId: number, approve: boolean): Promise<TransferOutcome> {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, include: { user: true } });
+    if (payment?.method !== 'TRANSFER' || (payment.status !== 'PENDING' && payment.status !== 'CLAIMED')) throw new DomainError('INVALID_STATE');
+    if (approve) {
+      const completed = await this.credit(paymentId, { confirmedById: adminUserId });
+      if (completed.alreadyProcessed) throw new DomainError('INVALID_STATE');
+      await this.notifyPaid(payment.user, completed);
+      return { kind: 'paid', completed, telegramId: payment.user.telegramId, languageCode: payment.user.languageCode };
+    }
+    const cancelled = await this.prisma.payment.updateMany({
+      where: { id: paymentId, status: { in: ['PENDING', 'CLAIMED'] } },
+      data: { status: 'CANCELLED', confirmedById: adminUserId },
+    });
+    if (cancelled.count === 0) throw new DomainError('INVALID_STATE');
+    await this.activity.log({ action: 'PAYMENT_CANCELLED', userId: adminUserId, entityType: 'Payment', entityId: paymentId, details: { by: 'admin' } });
+    await this.notifications.notifyUser(payment.user, (l) => l.payments.transferRejected(payment.code ?? ''));
+    return { kind: 'cancelled' };
+  }
+
+  /** Open transfers for the admin list (claimed first). */
+  async openTransfers(limit: number) {
+    return this.prisma.payment.findMany({
+      where: { method: 'TRANSFER', status: { in: ['CLAIMED', 'PENDING'] } },
+      include: { user: true },
+      orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+      take: limit,
+    });
+  }
+
+  /**
+   * Checks the Monobank statement for incoming transfers carrying an open
+   * order's code and the exact amount, and credits them. Monobank allows one
+   * statement request per minute, so calls closer than that are skipped.
+   */
+  async pollBank(now: Date = new Date()): Promise<number> {
+    const settings = await this.settings.get();
+    if (!this.bank || !settings.monobankAccountId) return 0;
+    if (now.getTime() - this.lastBankPoll < 60_000) return 0;
+
+    const open = await this.prisma.payment.findMany({
+      where: { method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] }, code: { not: null } },
+      include: { user: true },
+    });
+    if (open.length === 0) return 0;
+    this.lastBankPoll = now.getTime();
+
+    const from = new Date(Math.min(...open.map((payment) => payment.createdAt.getTime())) - 5 * 60_000);
+    let items;
+    try {
+      items = await this.bank.statement(settings.monobankAccountId, from, now);
+    } catch (error) {
+      if (!(error instanceof BankRateLimitError)) this.logger.warn({ err: error }, 'Monobank statement request failed');
+      return 0;
+    }
+    const currency = currencyNumericCode(this.options.cardCurrency);
+    let credited = 0;
+    for (const item of items) {
+      if (item.amount <= 0 || (currency !== undefined && item.currencyCode !== currency)) continue;
+      const text = normalizeCode(`${item.description ?? ''} ${item.comment ?? ''}`);
+      const payment = open.find((candidate) => candidate.amount === item.amount && text.includes(normalizeCode(candidate.code!)));
+      if (!payment) continue;
+      if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) continue;
+      try {
+        const completed = await this.credit(payment.id, { bankTransactionId: item.id });
+        if (completed.alreadyProcessed) continue;
+        credited += 1;
+        open.splice(open.indexOf(payment), 1);
+        await this.notifyPaid(payment.user, completed);
+      } catch (error) {
+        // The same bank transaction cannot pay for two orders (unique bankTransactionId).
+        if ((error as { code?: string }).code !== 'P2002') throw error;
+      }
+    }
+    return credited;
+  }
+
+  /**
+   * Housekeeping (every tick): unpaid orders expire; claimed transfers the bank
+   * check could not match go to the admins; unanswered ones are cancelled.
+   */
+  async expireTransfers(now: Date = new Date()): Promise<void> {
+    const expired = await this.prisma.payment.findMany({
+      where: { method: 'TRANSFER', status: 'PENDING', expiresAt: { lt: now } },
+      include: { user: true },
+    });
+    for (const payment of expired) {
+      const done = await this.prisma.payment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+      if (done.count) await this.notifications.notifyUser(payment.user, (l) => l.payments.transferExpired(payment.code ?? ''));
+    }
+
+    const settings = await this.settings.get();
+    if (this.bankVerification(settings.monobankAccountId)) {
+      const unmatched = await this.prisma.payment.findMany({
+        where: {
+          method: 'TRANSFER',
+          status: 'CLAIMED',
+          reviewRequestedAt: null,
+          claimedAt: { lt: new Date(now.getTime() - this.options.transferTtlMinutes * 60_000) },
+        },
+        select: { id: true },
+      });
+      for (const { id } of unmatched) await this.requestReview(id);
+    }
+
+    const unanswered = await this.prisma.payment.findMany({
+      where: {
+        method: 'TRANSFER',
+        status: 'CLAIMED',
+        reviewRequestedAt: { lt: new Date(now.getTime() - this.options.manualReviewHours * 60 * 60_000) },
+      },
+      include: { user: true },
+    });
+    for (const payment of unanswered) {
+      const done = await this.prisma.payment.updateMany({ where: { id: payment.id, status: 'CLAIMED' }, data: { status: 'CANCELLED' } });
+      if (done.count) await this.notifications.notifyUser(payment.user, (l) => l.payments.transferNotConfirmed(payment.code ?? ''));
+    }
+  }
+
+  private bankVerification(accountId: string | null): boolean {
+    return !!this.bank && !!accountId;
+  }
+
+  /** Asks admins to check a transfer manually (once). */
+  private async requestReview(paymentId: number): Promise<void> {
+    const marked = await this.prisma.payment.updateMany({
+      where: { id: paymentId, status: 'CLAIMED', reviewRequestedAt: null },
+      data: { reviewRequestedAt: new Date() },
+    });
+    if (marked.count === 0) return;
+    const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { user: true } });
+    const amount = formatCardPrice(payment.amount, payment.currency);
+    const buyer = payment.user.username ? `@${payment.user.username}` : payment.user.firstName;
+    await this.notifications.notifyAdmins((l) => l.admin.transferReview({ id: payment.id, code: payment.code ?? '', amount, votes: payment.votes, buyer: escapeHtml(buyer) }), {
+      parseMode: 'HTML',
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: '✅', callback_data: `a:tr:ok:${payment.id}` },
+            { text: '❌', callback_data: `a:tr:no:${payment.id}` },
+          ],
+        ],
+      },
+    });
+  }
+
+  private async notifyPaid(user: User, completed: CompletedPayment): Promise<void> {
+    const votes = completed.payment.votes;
+    await this.notifications.notifyUser(user, (l) =>
+      completed.creditedTo === 'photo'
+        ? l.payments.paidToPhoto(votes)
+        : completed.targetUnavailable
+          ? l.payments.paidPhotoGone({ votes, balance: completed.balance })
+          : l.payments.paidToBalance({ votes, balance: completed.balance }),
+    );
   }
 
   /** Adds paid votes to the entry's side of its current duel stage. Returns that side's new count. */
@@ -340,6 +592,17 @@ export class PaymentService {
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });
     return side === 'A' ? updated.votesA : updated.votesB;
   }
+}
+
+function generateCode(): string {
+  let code = 'PB';
+  for (let i = 0; i < 5; i += 1) code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  return code;
+}
+
+/** Codes are matched ignoring case, spaces and dashes ("pb-7k2 q9" matches "PB7K2Q9"). */
+function normalizeCode(text: string): string {
+  return text.toUpperCase().replace(/[\s\-_.]/g, '');
 }
 
 /** Formats a card price stored in minor units: 8900 UAH → "89 ₴". */

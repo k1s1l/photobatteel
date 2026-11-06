@@ -13,6 +13,9 @@ export type SettingsPatch = Partial<
     | 'roundTemplate'
     | 'winnerTemplate'
     | 'buttonsTemplate'
+    | 'transferEnabled'
+    | 'transferDetails'
+    | 'monobankAccountId'
   >
 >;
 

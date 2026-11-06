@@ -9,6 +9,7 @@ import { BroadcastService } from './modules/broadcasts/broadcast.service.js';
 import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from './modules/contracts.js';
 import { DuelVoteService } from './modules/duels/duel-vote.service.js';
 import { NotificationService } from './modules/notifications/notification.service.js';
+import { MonobankClient, type BankClient } from './modules/payments/monobank.js';
 import { PaymentService } from './modules/payments/payment.service.js';
 import { PhotoService } from './modules/photos/photo.service.js';
 import { SettingsService } from './modules/settings/settings.service.js';
@@ -24,7 +25,12 @@ export interface ServiceDeps {
   logger: Logger;
   env: Pick<Env, 'DEFAULT_LANGUAGE' | 'TIMEZONE' | 'BROADCAST_RATE_PER_SECOND' | 'CARD_CURRENCY' | 'MAX_TIEBREAKS'> & {
     PAYMENT_PROVIDER_TOKEN?: string | undefined;
+    MONOBANK_TOKEN?: string | undefined;
+    TRANSFER_TTL_MINUTES?: number;
+    TRANSFER_REVIEW_HOURS?: number;
   };
+  /** Bank statement reader; defaults to Monobank when MONOBANK_TOKEN is set (tests pass a fake). */
+  bank?: BankClient | null;
 }
 
 export interface Services {
@@ -63,10 +69,23 @@ export function createServices(deps: ServiceDeps): Services {
   const photos = new PhotoService(prisma, settings, battles, activity, notifications, logger);
   const stats = new StatsService(prisma);
   const broadcasts = new BroadcastService(prisma, telegram, scheduler, activity, notifications, logger, env.BROADCAST_RATE_PER_SECOND);
-  const payments = new PaymentService(prisma, settings, activity, scheduler, telegram, logger, {
-    cardEnabled: !!env.PAYMENT_PROVIDER_TOKEN,
-    cardCurrency: env.CARD_CURRENCY,
-  });
+  const bank = deps.bank !== undefined ? deps.bank : env.MONOBANK_TOKEN ? new MonobankClient(env.MONOBANK_TOKEN) : null;
+  const payments = new PaymentService(
+    prisma,
+    settings,
+    activity,
+    scheduler,
+    telegram,
+    logger,
+    {
+      cardEnabled: !!env.PAYMENT_PROVIDER_TOKEN,
+      cardCurrency: env.CARD_CURRENCY,
+      transferTtlMinutes: env.TRANSFER_TTL_MINUTES ?? 30,
+      manualReviewHours: env.TRANSFER_REVIEW_HOURS ?? 12,
+    },
+    notifications,
+    bank,
+  );
 
   return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments };
 }

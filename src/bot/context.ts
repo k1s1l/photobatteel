@@ -8,7 +8,7 @@ import type { Services } from '../services.js';
 import type { Env } from '../config/env.js';
 import type { TemplateKey } from '../modules/duels/templates.js';
 
-export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'package_price';
+export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'package_price' | 'transfer_details';
 
 /** What the bot expects from the user next. */
 export type ConversationState =
@@ -16,6 +16,7 @@ export type ConversationState =
   | { kind: 'admin_input'; action: AdminInputAction; packageId?: number }
   | { kind: 'admin_broadcast' }
   | { kind: 'admin_template'; key: TemplateKey }
+  | { kind: 'monobank_pick'; accounts: { id: string; label: string; sendLink?: string }[] }
   | { kind: 'battle_create'; step: 'start' | 'round' | 'final'; startsAt?: string; roundMinutes?: number };
 
 export interface SessionData {

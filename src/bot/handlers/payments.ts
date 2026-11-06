@@ -1,6 +1,8 @@
 import type { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { allTranslations } from '../../i18n/index.js';
+import { isDomainError } from '../../lib/errors.js';
+import { escapeHtml } from '../../lib/format.js';
 import { formatCardPrice } from '../../modules/payments/payment.service.js';
 import { currentUser, type BotContext } from '../context.js';
 import { answer, matchInt, matchString } from '../helpers.js';
@@ -12,11 +14,13 @@ function packButtons(ctx: BotContext, target: number) {
   return async () => {
     const { payments } = ctx.deps.services;
     const packs = await payments.listPackages(true);
+    // Card: a Telegram payment provider if configured, otherwise a transfer to the owner's card/jar.
+    const cardAction = payments.options.cardEnabled ? 'c' : (await payments.transferAvailable()) ? 't' : null;
     return packs.map((pack) => {
       const row = [button(ctx.locale.payments.packStars({ votes: pack.votes, price: pack.priceStars }), `pay:s:${pack.id}:${target}`)];
-      if (payments.options.cardEnabled) {
+      if (cardAction) {
         const price = formatCardPrice(pack.priceCard, payments.options.cardCurrency);
-        row.push(button(ctx.locale.payments.packCard({ votes: pack.votes, price }), `pay:c:${pack.id}:${target}`));
+        row.push(button(ctx.locale.payments.packCard({ votes: pack.votes, price }), `pay:${cardAction}:${pack.id}:${target}`));
       }
       return row;
     });
@@ -103,6 +107,60 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
       currency: invoice.currency,
       prices: [{ label: l.invoiceLabel(invoice.votes), amount: invoice.amount }],
     });
+  });
+
+  // Transfer to the owner's card / Monobank jar.
+  bot.action(/^pay:t:(\d+):(\d+)$/, async (ctx) => {
+    const { payments } = ctx.deps.services;
+    const order = await payments.createTransfer(currentUser(ctx), matchInt(ctx, 1), matchInt(ctx, 2) || null);
+    await answer(ctx);
+    await ctx.reply(
+      ctx.locale.payments.transferInstructions({
+        amount: formatCardPrice(order.payment.amount, order.payment.currency),
+        code: order.payment.code ?? '',
+        details: escapeHtml(order.details),
+        minutes: payments.options.transferTtlMinutes,
+        automatic: order.automatic,
+      }),
+      {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_markup: inline([
+          [button(ctx.locale.payments.transferPaidButton, `pay:tc:${order.payment.id}`)],
+          [button(ctx.locale.payments.transferCancelButton, `pay:tx:${order.payment.id}`)],
+        ]),
+      },
+    );
+  });
+
+  bot.action(/^pay:tc:(\d+)$/, async (ctx) => {
+    const paymentId = matchInt(ctx);
+    const result = await ctx.deps.locks.withLock(`transfer:${paymentId}`, 10_000, async () => {
+      try {
+        return await ctx.deps.services.payments.claimTransfer(paymentId, currentUser(ctx));
+      } catch (error) {
+        if (isDomainError(error) && error.code === 'INVALID_STATE') return null;
+        throw error;
+      }
+    });
+    if (result === undefined) return answer(ctx, ctx.locale.common.busy);
+    await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+    if (result === null) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
+    await answer(ctx);
+    await ctx.reply(result.automatic ? ctx.locale.payments.transferClaimedAuto : ctx.locale.payments.transferClaimedManual);
+  });
+
+  bot.action(/^pay:tx:(\d+)$/, async (ctx) => {
+    try {
+      await ctx.deps.services.payments.cancelTransfer(matchInt(ctx), currentUser(ctx));
+    } catch (error) {
+      if (!isDomainError(error) || error.code !== 'INVALID_STATE') throw error;
+      await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+      return answer(ctx, ctx.locale.common.alreadyProcessed, true);
+    }
+    await answer(ctx);
+    await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+    await ctx.reply(ctx.locale.payments.transferCancelled);
   });
 
   bot.on('pre_checkout_query', async (ctx) => {

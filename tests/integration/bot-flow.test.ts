@@ -284,6 +284,27 @@ describe('bot: voting under duel posts', () => {
   });
 });
 
+describe('bot: card transfer', () => {
+  it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);
+    // No Telegram payment provider in this test: the card button leads to a transfer.
+    const services = ctx.services as unknown as { payments: { options: { cardEnabled: boolean } } };
+    services.payments.options.cardEnabled = false;
+    await sendText(80, '⭐ Купить голоса');
+    const [pack] = await ctx.services.payments.listPackages(true);
+    expect(JSON.stringify(api.filter((c) => c.method === 'sendMessage').at(-1)!.payload.reply_markup)).toContain(`pay:t:${pack!.id}:0`);
+
+    await press(80, `pay:t:${pack!.id}:0`);
+    const instructions = texts('sendMessage').at(-1)!;
+    const payment = await ctx.prisma.payment.findFirstOrThrow({ where: { method: 'TRANSFER' } });
+    expect(instructions).toContain(payment.code!);
+    expect(instructions).toContain('monobank jar link');
+    await press(80, `pay:tc:${payment.id}`);
+    expect(texts('sendMessage').at(-1)).toContain('Администратор проверит перевод');
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('CLAIMED');
+  });
+});
+
 describe('bot: admin', () => {
   it('denies admin buttons and commands to regular users', async () => {
     await press(40, 'a:stats');

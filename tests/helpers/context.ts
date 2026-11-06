@@ -3,6 +3,7 @@ import type { Battle, PrismaClient, User } from '../../src/generated/prisma/clie
 import { createServices, type Services } from '../../src/services.js';
 import type { ChannelInfo } from '../../src/modules/contracts.js';
 import { hashBuffer } from '../../src/modules/photos/image-validator.js';
+import type { BankClient } from '../../src/modules/payments/monobank.js';
 import { assertTestDatabase, TEST_DATABASE_URL } from './env.js';
 import { FakeScheduler, FakeTelegram, silentLogger } from './fakes.js';
 import { makeUniqueJpeg } from './images.js';
@@ -40,12 +41,12 @@ export const TEST_ENV = {
   PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
 };
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(options: { bank?: BankClient | null } = {}): Promise<TestContext> {
   const prisma = testPrisma();
   await resetDatabase(prisma);
   const telegram = new FakeTelegram();
   const scheduler = new FakeScheduler();
-  const services = createServices({ prisma, telegram, scheduler, channel: CHANNEL, bot: { username: 'photobattle_bot' }, logger: silentLogger, env: TEST_ENV });
+  const services = createServices({ prisma, telegram, scheduler, channel: CHANNEL, bot: { username: 'photobattle_bot' }, logger: silentLogger, env: TEST_ENV, bank: options.bank ?? null });
   await services.settings.ensureDefaults();
   await services.admins.syncOwners([ADMIN_TG_ID]);
   await services.payments.ensureDefaultPackages();
