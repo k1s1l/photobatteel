@@ -348,8 +348,7 @@ describe('bot: admin', () => {
 
   it('saves a separate design for the final buttons message', async () => {
     await press(ADMIN_TG_ID, 'a:tpl:k:buttons');
-    await press(ADMIN_TG_ID, 'a:tpl:st:buttons');
-    expect(texts('editMessageText').at(-1)).toContain('по раундам');
+    expect(texts('editMessageText').at(-1)).toContain('Раунд 1–4 или Финал');
     await press(ADMIN_TG_ID, 'a:tpl:v:buttons:final');
     await press(ADMIN_TG_ID, 'a:tpl:up:buttons:final');
     await sendText(ADMIN_TG_ID, 'Ф ИНАЛ {stage}', { entities: [{ type: 'custom_emoji', offset: 0, length: 1, custom_emoji_id: '77' }] });

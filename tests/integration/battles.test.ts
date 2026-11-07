@@ -301,7 +301,7 @@ describe('templates, final duration and reminders', () => {
     await entries(4);
     await startBattle(ctx, battle.id);
     await postPendingDuels(ctx);
-    // The semifinal has no own design: the general one is used.
+    // Round 1 has no own design: the general one is used.
     expect(String(toChannel('sendMessage')[0]!.args[0])).toBe('<b>Полуфинал · Пара 1</b>');
     for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
     await expireDuels(ctx);

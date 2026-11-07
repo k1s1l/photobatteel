@@ -63,11 +63,10 @@ describe('duel post', () => {
 });
 
 describe('per-round designs', () => {
-  it('picks the final and the semifinal before the round number', () => {
+  it('picks the final before the round number', () => {
     expect(stageVariant({ round: 1, entriesInRound: 16 })).toBe('r1');
-    expect(stageVariant({ round: 3, entriesInRound: 8 })).toBe('r3');
-    expect(stageVariant({ round: 1, entriesInRound: 4 })).toBe('semi');
-    expect(stageVariant({ round: 1, entriesInRound: 2 })).toBe('final');
-    expect(stageVariant({ round: 6, entriesInRound: 64 })).toBeNull();
+    expect(stageVariant({ round: 3, entriesInRound: 4 })).toBe('r3');
+    expect(stageVariant({ round: 2, entriesInRound: 2 })).toBe('final');
+    expect(stageVariant({ round: 5, entriesInRound: 4 })).toBeNull();
   });
 });

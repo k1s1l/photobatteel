@@ -8,7 +8,6 @@ import {
   isStageVariant,
   isTemplateKey,
   renderTemplate,
-  STAGE_VARIANTS,
   stageTemplateId,
   stageTemplates,
   stageValues,
@@ -39,7 +38,6 @@ function placeholdersList(key: TemplateKey): string {
 /** A tournament moment that matches the per-round design being previewed. */
 function samplePoint(variant?: StageVariant): StagePoint {
   if (variant === 'final') return { round: 4, entriesInRound: 2 };
-  if (variant === 'semi') return { round: 3, entriesInRound: 4 };
   if (variant) return { round: Number(variant.slice(1)), entriesInRound: 16 };
   return { round: 1, entriesInRound: 8 };
 }
@@ -93,30 +91,23 @@ async function showTemplate(ctx: BotContext, key: TemplateKey): Promise<void> {
   const settings = await ctx.deps.services.settings.get();
   const custom = !!settings[TEMPLATE_FIELDS[key]];
   const a = ctx.locale.admin;
-  await respond(ctx, a.designType({ name: a.templateNames[key], custom, placeholders: placeholdersList(key) }), {
+  const text = a.designType({ name: a.templateNames[key], custom, placeholders: placeholdersList(key) }) + (isStagedKey(key) ? `\n\n${a.designRoundsHint}` : '');
+  await respond(ctx, text, {
     keyboard: inline([
+      ...(isStagedKey(key) ? stageRows(ctx, key, stageTemplates(settings)) : []),
       [button(a.designUpload, `a:tpl:up:${key}`)],
       ...(custom ? [[button(a.designReset, `a:tpl:reset:${key}`)]] : []),
-      ...(isStagedKey(key) ? [[button(a.designByRound, `a:tpl:st:${key}`)]] : []),
       [button(ctx.locale.common.back, 'a:tpl')],
     ]),
   });
   await sendPreview(ctx, key, templateFor(settings, ctx.deps.services.battles.channelLocale, key));
 }
 
-async function showStages(ctx: BotContext, key: StagedKey): Promise<void> {
-  const saved = stageTemplates(await ctx.deps.services.settings.get());
-  const a = ctx.locale.admin;
-  const label = (variant: StageVariant): string => `${saved[stageTemplateId(key, variant)] ? '✏️ ' : ''}${a.stageNames[variant]}`;
-  const rounds = STAGE_VARIANTS.filter((variant) => variant.startsWith('r'));
-  await respond(ctx, a.designStages(a.templateNames[key]), {
-    keyboard: inline([
-      rounds.slice(0, 3).map((variant) => button(label(variant), `a:tpl:v:${key}:${variant}`)),
-      rounds.slice(3).map((variant) => button(label(variant), `a:tpl:v:${key}:${variant}`)),
-      [button(label('semi'), `a:tpl:v:${key}:semi`), button(label('final'), `a:tpl:v:${key}:final`)],
-      [button(ctx.locale.common.back, `a:tpl:k:${key}`)],
-    ]),
-  });
+/** Buttons "Раунд 1 … Раунд 4, Фінал"; ✏️ marks the ones with their own design. */
+function stageRows(ctx: BotContext, key: StagedKey, saved: Record<string, string>): ReturnType<typeof button>[][] {
+  const label = (variant: StageVariant): string => `${saved[stageTemplateId(key, variant)] ? '✏️ ' : ''}${ctx.locale.admin.stageNames[variant]}`;
+  const item = (variant: StageVariant) => button(label(variant), `a:tpl:v:${key}:${variant}`);
+  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')]];
 }
 
 async function showVariant(ctx: BotContext, key: StagedKey, variant: StageVariant): Promise<void> {
@@ -127,7 +118,7 @@ async function showVariant(ctx: BotContext, key: StagedKey, variant: StageVarian
     keyboard: inline([
       [button(a.designUpload, `a:tpl:up:${key}:${variant}`)],
       ...(own ? [[button(a.designReset, `a:tpl:reset:${key}:${variant}`)]] : []),
-      [button(ctx.locale.common.back, `a:tpl:st:${key}`)],
+      [button(ctx.locale.common.back, `a:tpl:k:${key}`)],
     ]),
   });
   const template = own ?? templateFor(settings, ctx.deps.services.battles.channelLocale, key);
@@ -171,12 +162,6 @@ export function registerDesignHandlers(admin: Composer<BotContext>): void {
     const key = matchString(ctx);
     await answer(ctx);
     if (isTemplateKey(key)) await showTemplate(ctx, key);
-  });
-
-  admin.action(/^a:tpl:st:(\w+)$/, async (ctx) => {
-    const key = matchString(ctx);
-    await answer(ctx);
-    if (isStagedKey(key)) await showStages(ctx, key);
   });
 
   admin.action(/^a:tpl:v:(\w+):(\w+)$/, async (ctx) => {
