@@ -11,8 +11,18 @@ export interface TextEntity {
   user?: { id: number };
 }
 
-function tags(entity: TextEntity): [string, string] | null {
+function href(url: string): string {
+  return escapeHtml(url).replace(/"/g, '&quot;');
+}
+
+function tags(entity: TextEntity, text: string): [string, string] | null {
+  const value = text.slice(entity.offset, entity.offset + entity.length);
   switch (entity.type) {
+    case 'url':
+      // Telegram does not always re-detect links in bot messages, so keep them explicitly.
+      return [`<a href="${href(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`)}">`, '</a>'];
+    case 'email':
+      return [`<a href="${href(`mailto:${value}`)}">`, '</a>'];
     case 'bold':
       return ['<b>', '</b>'];
     case 'italic':
@@ -28,7 +38,7 @@ function tags(entity: TextEntity): [string, string] | null {
     case 'pre':
       return entity.language ? [`<pre><code class="language-${escapeHtml(entity.language)}">`, '</code></pre>'] : ['<pre>', '</pre>'];
     case 'text_link':
-      return entity.url ? [`<a href="${escapeHtml(entity.url).replace(/"/g, '&quot;')}">`, '</a>'] : null;
+      return entity.url ? [`<a href="${href(entity.url)}">`, '</a>'] : null;
     case 'text_mention':
       return entity.user ? [`<a href="tg://user?id=${entity.user.id}">`, '</a>'] : null;
     case 'custom_emoji':
@@ -38,7 +48,7 @@ function tags(entity: TextEntity): [string, string] | null {
     case 'expandable_blockquote':
       return ['<blockquote expandable>', '</blockquote>'];
     default:
-      // mention, hashtag, url, … are detected by Telegram automatically.
+      // mention, hashtag, … are detected by Telegram automatically.
       return null;
   }
 }
@@ -50,7 +60,7 @@ function tags(entity: TextEntity): [string, string] | null {
  */
 export function entitiesToHtml(text: string, entities: readonly TextEntity[] = []): string {
   const items = entities
-    .map((entity, index) => ({ entity, index, tag: tags(entity), end: entity.offset + entity.length }))
+    .map((entity, index) => ({ entity, index, tag: tags(entity, text), end: entity.offset + entity.length }))
     .filter((item): item is typeof item & { tag: [string, string] } => item.tag !== null && item.entity.length > 0)
     .sort((a, b) => a.entity.offset - b.entity.offset || b.entity.length - a.entity.length || a.index - b.index);
 

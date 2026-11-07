@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { entitiesToHtml, stripCustomEmoji, visibleLength } from '../../src/lib/entities-html.js';
 
 describe('message entities → HTML template', () => {
+  it('keeps links clickable next to premium emoji', () => {
+    const text = 'КАНАЛ ⭐ https://t.me/+abc&x t.me/ch';
+    const html = entitiesToHtml(text, [
+      { type: 'custom_emoji', offset: 6, length: 1, custom_emoji_id: '42' },
+      { type: 'url', offset: 8, length: 19 },
+      { type: 'url', offset: 28, length: 7 },
+    ]);
+    expect(html).toBe(
+      'КАНАЛ <tg-emoji emoji-id="42">⭐</tg-emoji> <a href="https://t.me/+abc&amp;x">https://t.me/+abc&amp;x</a> <a href="https://t.me/ch">t.me/ch</a>',
+    );
+  });
+
   it('keeps formatting and premium emoji', () => {
     const text = '🔥 PHOTO BATTLE {stage}';
     const html = entitiesToHtml(text, [
