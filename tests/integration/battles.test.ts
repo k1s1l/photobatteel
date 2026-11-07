@@ -115,6 +115,26 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(toChannel('sendMessage')).toHaveLength(1);
   });
 
+  it('lets the entry submitted last pass without a vote when the number is odd', async () => {
+    const battle = await openBattle(ctx);
+    const created = await entries(5);
+    // The second entry was confirmed last, although it was uploaded early.
+    await ctx.prisma.photo.update({ where: { id: created[1]!.id }, data: { confirmedAt: new Date(Date.now() + 60_000) } });
+    await startBattle(ctx, battle.id);
+    const bye = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 1, photoBId: null } });
+    expect(bye.photoAId).toBe(created[1]!.id);
+
+    // Round 2 has 3 entries: again the latest of them passes.
+    for (const duel of await ctx.prisma.duel.findMany({ where: { round: 1, photoBId: { not: null } } })) {
+      await ctx.prisma.duel.update({ where: { id: duel.id }, data: { status: 'ACTIVE', endsAt: new Date(Date.now() - 1000), votesA: 1 } });
+    }
+    await expireDuels(ctx);
+    const round2 = await ctx.prisma.duel.findMany({ where: { round: 2 }, include: { photoA: true } });
+    const players = await ctx.prisma.photo.findMany({ where: { id: { in: round2.flatMap((d) => [d.photoAId, d.photoBId ?? 0]) } } });
+    const latest = players.reduce((a, b) => ((b.confirmedAt ?? b.createdAt) > (a.confirmedAt ?? a.createdAt) ? b : a));
+    expect(round2.find((d) => d.photoBId === null)!.photoAId).toBe(latest.id);
+  });
+
   it('prepares videos as an album with the caption and links every album item', async () => {
     const battle = await openBattle(ctx);
     await entries(3, 'VIDEO');

@@ -241,7 +241,7 @@ export class BattleService {
 
   /** Creates duels for a round; byes are finished immediately. */
   private async createRound(tx: Prisma.TransactionClient, battleId: number, round: number, photoIds: number[]): Promise<void> {
-    const pairs = pairEntries(photoIds);
+    const pairs = pairEntries(await this.latestGetsBye(tx, photoIds));
     const now = new Date();
     for (const [index, pair] of pairs.entries()) {
       await tx.duel.create({
@@ -257,6 +257,18 @@ export class BattleService {
     }
     await tx.battle.update({ where: { id: battleId }, data: { currentRound: round } });
     if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: pairs.length } }, tx);
+  }
+
+  /**
+   * Rule: with an odd number of entries, the entry submitted last advances without a vote.
+   * It is moved to the end of the list, where pairEntries leaves it unpaired.
+   */
+  private async latestGetsBye(tx: Prisma.TransactionClient, photoIds: number[]): Promise<number[]> {
+    if (photoIds.length % 2 === 0) return photoIds;
+    const photos = await tx.photo.findMany({ where: { id: { in: photoIds } }, select: { id: true, confirmedAt: true, createdAt: true } });
+    const submitted = (photo: (typeof photos)[number]): number => (photo.confirmedAt ?? photo.createdAt).getTime();
+    const latest = photos.reduce((a, b) => (submitted(b) > submitted(a) || (submitted(b) === submitted(a) && b.id > a.id) ? b : a));
+    return [...photoIds.filter((id) => id !== latest.id), latest.id];
   }
 
   /**
