@@ -27,8 +27,53 @@ export function isTemplateKey(value: string): value is TemplateKey {
   return (TEMPLATE_KEYS as readonly string[]).includes(value);
 }
 
-/** The admin's design, or the default text of the channel language. */
-export function templateFor(settings: BotSettings, locale: Locale, key: TemplateKey): string {
+/** Templates that can have a separate design for every round, the semifinal and the final. */
+export const STAGED_KEYS = ['duel', 'round', 'buttons'] as const;
+export type StagedKey = (typeof STAGED_KEYS)[number];
+
+export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'r5', 'semi', 'final'] as const;
+export type StageVariant = (typeof STAGE_VARIANTS)[number];
+
+export function isStagedKey(value: string): value is StagedKey {
+  return (STAGED_KEYS as readonly string[]).includes(value);
+}
+
+export function isStageVariant(value: string): value is StageVariant {
+  return (STAGE_VARIANTS as readonly string[]).includes(value);
+}
+
+/** Where a post belongs in the tournament. */
+export interface StagePoint {
+  round: number;
+  entriesInRound: number;
+}
+
+/** The final and the semifinal win over the round number (a small battle may start with its final). */
+export function stageVariant(point: StagePoint): StageVariant | null {
+  if (point.entriesInRound <= 2) return 'final';
+  if (point.entriesInRound <= 4) return 'semi';
+  const id = `r${point.round}`;
+  return isStageVariant(id) ? id : null;
+}
+
+export function stageTemplateId(key: StagedKey, variant: StageVariant): string {
+  return `${key}:${variant}`;
+}
+
+/** Per-round designs saved by admins. */
+export function stageTemplates(settings: BotSettings): Record<string, string> {
+  const raw = settings.stageTemplates;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+}
+
+/** The admin's design for this round, else their general design, else the default text of the channel language. */
+export function templateFor(settings: BotSettings, locale: Locale, key: TemplateKey, point?: StagePoint): string {
+  if (point && isStagedKey(key)) {
+    const variant = stageVariant(point);
+    const staged = variant ? stageTemplates(settings)[stageTemplateId(key, variant)] : undefined;
+    if (staged) return staged;
+  }
   return settings[TEMPLATE_FIELDS[key]] ?? locale.templates[key];
 }
 

@@ -346,6 +346,21 @@ describe('bot: admin', () => {
     expect(texts('sendMessage').some((t) => t.includes('<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>БАТЛ</b> Раунд 1 · Пара 3'))).toBe(true);
   });
 
+  it('saves a separate design for the final buttons message', async () => {
+    await press(ADMIN_TG_ID, 'a:tpl:k:buttons');
+    await press(ADMIN_TG_ID, 'a:tpl:st:buttons');
+    expect(texts('editMessageText').at(-1)).toContain('по раундам');
+    await press(ADMIN_TG_ID, 'a:tpl:v:buttons:final');
+    await press(ADMIN_TG_ID, 'a:tpl:up:buttons:final');
+    await sendText(ADMIN_TG_ID, 'Ф ИНАЛ {stage}', { entities: [{ type: 'custom_emoji', offset: 0, length: 1, custom_emoji_id: '77' }] });
+    const settings = await ctx.services.settings.get();
+    expect(settings.stageTemplates).toEqual({ 'buttons:final': '<tg-emoji emoji-id="77">Ф</tg-emoji> ИНАЛ {stage}' });
+    expect(settings.buttonsTemplate).toBeNull();
+    expect(texts('sendMessage').some((t) => t === '<tg-emoji emoji-id="77">Ф</tg-emoji> ИНАЛ Финал')).toBe(true);
+    await press(ADMIN_TG_ID, 'a:tpl:reset:buttons:final');
+    expect((await ctx.services.settings.get()).stageTemplates).toEqual({});
+  });
+
   it('blocks a user by @username', async () => {
     await sendText(50, '/start');
     await press(ADMIN_TG_ID, 'a:in:block');

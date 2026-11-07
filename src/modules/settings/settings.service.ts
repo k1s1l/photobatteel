@@ -1,5 +1,6 @@
 import type { BotSettings, PrismaClient } from '../../generated/prisma/client.js';
 import type { ActivityService } from '../activity/activity.service.js';
+import { stageTemplateId, stageTemplates, type StagedKey, type StageVariant } from '../duels/templates.js';
 
 export type SettingsPatch = Partial<
   Pick<
@@ -61,6 +62,19 @@ export class SettingsService {
     // Template bodies are not copied into the audit log, only which one changed.
     const details = templates.length > 0 ? { templates: templates.map((key) => `${key}${patch[key] === null ? ':reset' : ''}`) } : { ...patch };
     await this.activity.log({ action: templates.length > 0 ? 'TEMPLATE_UPDATED' : 'SETTINGS_UPDATED', userId: actorUserId, details });
+    return updated;
+  }
+
+  /** Saves (or with null removes) the design of one template for one round. */
+  async setStageTemplate(key: StagedKey, variant: StageVariant, html: string | null, actorUserId: number | null): Promise<BotSettings> {
+    if (html !== null && html.length > MAX_TEMPLATE_LENGTH) throw new RangeError('Template is too long');
+    const id = stageTemplateId(key, variant);
+    const next = { ...stageTemplates(await this.ensureDefaults()) };
+    if (html === null) delete next[id];
+    else next[id] = html;
+    const updated = await this.prisma.botSettings.update({ where: { id: SETTINGS_ID }, data: { stageTemplates: next, updatedById: actorUserId } });
+    this.cache = { value: updated, expiresAt: Date.now() + CACHE_TTL_MS };
+    await this.activity.log({ action: 'TEMPLATE_UPDATED', userId: actorUserId, details: { templates: [`${id}${html === null ? ':reset' : ''}`] } });
     return updated;
   }
 

@@ -291,6 +291,29 @@ describe('templates, final duration and reminders', () => {
     expect(toAdmin('sendPhoto').some((c) => (c.args[1] as { caption?: string }).caption === '👑 Осень: 0')).toBe(true);
   });
 
+  it('uses the per-round designs for the stage they were made for', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ buttonsTemplate: '<b>{stage}</b>' }, admin.id);
+    await ctx.services.settings.setStageTemplate('buttons', 'final', '<tg-emoji emoji-id="7">Ф</tg-emoji>ИНАЛ', admin.id);
+    await ctx.services.settings.setStageTemplate('round', 'final', 'ФИНАЛ! {entries}', admin.id);
+    await ctx.services.settings.setStageTemplate('buttons', 'r2', 'never used', admin.id);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    // The semifinal has no own design: the general one is used.
+    expect(String(toChannel('sendMessage')[0]!.args[0])).toBe('<b>Полуфинал · Пара 1</b>');
+    for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    expect(adminTexts()).toContain('ФИНАЛ! 2');
+    await postPendingDuels(ctx);
+    // Round 2 is the final here, and the final design wins over the "round 2" one.
+    expect(toChannel('sendMessage').map((c) => String(c.args[0]))).toContain('<tg-emoji emoji-id="7">Ф</tg-emoji>ИНАЛ');
+
+    await ctx.services.settings.setStageTemplate('buttons', 'final', null, admin.id);
+    expect((await ctx.services.settings.get()).stageTemplates).toEqual({ 'round:final': 'ФИНАЛ! {entries}', 'buttons:r2': 'never used' });
+  });
+
   it('gives the final its own voting time', async () => {
     const battle = await ctx.services.battles.schedule({
       title: 'F',

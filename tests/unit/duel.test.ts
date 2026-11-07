@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { pairEntries, shuffle } from '../../src/modules/battles/battle.service.js';
 import { buildDuelCollage } from '../../src/modules/duels/collage.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../../src/modules/duels/duel-post.js';
-import { renderTemplate, roundName, stageValues } from '../../src/modules/duels/templates.js';
+import { renderTemplate, roundName, stageVariant, stageValues } from '../../src/modules/duels/templates.js';
 import { uk } from '../../src/i18n/locales/uk.js';
 import { makeJpeg, makePng } from '../helpers/images.js';
 
@@ -59,5 +59,15 @@ describe('duel post', () => {
     const collage = await buildDuelCollage(await makeJpeg(1200, 800), await makePng(500, 900));
     const meta = await sharp(collage).metadata();
     expect(meta).toMatchObject({ format: 'jpeg', width: 1452, height: 900 });
+  });
+});
+
+describe('per-round designs', () => {
+  it('picks the final and the semifinal before the round number', () => {
+    expect(stageVariant({ round: 1, entriesInRound: 16 })).toBe('r1');
+    expect(stageVariant({ round: 3, entriesInRound: 8 })).toBe('r3');
+    expect(stageVariant({ round: 1, entriesInRound: 4 })).toBe('semi');
+    expect(stageVariant({ round: 1, entriesInRound: 2 })).toBe('final');
+    expect(stageVariant({ round: 6, entriesInRound: 64 })).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import type { Logger } from '../lib/logger.js';
 import type { ChannelInfo, TelegramGateway } from '../modules/contracts.js';
 import type { Services } from '../services.js';
 import type { Env } from '../config/env.js';
-import type { TemplateKey } from '../modules/duels/templates.js';
+import type { StageVariant, TemplateKey } from '../modules/duels/templates.js';
 
 export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'package_price' | 'transfer_details';
 
@@ -15,7 +15,7 @@ export type ConversationState =
   | { kind: 'awaiting_photo' }
   | { kind: 'admin_input'; action: AdminInputAction; packageId?: number }
   | { kind: 'admin_broadcast' }
-  | { kind: 'admin_template'; key: TemplateKey }
+  | { kind: 'admin_template'; key: TemplateKey; variant?: StageVariant }
   | { kind: 'monobank_pick'; accounts: { id: string; label: string; sendLink?: string }[] }
   | { kind: 'battle_create'; step: 'start' | 'round' | 'final'; startsAt?: string; roundMinutes?: number };
 

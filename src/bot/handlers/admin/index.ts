@@ -63,7 +63,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   }
 
   if (state.kind === 'admin_broadcast') return previewBroadcast(ctx, message.message_id);
-  if (state.kind === 'admin_template') return handleTemplateMessage(ctx, message, state.key);
+  if (state.kind === 'admin_template') return handleTemplateMessage(ctx, message, state.key, state.variant);
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind !== 'admin_input') return next();

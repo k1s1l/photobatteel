@@ -11,7 +11,7 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
-import { renderTemplate, roundName, stageValues, templateFor, type TemplateKey } from '../duels/templates.js';
+import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
@@ -271,7 +271,7 @@ export class BattleService {
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
     const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage };
-    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo) });
+    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo) }, stageInfo);
 
     await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
     let preparedFileUniqueId: string | null;
@@ -353,7 +353,7 @@ export class BattleService {
     const stage = duel.stage;
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
     const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage };
-    const buttonsText = await this.render('buttons', stageValues(this.locale, stageInfo));
+    const buttonsText = await this.render('buttons', stageValues(this.locale, stageInfo), stageInfo);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
       replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: 0, votesB: 0 }, settings.paidVotesEnabled),
@@ -573,12 +573,12 @@ export class BattleService {
   }
 
   /** Renders a post from the admin's design (or the default text) in the channel language. */
-  private async render(key: TemplateKey, values: Record<string, string | number>): Promise<string> {
-    return renderTemplate(templateFor(await this.settings.get(), this.locale, key), key, values);
+  private async render(key: TemplateKey, values: Record<string, string | number>, point?: StagePoint): Promise<string> {
+    return renderTemplate(templateFor(await this.settings.get(), this.locale, key, point), key, values);
   }
 
   private async roundAnnouncement(title: string, round: number, entries: number): Promise<string> {
-    return this.render('round', { battle: title, round, roundName: roundName(this.locale, round, entries), entries });
+    return this.render('round', { battle: title, round, roundName: roundName(this.locale, round, entries), entries }, { round, entriesInRound: entries });
   }
 
   /** Number of entries playing in a round (a bye counts once). */

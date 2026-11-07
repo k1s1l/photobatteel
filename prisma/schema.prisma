@@ -291,6 +291,8 @@ model BotSettings {
   roundTemplate      String?
   winnerTemplate     String?
   buttonsTemplate    String?
+  /// Per-round designs, e.g. {"buttons:final": "<b>ФІНАЛ</b>"}; override the templates above for that round
+  stageTemplates     Json     @default("{}")
   /// Payment by transfer to the owner's card / Monobank jar
   transferEnabled    Boolean  @default(false)
   transferDetails    String?  // shown to buyers: card number or jar link
