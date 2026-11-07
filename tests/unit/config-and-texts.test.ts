@@ -30,6 +30,19 @@ describe('environment validation', () => {
   });
 });
 
+describe('optional integrations', () => {
+  it('ignores empty or invalid payment tokens instead of crashing', () => {
+    const env = parseEnv({ ...base, PAYMENT_PROVIDER_TOKEN: '123', MONOBANK_TOKEN: '' });
+    expect(env.PAYMENT_PROVIDER_TOKEN).toBeUndefined();
+    expect(env.MONOBANK_TOKEN).toBeUndefined();
+  });
+
+  it('keeps valid payment tokens', () => {
+    const env = parseEnv({ ...base, PAYMENT_PROVIDER_TOKEN: '1234567890:TEST:abc' });
+    expect(env.PAYMENT_PROVIDER_TOKEN).toBe('1234567890:TEST:abc');
+  });
+});
+
 describe('secrets masking', () => {
   it('masks bot tokens inside URLs and messages', () => {
     const text = 'GET https://api.telegram.org/file/bot123456789:AAFakeTokenForTestingPurposesOnly_1234/photos/1.jpg failed';

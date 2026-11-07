@@ -94,8 +94,27 @@ const envSchema = z
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Optional integrations. A wrong value here must not take the whole bot down:
+ * the integration is switched off and a warning is printed instead.
+ */
+const SOFT_OPTIONAL_KEYS = ['PAYMENT_PROVIDER_TOKEN', 'MONOBANK_TOKEN', 'TELEGRAM_API_ROOT'] as const;
+
 export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const result = envSchema.safeParse(source);
+  const input: NodeJS.ProcessEnv = { ...source };
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === 'string' && value.trim() === '') delete input[key];
+  }
+  for (const key of SOFT_OPTIONAL_KEYS) {
+    if (input[key] === undefined) continue;
+    const check = envSchema.shape[key].safeParse(input[key]);
+    if (!check.success) {
+      delete input[key];
+      // Never print the value itself: it may be a secret.
+      console.warn(`Warning: ${key} has an invalid value and is ignored (${check.error.issues[0]?.message ?? 'invalid'}).`);
+    }
+  }
+  const result = envSchema.safeParse(input);
   if (!result.success) {
     // Never print values: they may contain secrets. Only names and reasons.
     const details = result.error.issues.map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`).join('\n');
