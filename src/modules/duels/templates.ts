@@ -1,5 +1,6 @@
 import type { BotSettings } from '../../generated/prisma/client.js';
 import type { Locale } from '../../i18n/index.js';
+import { linkifyHtml } from '../../lib/entities-html.js';
 import { escapeHtml } from '../../lib/format.js';
 
 /** Every post the bot prepares can be designed by an admin. */
@@ -79,9 +80,11 @@ export function templateFor(settings: BotSettings, locale: Locale, key: Template
 /** Replaces known {placeholders}; values are HTML-escaped, the template's own markup is kept. */
 export function renderTemplate(template: string, key: TemplateKey, values: Record<string, string | number>): string {
   const allowed = TEMPLATE_PLACEHOLDERS[key];
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+  const html = template.replace(/\{(\w+)\}/g, (match, name: string) =>
     allowed.includes(name) && values[name] !== undefined ? escapeHtml(String(values[name])) : match,
   );
+  // Templates saved before links were kept explicitly may hold plain URLs.
+  return linkifyHtml(html);
 }
 
 /** "Фінал" for the last pair, "Півфінал" for 3–4 entries, otherwise "Раунд N". */

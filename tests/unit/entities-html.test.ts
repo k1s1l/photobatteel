@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entitiesToHtml, stripCustomEmoji, visibleLength } from '../../src/lib/entities-html.js';
+import { entitiesToHtml, linkifyHtml, stripCustomEmoji, visibleLength } from '../../src/lib/entities-html.js';
 
 describe('message entities → HTML template', () => {
   it('keeps links clickable next to premium emoji', () => {
@@ -45,5 +45,14 @@ describe('message entities → HTML template', () => {
     const html = '<tg-emoji emoji-id="1">🔥</tg-emoji> <b>Hi</b> &amp;';
     expect(stripCustomEmoji(html)).toBe('🔥 <b>Hi</b> &amp;');
     expect(visibleLength(html)).toBe('🔥 Hi _'.length);
+  });
+});
+
+describe('plain links in saved templates', () => {
+  it('wraps bare links, keeps existing links and emoji attributes', () => {
+    const html = 'КАНАЛ - https://t.me/+tabNe&amp;x<tg-emoji emoji-id="5">🩸</tg-emoji> або t.me/ch. <a href="https://x.y">https://x.y</a>';
+    expect(linkifyHtml(html)).toBe(
+      'КАНАЛ - <a href="https://t.me/+tabNe&amp;x">https://t.me/+tabNe&amp;x</a><tg-emoji emoji-id="5">🩸</tg-emoji> або <a href="https://t.me/ch">t.me/ch</a>. <a href="https://x.y">https://x.y</a>',
+    );
   });
 });

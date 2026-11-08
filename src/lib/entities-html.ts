@@ -104,3 +104,32 @@ export function visibleLength(html: string): number {
     .replace(/<[^>]+>/g, '')
     .replace(/&(lt|gt|amp|quot);/g, '_').length;
 }
+
+/** http(s) links and bare t.me links in visible text. */
+const BARE_LINK = /(?:https?:\/\/|\bt\.me\/)[^\s<>"]+/gi;
+
+/**
+ * Makes plain links in an HTML message clickable. Telegram does not always
+ * detect them in messages sent by a bot, so they are wrapped in <a> explicitly.
+ * Links that already are inside <a>…</a> and tag attributes are left as they are.
+ */
+export function linkifyHtml(html: string): string {
+  let insideLink = 0;
+  return html
+    .split(/(<[^>]*>)/)
+    .map((part) => {
+      if (part.startsWith('<')) {
+        if (/^<a[\s>]/i.test(part)) insideLink += 1;
+        else if (/^<\/a>/i.test(part)) insideLink = Math.max(0, insideLink - 1);
+        return part;
+      }
+      if (insideLink > 0) return part;
+      return part.replace(BARE_LINK, (match) => {
+        const url = match.replace(/[.,!?;:)\]]+$/, '');
+        const rest = match.slice(url.length);
+        const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        return `<a href="${href.replace(/"/g, '&quot;')}">${url}</a>${rest}`;
+      });
+    })
+    .join('');
+}
