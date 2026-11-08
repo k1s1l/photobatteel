@@ -208,6 +208,8 @@ model Battle {
   finalMinutes    Int?         // voting time of the final (null = roundMinutes)
   tiebreakMinutes Int          @default(10)
   currentRound    Int          @default(0)
+  /// Admin-chosen end of the current round's voting (null = every pair votes roundMinutes)
+  roundEndsAt     DateTime?
   winnerPhotoId   Int?         @unique
   winnerPhoto     Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
   createdById     Int?

@@ -372,6 +372,31 @@ describe('templates, final duration and reminders', () => {
     expect(String(toChannel('sendMessage')[0]!.args[0])).toBe(`до ${time(duel.endsAt!)}`);
   });
 
+  it('lets an admin set when the current round ends, also for pairs published later', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    // Publish only the first pair, then move the round end.
+    const [first, second] = await ctx.prisma.duel.findMany({ where: { round: 1 }, orderBy: { position: 'asc' } });
+    await ctx.services.battles.linkChannelPost({ messageId: 900, fileUniqueIds: [first!.preparedFileUniqueId!] });
+    const at = new Date(Date.now() + 47 * 60_000);
+    const result = await ctx.services.battles.setRoundEnd(battle.id, at, admin.id);
+    expect(result.changed).toBe(1);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: first!.id } })).endsAt).toEqual(at);
+    expect(ctx.scheduler.timedTicks.some((t) => t.at.getTime() === at.getTime())).toBe(true);
+
+    await ctx.services.battles.linkChannelPost({ messageId: 901, fileUniqueIds: [second!.preparedFileUniqueId!] });
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: second!.id } })).endsAt).toEqual(at);
+    await expect(ctx.services.battles.setRoundEnd(battle.id, new Date(Date.now() - 1000), admin.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+
+    // The next round starts with the usual voting time again.
+    for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).roundEndsAt).toBeNull();
+  });
+
   it('gives the final its own voting time', async () => {
     const battle = await ctx.services.battles.schedule({
       title: 'F',

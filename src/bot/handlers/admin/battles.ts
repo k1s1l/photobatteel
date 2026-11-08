@@ -39,6 +39,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   const a = ctx.locale.admin;
   const rows = [];
   if (current?.status === 'RUNNING' && current.currentRound > 0) {
+    rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
@@ -52,6 +53,26 @@ function startExample(ctx: BotContext): string {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const date = new Intl.DateTimeFormat('ru-RU', { timeZone: ctx.deps.env.TIMEZONE, day: '2-digit', month: '2-digit' }).format(tomorrow);
   return `${date} 14:00`;
+}
+
+/** The admin typed when the current round should end. */
+export async function handleRoundEndText(ctx: BotContext, battleId: number, text: string): Promise<void> {
+  const at = parseStartTime(text, ctx.deps.env.TIMEZONE);
+  if (!at) {
+    await ctx.reply(ctx.locale.admin.battleStartInvalid, { parse_mode: 'HTML', reply_markup: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]) });
+    return;
+  }
+  setState(ctx, undefined);
+  try {
+    const { battle, changed } = await ctx.deps.services.battles.setRoundEnd(battleId, at, adminUserId(ctx));
+    await ctx.reply(ctx.locale.admin.roundEndSet({ round: battle.currentRound, end: formatDateTime(at, ctx.deps.env.TIMEZONE, ctx.locale.intl), changed }), {
+      parse_mode: 'HTML',
+      reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]),
+    });
+  } catch (error) {
+    if (!isDomainError(error)) throw error;
+    await ctx.reply(ctx.locale.common.alreadyProcessed, { reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+  }
 }
 
 /** Text steps of the battle wizard; called by the admin input router. */
@@ -127,6 +148,18 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await answer(ctx);
     await respond(ctx, ctx.locale.admin.battleCreated({ title: escapeHtml(battle.title), start: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) }), {
       keyboard: backToPanel(ctx.locale),
+    });
+  });
+
+  admin.action(/^a:bt:end:(\d+)$/, async (ctx) => {
+    const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
+    await answer(ctx);
+    if (battle?.status !== 'RUNNING') return;
+    setState(ctx, { kind: 'battle_round_end', battleId: battle.id });
+    const current = battle.roundEndsAt ? formatDateTime(battle.roundEndsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) : null;
+    await respond(ctx, ctx.locale.admin.roundEndAsk({ round: battle.currentRound, current, example: startExample(ctx) }), {
+      keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
+      forceNew: true,
     });
   });
 

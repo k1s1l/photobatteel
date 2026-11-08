@@ -422,6 +422,14 @@ export const uk: Locale = {
       `Робіт: ${p.entries}` +
       (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
     battleCreate: '➕ Запланувати батл',
+    roundEndButton: '⏰ Змінити кінець раунду',
+    roundEndAsk: (p: { round: number; current: string | null; example: string }) =>
+      `<b>⏰ Кінець раунду ${p.round}</b>\n\n` +
+      (p.current ? `Зараз раунд закінчується: <b>${p.current}</b>.\n\n` : '') +
+      'Напиши, о котрій завершити голосування, наприклад <code>16:00</code> або <code>' + p.example + '</code>. ' +
+      'Усі пари цього раунду — і вже опубліковані, і ті, що ти перешлеш пізніше, — закінчаться в цей час. Одразу після цього почнеться наступний раунд.',
+    roundEndSet: (p: { round: number; end: string; changed: number }) =>
+      `✅ Раунд ${p.round} закінчиться <b>${p.end}</b>.` + (p.changed > 0 ? ` Час змінено в пар у каналі: ${p.changed}.` : ''),
     republishButton: (n: number) => `🔁 Перевикласти пару ${n}`,
     republishConfirm: (n: number) =>
       `<b>🔁 Перевикласти пару ${n}?</b>\n\nБот видалить з каналу її пост і кнопки та заново надішле тобі готовий пост. ` +

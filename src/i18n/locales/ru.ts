@@ -480,6 +480,14 @@ export const ru = {
       `Работ: ${p.entries}` +
       (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
     battleCreate: '➕ Запланировать батл',
+    roundEndButton: '⏰ Изменить конец раунда',
+    roundEndAsk: (p: { round: number; current: string | null; example: string }) =>
+      `<b>⏰ Конец раунда ${p.round}</b>\n\n` +
+      (p.current ? `Сейчас раунд заканчивается: <b>${p.current}</b>.\n\n` : '') +
+      'Напиши, во сколько закончить голосование, например <code>16:00</code> или <code>' + p.example + '</code>. ' +
+      'Все пары этого раунда — и уже опубликованные, и те, что ты перешлёшь позже, — закончатся в это время. Сразу после этого начнётся следующий раунд.',
+    roundEndSet: (p: { round: number; end: string; changed: number }) =>
+      `✅ Раунд ${p.round} закончится <b>${p.end}</b>.` + (p.changed > 0 ? ` Время изменено у пар в канале: ${p.changed}.` : ''),
     republishButton: (n: number) => `🔁 Перевыложить пару ${n}`,
     republishConfirm: (n: number) =>
       `<b>🔁 Перевыложить пару ${n}?</b>\n\nБот удалит из канала её пост и кнопки и заново пришлёт тебе готовый пост. ` +

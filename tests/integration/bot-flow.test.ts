@@ -6,7 +6,7 @@ import { createBot } from '../../src/bot/bot.js';
 import type { BotContext } from '../../src/bot/context.js';
 import { parseEnv } from '../../src/config/env.js';
 import { LockService } from '../../src/lib/locks.js';
-import { ADMIN_TG_ID, CHANNEL, createTestContext, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
+import { ADMIN_TG_ID, CHANNEL, createEntry, createTestContext, createUser, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 import { TEST_REDIS_URL } from '../helpers/env.js';
 import { silentLogger } from '../helpers/fakes.js';
 import { makeJpeg, makeUniqueJpeg } from '../helpers/images.js';
@@ -358,6 +358,18 @@ describe('bot: admin', () => {
     expect(texts('sendMessage').some((t) => t === '<tg-emoji emoji-id="77">Ф</tg-emoji> ИНАЛ Финал')).toBe(true);
     await press(ADMIN_TG_ID, 'a:tpl:reset:buttons:final');
     expect((await ctx.services.settings.get()).stageTemplates).toEqual({});
+  });
+
+  it('changes the end of the current round from the battles screen', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 2; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await press(ADMIN_TG_ID, 'a:bt');
+    await press(ADMIN_TG_ID, `a:bt:end:${battle.id}`);
+    expect(texts('sendMessage').at(-1)).toContain('Конец раунда 1');
+    await sendText(ADMIN_TG_ID, '23:58');
+    expect(texts('sendMessage').at(-1)).toContain('Раунд 1 закончится');
+    expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).roundEndsAt).not.toBeNull();
   });
 
   it('blocks a user by @username', async () => {

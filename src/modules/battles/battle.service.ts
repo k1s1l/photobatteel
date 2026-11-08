@@ -61,6 +61,18 @@ export function votingMinutes(battle: Pick<Battle, 'roundMinutes' | 'finalMinute
   return entriesInRound <= 2 ? (battle.finalMinutes ?? battle.roundMinutes) : battle.roundMinutes;
 }
 
+/** When a pair published at `now` stops voting: the admin's round end if set, else its voting time. */
+export function duelEnd(
+  battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes' | 'roundEndsAt' | 'currentRound'>,
+  round: number,
+  stage: number,
+  entriesInRound: number,
+  now: Date,
+): Date {
+  if (stage === 0 && battle.roundEndsAt && battle.currentRound === round && battle.roundEndsAt > now) return battle.roundEndsAt;
+  return new Date(now.getTime() + votingMinutes(battle, stage, entriesInRound) * 60_000);
+}
+
 export function pairEntries(ids: readonly number[]): { a: number; b: number | null }[] {
   const pairs: { a: number; b: number | null }[] = [];
   for (let i = 0; i < ids.length; i += 2) pairs.push({ a: ids[i]!, b: ids[i + 1] ?? null });
@@ -261,7 +273,7 @@ export class BattleService {
         },
       });
     }
-    await tx.battle.update({ where: { id: battleId }, data: { currentRound: round } });
+    await tx.battle.update({ where: { id: battleId }, data: { currentRound: round, roundEndsAt: null } });
     if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: pairs.length } }, tx);
   }
 
@@ -290,7 +302,7 @@ export class BattleService {
 
     const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage };
     // The pair is usually published right away; the end shown in the post is an estimate from now.
-    const expectedEnd = new Date(Date.now() + votingMinutes(duel.battle, stage, stageInfo.entriesInRound) * 60_000);
+    const expectedEnd = duelEnd(duel.battle, duel.round, stage, stageInfo.entriesInRound, new Date());
     const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
 
     await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
@@ -374,7 +386,7 @@ export class BattleService {
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
     const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage };
     const now = new Date();
-    const endsAt = new Date(now.getTime() + votingMinutes(duel.battle, stage, entriesInRound) * 60_000);
+    const endsAt = duelEnd(duel.battle, duel.round, stage, entriesInRound, now);
     const buttonsText = await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
@@ -411,6 +423,24 @@ export class BattleService {
       }
     }
     return true;
+  }
+
+  /**
+   * Admin sets when the current round ends: pairs already voting and pairs
+   * published later all stop at that time; then the next round starts.
+   */
+  async setRoundEnd(battleId: number, at: Date, actorUserId: number | null, now: Date = new Date()): Promise<{ battle: Battle; changed: number }> {
+    if (at <= now) throw new DomainError('INVALID_STATE');
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING' || battle.currentRound === 0) throw new DomainError('INVALID_STATE');
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.battle.update({ where: { id: battleId }, data: { roundEndsAt: at } });
+      const changed = await tx.duel.updateMany({ where: { battleId, round: battle.currentRound, status: 'ACTIVE', stage: 0 }, data: { endsAt: at } });
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { roundEndsAt: at.toISOString(), round: battle.currentRound } }, tx);
+      return { battle: updated, changed: changed.count };
+    });
+    await this.scheduler.scheduleTickAt(at, `round-end-${battleId}-${battle.currentRound}-${at.getTime()}`);
+    return result;
   }
 
   /** Pairs of the current round an admin may publish again (prepared or already in the channel). */
