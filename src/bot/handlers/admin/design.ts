@@ -1,7 +1,7 @@
 import type { Composer } from 'telegraf';
 import type { Message } from 'telegraf/types';
 import { entitiesToHtml, stripCustomEmoji, visibleLength } from '../../../lib/entities-html.js';
-import { formatDateTime } from '../../../lib/format.js';
+import { formatDateTime, formatTime } from '../../../lib/format.js';
 import { activeDuelKeyboard } from '../../../modules/duels/duel-post.js';
 import {
   isStagedKey,
@@ -47,14 +47,14 @@ function sampleValues(ctx: BotContext, key: TemplateKey, variant?: StageVariant)
   const locale = ctx.deps.services.battles.channelLocale;
   const point = samplePoint(variant);
   const stageInfo = { ...point, duel: variant === 'final' ? 1 : 3, stage: 0 };
-  const stage = stageValues(locale, stageInfo);
+  const stage: Record<string, string | number> = { ...stageValues(locale, stageInfo), end: formatTime(new Date(Date.now() + 60 * 60_000), ctx.deps.env.TIMEZONE, locale.intl) };
   const start = formatDateTime(new Date(Date.now() + 60 * 60_000), ctx.deps.env.TIMEZONE, locale.intl);
   const samples: Record<TemplateKey, Record<string, string | number>> = {
     duel: { battle: 'Photo Battle', ...stage },
     announce: { battle: 'Photo Battle', start, bot: `@${ctx.botInfo.username}` },
     round: variant
-      ? { battle: 'Photo Battle', round: point.round, roundName: stage.roundName!, entries: point.entriesInRound }
-      : { battle: 'Photo Battle', round: 3, roundName: locale.duel.roundNames.final, entries: 2 },
+      ? { battle: 'Photo Battle', round: point.round, roundName: stage.roundName!, entries: point.entriesInRound, end: stage.end! }
+      : { battle: 'Photo Battle', round: 3, roundName: locale.duel.roundNames.final, entries: 2, end: stage.end! },
     winner: { battle: 'Photo Battle', votes: 57 },
     buttons: stage,
   };

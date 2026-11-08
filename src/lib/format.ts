@@ -39,6 +39,11 @@ export function formatDateTime(date: Date, timeZone: string, intlLocale: string)
   }).format(date);
 }
 
+/** "16:00" in the given time zone. */
+export function formatTime(date: Date, timeZone: string, intlLocale: string): string {
+  return new Intl.DateTimeFormat(intlLocale, { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+}
+
 export function formatDate(date: Date, timeZone: string, intlLocale: string): string {
   return new Intl.DateTimeFormat(intlLocale, { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
 }

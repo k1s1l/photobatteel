@@ -105,6 +105,32 @@ describe('buying votes for a duel side', () => {
   });
 });
 
+describe('overtime', () => {
+  it('extends a pair to 5 minutes from now when paid votes come in the last minutes', async () => {
+    const duel = await activeDuel();
+    const user = await createUser(ctx);
+    await ctx.prisma.user.update({ where: { id: user.id }, data: { voteBalance: 5 } });
+    const fresh = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+
+    // Plenty of time left: nothing changes.
+    await ctx.services.payments.spendVotes(fresh, duel.photoAId, 1);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).endsAt).toEqual(duel.endsAt);
+
+    // One minute left: voting now ends 5 minutes from the paid vote, and a tick is scheduled then.
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() + 60_000) } });
+    const before = Date.now();
+    await ctx.services.payments.spendVotes(fresh, duel.photoBId!, 1);
+    const extended = (await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).endsAt!.getTime();
+    expect(extended).toBeGreaterThanOrEqual(before + 5 * 60_000);
+    expect(extended).toBeLessThan(before + 5 * 60_000 + 5_000);
+    expect(ctx.scheduler.timedTicks.at(-1)!.at.getTime()).toBe(extended);
+
+    // A tick at the old end does not close the pair.
+    await ctx.services.battles.tick(new Date(before + 2 * 60_000));
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('ACTIVE');
+  });
+});
+
 describe('refunds and statistics', () => {
   it('refunds Stars and takes back votes from a duel that is still open', async () => {
     const admin = await createAdmin(ctx);

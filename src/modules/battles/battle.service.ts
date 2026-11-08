@@ -3,7 +3,7 @@ import type { Battle, Duel, Photo, Prisma, PrismaClient } from '../../generated/
 import type { Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
 import { stripCustomEmoji } from '../../lib/entities-html.js';
-import { channelPostLink, escapeHtml, formatDateTime, truncate } from '../../lib/format.js';
+import { channelPostLink, escapeHtml, formatDateTime, formatTime, truncate } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import { classifyTelegramError } from '../../lib/telegram-errors.js';
 import type { ActivityService } from '../activity/activity.service.js';
@@ -55,6 +55,12 @@ export function shuffle<T>(items: readonly T[]): T[] {
 }
 
 /** Pairs entries in order; with an odd count the last entry gets a bye. */
+/** Voting time of a pair: tiebreak reposts, the final and regular rounds can differ. */
+export function votingMinutes(battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes'>, stage: number, entriesInRound: number): number {
+  if (stage > 0) return battle.tiebreakMinutes;
+  return entriesInRound <= 2 ? (battle.finalMinutes ?? battle.roundMinutes) : battle.roundMinutes;
+}
+
 export function pairEntries(ids: readonly number[]): { a: number; b: number | null }[] {
   const pairs: { a: number; b: number | null }[] = [];
   for (let i = 0; i < ids.length; i += 2) pairs.push({ a: ids[i]!, b: ids[i + 1] ?? null });
@@ -235,7 +241,7 @@ export class BattleService {
       await this.finishBattle(battleId, result.soleWinner);
       return;
     }
-    await this.prepareAnnouncement(await this.roundAnnouncement(battle.title, 1, result.entries));
+    await this.prepareAnnouncement(await this.roundAnnouncement(battle, 1, result.entries));
     await this.scheduler.triggerTick();
   }
 
@@ -283,7 +289,9 @@ export class BattleService {
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
     const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage };
-    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo) }, stageInfo);
+    // The pair is usually published right away; the end shown in the post is an estimate from now.
+    const expectedEnd = new Date(Date.now() + votingMinutes(duel.battle, stage, stageInfo.entriesInRound) * 60_000);
+    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
 
     await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
     let preparedFileUniqueId: string | null;
@@ -365,7 +373,9 @@ export class BattleService {
     const stage = duel.stage;
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
     const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage };
-    const buttonsText = await this.render('buttons', stageValues(this.locale, stageInfo), stageInfo);
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + votingMinutes(duel.battle, stage, entriesInRound) * 60_000);
+    const buttonsText = await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
       replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: duel.votesA, votesB: duel.votesB }, settings.paidVotesEnabled),
@@ -380,10 +390,6 @@ export class BattleService {
       if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
       buttons = await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(buttonsText), buttonsOptions);
     }
-    const isFinal = entriesInRound <= 2;
-    const minutes = stage > 0 ? duel.battle.tiebreakMinutes : isFinal ? (duel.battle.finalMinutes ?? duel.battle.roundMinutes) : duel.battle.roundMinutes;
-    const now = new Date();
-    const endsAt = new Date(now.getTime() + minutes * 60_000);
     const activated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'READY', stage },
       data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId] },
@@ -523,7 +529,7 @@ export class BattleService {
       else await this.finishBattle(battleId, next.final);
       return;
     }
-    await this.prepareAnnouncement(await this.roundAnnouncement(next.battle.title, next.round!, next.entries!));
+    await this.prepareAnnouncement(await this.roundAnnouncement(next.battle, next.round!, next.entries!));
     await this.scheduler.triggerTick();
   }
 
@@ -616,8 +622,14 @@ export class BattleService {
     return renderTemplate(templateFor(await this.settings.get(), this.locale, key, point), key, values);
   }
 
-  private async roundAnnouncement(title: string, round: number, entries: number): Promise<string> {
-    return this.render('round', { battle: title, round, roundName: roundName(this.locale, round, entries), entries }, { round, entriesInRound: entries });
+  private async roundAnnouncement(battle: Battle, round: number, entries: number): Promise<string> {
+    const end = this.time(new Date(Date.now() + votingMinutes(battle, 0, entries) * 60_000));
+    return this.render('round', { battle: battle.title, round, roundName: roundName(this.locale, round, entries), entries, end }, { round, entriesInRound: entries });
+  }
+
+  /** "16:00" in the battle time zone. */
+  private time(date: Date): string {
+    return formatTime(date, this.options.timeZone, this.locale.intl);
   }
 
   /** Number of entries playing in a round (a bye counts once). */

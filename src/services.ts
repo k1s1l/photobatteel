@@ -28,6 +28,8 @@ export interface ServiceDeps {
     MONOBANK_TOKEN?: string | undefined;
     TRANSFER_TTL_MINUTES?: number;
     TRANSFER_REVIEW_HOURS?: number;
+    TRANSFER_REVIEW_AFTER_MINUTES?: number;
+    OVERTIME_MINUTES?: number;
   };
   /** Bank statement reader; defaults to Monobank when MONOBANK_TOKEN is set (tests pass a fake). */
   bank?: BankClient | null;
@@ -82,6 +84,8 @@ export function createServices(deps: ServiceDeps): Services {
       cardCurrency: env.CARD_CURRENCY,
       transferTtlMinutes: env.TRANSFER_TTL_MINUTES ?? 30,
       manualReviewHours: env.TRANSFER_REVIEW_HOURS ?? 12,
+      reviewAfterMinutes: env.TRANSFER_REVIEW_AFTER_MINUTES ?? 5,
+      overtimeMinutes: env.OVERTIME_MINUTES ?? 0,
     },
     notifications,
     bank,

@@ -358,6 +358,20 @@ describe('templates, final duration and reminders', () => {
     expect((await ctx.services.settings.get()).stageTemplates).toEqual({ 'round:final': 'ФИНАЛ! {entries}', 'buttons:r2': 'never used' });
   });
 
+  it('shows the end of voting with {end}', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ buttonsTemplate: 'до {end}', roundTemplate: '{roundName} до {end}' }, admin.id);
+    const battle = await ctx.services.battles.schedule({ title: 'E', startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, finalMinutes: 120, tiebreakMinutes: 10, createdById: null });
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    const time = (date: Date) => new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+    // Two entries: the first round is the final, with the final's own duration.
+    expect(adminTexts().some((t) => t === `Финал до ${time(new Date(Date.now() + 120 * 60_000))}` || t === `Финал до ${time(new Date(Date.now() + 119 * 60_000))}`)).toBe(true);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    expect(String(toChannel('sendMessage')[0]!.args[0])).toBe(`до ${time(duel.endsAt!)}`);
+  });
+
   it('gives the final its own voting time', async () => {
     const battle = await ctx.services.battles.schedule({
       title: 'F',

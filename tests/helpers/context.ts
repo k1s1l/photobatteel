@@ -38,6 +38,7 @@ export const TEST_ENV = {
   BROADCAST_RATE_PER_SECOND: 30,
   CARD_CURRENCY: 'UAH',
   MAX_TIEBREAKS: 2,
+  OVERTIME_MINUTES: 5,
   PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
 };
 

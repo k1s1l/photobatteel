@@ -30,6 +30,10 @@ export interface PaymentOptions {
   transferTtlMinutes: number;
   /** Without bank verification: how long a claimed transfer waits for an admin. */
   manualReviewHours: number;
+  /** Minutes the bank check may take before admins are asked (default 5). */
+  reviewAfterMinutes?: number;
+  /** Paid votes near the end of a pair extend its voting by this many minutes (0 = off, default 0). */
+  overtimeMinutes?: number;
 }
 
 export type TransferOutcome = { kind: 'paid'; completed: CompletedPayment; telegramId: bigint; languageCode: string } | { kind: 'cancelled' };
@@ -104,6 +108,14 @@ export class PaymentService {
     /** Monobank client when MONOBANK_TOKEN is set; null means transfers are confirmed by admins. */
     readonly bank: BankClient | null = null,
   ) {}
+
+  /** Duel ends moved by overtime inside a transaction; their ticks are scheduled after it commits. */
+  private pendingOvertime: { duelId: number; stage: number; endsAt: Date }[] = [];
+
+  private async scheduleOvertime(): Promise<void> {
+    const due = this.pendingOvertime.splice(0);
+    for (const item of due) await this.scheduler.scheduleTickAt(item.endsAt, `duel-${item.duelId}-${item.stage}-ot-${item.endsAt.getTime()}`);
+  }
 
   private lastBankPoll = 0;
 
@@ -242,6 +254,7 @@ export class PaymentService {
       return { payment: paid, creditedTo, targetUnavailable, balance, alreadyProcessed: false, duelId };
     });
 
+    await this.scheduleOvertime();
     if (result.duelId) await this.scheduler.scheduleVoteRefresh(result.duelId);
     const { duelId: _duelId, ...completed } = result;
     return completed;
@@ -265,6 +278,7 @@ export class PaymentService {
       const { voteBalance } = await tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { voteBalance: true } });
       return { balance: voteBalance, votes, duelId: active.duel.id };
     });
+    await this.scheduleOvertime();
     await this.scheduler.scheduleVoteRefresh(result.duelId);
     return { balance: result.balance, votes: result.votes };
   }
@@ -513,7 +527,7 @@ export class PaymentService {
           method: 'TRANSFER',
           status: 'CLAIMED',
           reviewRequestedAt: null,
-          claimedAt: { lt: new Date(now.getTime() - this.options.transferTtlMinutes * 60_000) },
+          claimedAt: { lt: new Date(now.getTime() - (this.options.reviewAfterMinutes ?? 5) * 60_000) },
         },
         select: { id: true },
       });
@@ -587,6 +601,14 @@ export class PaymentService {
       data: side === 'A' ? { votesA: { increment: amount } } : { votesB: { increment: amount } },
       select: { votesA: true, votesB: true },
     });
+    // Overtime: paid votes in the last minutes give the other side time to answer.
+    const overtimeMs = (this.options.overtimeMinutes ?? 0) * 60_000;
+    const now = Date.now();
+    if (overtimeMs > 0 && duel.endsAt && duel.endsAt.getTime() - now < overtimeMs) {
+      const endsAt = new Date(now + overtimeMs);
+      const extended = await tx.duel.updateMany({ where: { id: duel.id, status: 'ACTIVE', stage: duel.stage, endsAt: { lt: endsAt } }, data: { endsAt } });
+      if (extended.count > 0) this.pendingOvertime.push({ duelId: duel.id, stage: duel.stage, endsAt });
+    }
     await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: amount }, paidVotes: { increment: amount } } });
     await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: amount } } });
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });

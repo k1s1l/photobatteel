@@ -131,8 +131,15 @@ describe('transfer orders', () => {
     const claimed = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     await ctx.services.payments.claimTransfer(claimed.payment.id, buyer);
 
+    // The bank check gets 5 minutes, then the admins are asked.
+    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 4 * 60_000) } });
+    await ctx.services.payments.expireTransfers();
+    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
+    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 6 * 60_000) } });
+    await ctx.services.payments.expireTransfers();
+    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(true);
+
     const in31min = new Date(Date.now() + 31 * 60_000);
-    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 31 * 60_000) } });
     await ctx.services.payments.expireTransfers(in31min);
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: unpaid.payment.id } })).status).toBe('CANCELLED');
     expect(dmTo(buyer).some((t) => t.includes('Время на оплату'))).toBe(true);

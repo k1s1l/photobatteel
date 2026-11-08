@@ -17,11 +17,11 @@ export const TEMPLATE_FIELDS = {
 
 /** Placeholders each template understands. */
 export const TEMPLATE_PLACEHOLDERS: Record<TemplateKey, readonly string[]> = {
-  duel: ['battle', 'stage', 'roundName', 'round', 'duel'],
+  duel: ['battle', 'stage', 'roundName', 'round', 'duel', 'end'],
   announce: ['battle', 'start', 'bot'],
-  round: ['battle', 'roundName', 'round', 'entries'],
+  round: ['battle', 'roundName', 'round', 'entries', 'end'],
   winner: ['battle', 'votes'],
-  buttons: ['stage', 'roundName', 'round', 'duel'],
+  buttons: ['stage', 'roundName', 'round', 'duel', 'end'],
 };
 
 export function isTemplateKey(value: string): value is TemplateKey {
