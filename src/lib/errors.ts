@@ -21,7 +21,8 @@ export type DomainErrorCode =
   | 'VOTING_CLOSED'
   | 'NOT_SUBSCRIBED'
   | 'INSUFFICIENT_BALANCE'
-  | 'PAYMENTS_DISABLED';
+  | 'PAYMENTS_DISABLED'
+  | 'VOTING_STARTED';
 
 export class DomainError extends Error {
   constructor(

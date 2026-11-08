@@ -358,6 +358,41 @@ describe('group final', () => {
     expect(created).toHaveLength(6);
   });
 
+  it('rebuilds a "pair + bye" round of 3 into a final of 3 when the admin switches the final size', async () => {
+    const battle = await openBattle(ctx);
+    await entries(6);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    // Round 2: 3 entries as a pair and a bye; the pair post was already sent to the admins.
+    await preparePendingDuels(ctx);
+    expect(await ctx.prisma.duel.count({ where: { round: 2 } })).toBe(2);
+    const players = (await ctx.prisma.duel.findMany({ where: { round: 2 } })).flatMap((d) => [d.photoAId, d.photoBId]).filter((id) => id !== null).sort();
+
+    const result = await ctx.services.battles.setFinalSize(battle.id, 3, null);
+    expect(result.rebuilt).toBe(true);
+    const round2 = await ctx.prisma.duel.findMany({ where: { round: 2 } });
+    expect(round2).toHaveLength(1);
+    expect([round2[0]!.photoAId, round2[0]!.photoBId, round2[0]!.photoCId].sort()).toEqual(players);
+    expect(adminTexts().some((t) => t.includes('финал из 3 работ'))).toBe(true);
+
+    // The new final post is prepared and played as usual.
+    await postPendingDuels(ctx);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: round2[0]!.id } })).status).toBe('ACTIVE');
+    await expect(ctx.services.battles.setFinalSize(battle.id, 4, null)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  it('does not rebuild a round where people already voted', async () => {
+    const battle = await openBattle(ctx);
+    await entries(3);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const pair = await ctx.prisma.duel.findFirstOrThrow({ where: { photoBId: { not: null } } });
+    await ctx.services.duelVotes.vote(pair.id, 0, 'A', await createUser(ctx));
+    await expect(ctx.services.battles.setFinalSize(battle.id, 3, null)).rejects.toMatchObject({ code: 'VOTING_STARTED' });
+  });
+
   it('starts with the final when all entries fit in it, and a 4-entry final is a 2×2 post', async () => {
     const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 4, createdById: null });
     await entries(4);

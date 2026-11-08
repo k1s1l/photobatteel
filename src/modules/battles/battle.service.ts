@@ -154,17 +154,51 @@ export class BattleService {
     return active ? { duel: active.duel, side: sideNumber(active.side) } : null;
   }
 
-  /** Changes how many entries play in the final (before the final round has started). */
-  async setFinalSize(battleId: number, size: number, actorUserId: number | null): Promise<Battle> {
+  /**
+   * Changes how many entries play in the final. When the current round already
+   * fits in the new final (e.g. 3 entries left as "pair + bye") and nobody has
+   * voted in it yet, the round is rebuilt as one group final post.
+   */
+  async setFinalSize(battleId: number, size: number, actorUserId: number | null): Promise<{ battle: Battle; rebuilt: boolean }> {
     if (!Number.isInteger(size) || size < 2 || size > MAX_FINAL_SIZE) throw new RangeError('Invalid final size');
     const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
     if (!battle || (battle.status !== 'SCHEDULED' && battle.status !== 'RUNNING')) throw new DomainError('INVALID_STATE');
-    if (battle.status === 'RUNNING' && battle.currentRound > 0 && isFinalRound(battle, await this.roundEntries(battleId, battle.currentRound))) {
-      throw new DomainError('INVALID_STATE');
+
+    let rebuild: Duel[] | null = null;
+    if (battle.status === 'RUNNING' && battle.currentRound > 0) {
+      const duels = await this.prisma.duel.findMany({ where: { battleId, round: battle.currentRound }, orderBy: { position: 'asc' } });
+      const entries = duels.reduce((sum, duel) => sum + entryCount(duel), 0);
+      // The final is already being played (a last pair, or a group post).
+      if (entries <= 2 || duels.some((duel) => duel.photoCId !== null)) throw new DomainError('INVALID_STATE');
+      if (entries <= size) {
+        const real = duels.filter((duel) => duel.photoBId !== null);
+        const voted = await this.prisma.duel.count({
+          where: { id: { in: real.map((duel) => duel.id) }, OR: [{ votes: { some: {} } }, { paidVotes: { some: {} } }] },
+        });
+        if (voted > 0 || real.some((duel) => duel.status === 'FINISHED')) throw new DomainError('VOTING_STARTED');
+        rebuild = duels;
+      }
     }
-    const updated = await this.prisma.battle.update({ where: { id: battleId }, data: { finalSize: size } });
-    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finalSize: size } });
-    return updated;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.battle.update({ where: { id: battleId }, data: { finalSize: size } });
+      if (rebuild) {
+        const ids = rebuild.flatMap((duel) => entriesOf(duel).map((entry) => entry.photoId));
+        await tx.duel.deleteMany({ where: { id: { in: rebuild.map((duel) => duel.id) } } });
+        await this.createRound(tx, battleId, battle.currentRound, ids, size);
+      }
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finalSize: size, rebuilt: !!rebuild } }, tx);
+      return saved;
+    });
+    if (rebuild) {
+      // Posts of the old pairs that are already in the channel are removed.
+      await this.deleteMessages(rebuild.flatMap((duel) => [...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]));
+      const entries = rebuild.reduce((sum, duel) => sum + entryCount(duel), 0);
+      await this.notifications.notifyAdmins((l) => l.admin.finalRebuilt(entries));
+      await this.prepareAnnouncement(await this.roundAnnouncement(updated, battle.currentRound, entries));
+      await this.scheduler.triggerTick();
+    }
+    return { battle: updated, rebuilt: !!rebuild };
   }
 
   async entriesCount(battleId: number): Promise<number> {

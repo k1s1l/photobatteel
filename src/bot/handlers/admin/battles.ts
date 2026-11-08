@@ -181,7 +181,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       await ctx.deps.services.battles.setFinalSize(battle.id, next, adminUserId(ctx));
     } catch (error) {
       if (!isDomainError(error)) throw error;
-      return answer(ctx, ctx.locale.admin.finalSizeLocked, true);
+      return answer(ctx, error.code === 'VOTING_STARTED' ? ctx.locale.admin.finalSizeVoting : ctx.locale.admin.finalSizeLocked, true);
     }
     await answer(ctx, ctx.locale.admin.finalSizeSet(next));
     await showBattles(ctx);
