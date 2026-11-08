@@ -1,6 +1,6 @@
 import type { Composer } from 'telegraf';
 import type { Message } from 'telegraf/types';
-import { entitiesToHtml, stripCustomEmoji, visibleLength } from '../../../lib/entities-html.js';
+import { entitiesToHtml, isNarrowText, stripCustomEmoji, visibleLength } from '../../../lib/entities-html.js';
 import { formatDateTime, formatTime } from '../../../lib/format.js';
 import { activeDuelKeyboard } from '../../../modules/duels/duel-post.js';
 import {
@@ -79,7 +79,7 @@ async function sendPreview(ctx: BotContext, key: TemplateKey, template: string, 
   const html = renderTemplate(template, key, sampleValues(ctx, key, variant));
   const locale = ctx.deps.services.battles.channelLocale;
   // Preview buttons are inert: they point at a duel that does not exist.
-  const keyboard = key === 'duel' || key === 'buttons' ? activeDuelKeyboard(locale, { id: 0, stage: 0, votes: sampleVotes(variant) }, settings.paidVotesEnabled) : undefined;
+  const keyboard = key === 'duel' || key === 'buttons' ? activeDuelKeyboard(locale, { id: 0, stage: 0, votes: sampleVotes(variant), stacked: key === 'buttons' && isNarrowText(html) }, settings.paidVotesEnabled) : undefined;
   const extra = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, ...(keyboard ? { reply_markup: keyboard } : {}) };
   try {
     await ctx.reply(html, extra);

@@ -96,7 +96,7 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(String(buttons.args[0])).toBe('🗳 Финал — голосуй 👇');
     const options = buttons.args[1] as { replyToMessageId: number; replyMarkup: { inline_keyboard: { text: string }[][] } };
     expect(options.replyToMessageId).toBe(postId);
-    expect(options.replyMarkup.inline_keyboard[0]?.map((b) => b.text)).toEqual(['Поддержать 1 · 0', 'Поддержать 2 · 0']);
+    expect(options.replyMarkup.inline_keyboard.flat().slice(0, 2).map((b) => b.text)).toEqual(['Поддержать 1 · 0', 'Поддержать 2 · 0']);
     expect(duel.messageId).toBeGreaterThan(0);
     expect(adminTexts().some((t) => t.includes('✅ Финал — опубликовано'))).toBe(true);
     expect(ctx.telegram.callsOf('sendMessage').filter((c) => String(c.args[0]).includes('вышла в канал'))).toHaveLength(2);
@@ -490,6 +490,18 @@ describe('templates, final duration and reminders', () => {
     for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
     await expireDuels(ctx);
     expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).roundEndsAt).toBeNull();
+  });
+
+  it('puts the vote buttons one per row under a short buttons text', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ buttonsTemplate: 'ПЕРШИЙ\nРАУНД' }, admin.id);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const markup = (toChannel('sendMessage')[0]!.args[1] as { replyMarkup: { inline_keyboard: unknown[][] } }).replyMarkup.inline_keyboard;
+    expect(markup.map((row) => row.length)).toEqual([1, 1]);
+    expect((await ctx.prisma.duel.findFirstOrThrow()).stackedButtons).toBe(true);
   });
 
   it('gives the final its own voting time', async () => {

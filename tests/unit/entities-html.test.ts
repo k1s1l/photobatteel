@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entitiesToHtml, linkifyHtml, stripCustomEmoji, visibleLength } from '../../src/lib/entities-html.js';
+import { entitiesToHtml, isNarrowText, linkifyHtml, stripCustomEmoji, visibleLength } from '../../src/lib/entities-html.js';
 
 describe('message entities → HTML template', () => {
   it('keeps links clickable next to premium emoji', () => {
@@ -54,5 +54,12 @@ describe('plain links in saved templates', () => {
     expect(linkifyHtml(html)).toBe(
       'КАНАЛ - <a href="https://t.me/+tabNe&amp;x">https://t.me/+tabNe&amp;x</a><tg-emoji emoji-id="5">🩸</tg-emoji> або <a href="https://t.me/ch">t.me/ch</a>. <a href="https://x.y">https://x.y</a>',
     );
+  });
+});
+
+describe('narrow messages', () => {
+  it('detects a short text above the buttons by its longest line', () => {
+    expect(isNarrowText('<tg-emoji emoji-id="1">П</tg-emoji> Е Р В Ы Й\nР А У Н Д')).toBe(true);
+    expect(isNarrowText('<b>Раунд 1 · Пара 3 — голосуй за свого фаворита 👇</b>')).toBe(false);
   });
 });

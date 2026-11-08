@@ -133,3 +133,21 @@ export function linkifyHtml(html: string): string {
     })
     .join('');
 }
+
+/** Width (in characters) of the widest line of an HTML message, as Telegram shows it. */
+export function longestLine(html: string): number {
+  const text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(lt|gt|amp|quot);/g, '_');
+  return Math.max(0, ...text.split('\n').map((line) => Array.from(line.trim()).length));
+}
+
+/**
+ * Inline buttons are as wide as the message above them. Under a short text two
+ * "Підтримати 1 · 12" buttons side by side get cut, so they go one per row.
+ */
+export const NARROW_TEXT_CHARS = 28;
+export function isNarrowText(html: string): boolean {
+  return longestLine(html) < NARROW_TEXT_CHARS;
+}

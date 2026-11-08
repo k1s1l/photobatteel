@@ -12,12 +12,15 @@ export interface DuelKeyboardData {
   stage: number;
   /** Vote counts of the entries in order (2 for a pair, 3–4 in a group final). */
   votes: { side: DuelSide; votes: number }[];
+  /** One button per row: used when the text above is short and the message narrow. */
+  stacked?: boolean;
 }
 
-/** Two buttons per row: "1 · 2", then "3 · 4" in a group final. */
-function rowsOf(buttons: InlineKeyboardButton[]): InlineKeyboardButton[][] {
+/** Two buttons per row ("1 · 2", then "3 · 4" in a group final), or one per row when stacked. */
+function rowsOf(buttons: InlineKeyboardButton[], stacked = false): InlineKeyboardButton[][] {
+  const perRow = stacked ? 1 : 2;
   const rows: InlineKeyboardButton[][] = [];
-  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  for (let i = 0; i < buttons.length; i += perRow) rows.push(buttons.slice(i, i + perRow));
   return rows;
 }
 
@@ -28,6 +31,7 @@ export function activeDuelKeyboard(locale: Locale, duel: DuelKeyboardData, paidV
       text: locale.duel.voteButton({ side: sideNumber(side), votes }),
       callback_data: `${DUEL_VOTE_PREFIX}${duel.id}:${duel.stage}:${side.toLowerCase()}`,
     })),
+    duel.stacked,
   );
   if (paidVotes) rows.push([{ text: locale.duel.paidButton, callback_data: `${DUEL_PAID_PREFIX}${duel.id}` }]);
   return { inline_keyboard: rows };
@@ -40,6 +44,7 @@ export function closedDuelKeyboard(locale: Locale, duel: DuelKeyboardData, winne
       text: `${winner === side ? '🏆 ' : ''}${locale.duel.voteButton({ side: sideNumber(side), votes })}`,
       callback_data: DUEL_CLOSED,
     })),
+    duel.stacked,
   );
   rows.push([{ text: winner === 'tie' ? locale.duel.tieButton : locale.duel.closedButton, callback_data: DUEL_CLOSED }]);
   return { inline_keyboard: rows };

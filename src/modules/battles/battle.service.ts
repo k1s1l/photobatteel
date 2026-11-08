@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import type { Battle, Duel, DuelSide, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
 import type { Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
-import { stripCustomEmoji } from '../../lib/entities-html.js';
+import { isNarrowText, stripCustomEmoji } from '../../lib/entities-html.js';
 import { channelPostLink, escapeHtml, formatDateTime, formatTime, truncate } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import { classifyTelegramError } from '../../lib/telegram-errors.js';
@@ -460,9 +460,10 @@ export class BattleService {
     const now = new Date();
     const endsAt = duelEnd(duel.battle, duel.round, stage, entriesInRound, now);
     const buttonsText = await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
+    const stacked = isNarrowText(buttonsText);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel) }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -476,7 +477,7 @@ export class BattleService {
     }
     const activated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'READY', stage },
-      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId] },
+      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId], stackedButtons: stacked },
     });
     if (activated.count === 0) {
       // Another item of the same album won the race: keep only its buttons.
@@ -699,7 +700,7 @@ export class BattleService {
     if (!duel?.messageId || duel.status !== 'ACTIVE') return;
     const settings = await this.settings.get();
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, activeDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel) }, settings.paidVotesEnabled));
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, activeDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons }, settings.paidVotesEnabled));
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') throw error;
     }
@@ -718,7 +719,7 @@ export class BattleService {
   private async closeButtons(duel: Duel, winner: DuelSide | 'tie'): Promise<void> {
     if (!duel.messageId) return;
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel) }, winner));
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons }, winner));
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') this.logger.warn({ err: error, duelId: duel.id }, 'Failed to close duel buttons');
     }

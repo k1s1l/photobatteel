@@ -261,6 +261,8 @@ model Duel {
   remindedAt      DateTime?
   /// Bot message with the vote buttons, posted as a reply under the admin's channel post
   messageId       Int?
+  /// Vote buttons one per row (the text above them is short, so the message is narrow)
+  stackedButtons  Boolean    @default(false)
   /// The admin's channel post(s) for this stage (removed if an entry withdraws)
   mediaMessageIds Int[]      @default([])
   postedAt        DateTime?
