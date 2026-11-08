@@ -135,6 +135,30 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(round2.find((d) => d.photoBId === null)!.photoAId).toBe(latest.id);
   });
 
+  it('republishes a wrongly posted pair: removes it from the channel and prepares it again, keeping votes', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const before = await ctx.prisma.duel.findFirstOrThrow({ where: { position: 2 } });
+    await setVotes(before.id, 3, 1);
+    expect(await ctx.services.battles.republishable(battle.id, 1)).toHaveLength(2);
+
+    expect(await ctx.services.battles.republish(before.id, admin.id)).toBe(true);
+    expect(await ctx.services.battles.republish(before.id, admin.id)).toBe(false);
+    const deleted = toChannel('deleteMessage').map((c) => c.args[0]);
+    expect(deleted).toEqual(expect.arrayContaining([before.messageId, ...before.mediaMessageIds]));
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ status: 'PENDING', messageId: null, mediaMessageIds: [], votesA: 3, votesB: 1 });
+
+    await postPendingDuels(ctx);
+    const after = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: before.id } });
+    expect(after.status).toBe('ACTIVE');
+    const keyboard = JSON.stringify(toChannel('sendMessage').at(-1)!.args[1]);
+    expect(keyboard).toContain('· 3');
+    expect(keyboard).toContain('· 1');
+  });
+
   it('prepares videos as an album with the caption and links every album item', async () => {
     const battle = await openBattle(ctx);
     await entries(3, 'VIDEO');

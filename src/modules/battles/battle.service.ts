@@ -368,7 +368,7 @@ export class BattleService {
     const buttonsText = await this.render('buttons', stageValues(this.locale, stageInfo), stageInfo);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: 0, votesB: 0 }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: duel.votesA, votesB: duel.votesB }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -404,6 +404,33 @@ export class BattleService {
         if (author) await this.notifications.notifyUser(author, (l) => l.battle.entryPosted({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
       }
     }
+    return true;
+  }
+
+  /** Pairs of the current round an admin may publish again (prepared or already in the channel). */
+  async republishable(battleId: number, round: number): Promise<Duel[]> {
+    return this.prisma.duel.findMany({
+      where: { battleId, round, status: { in: ['READY', 'ACTIVE'] }, photoBId: { not: null } },
+      orderBy: { position: 'asc' },
+    });
+  }
+
+  /**
+   * Undoes a wrong publication: the channel post and the buttons are removed, the
+   * pair goes back to PENDING and its post is prepared for the admins again.
+   * Votes already given are kept and shown on the new buttons.
+   */
+  async republish(duelId: number, actorUserId: number | null): Promise<boolean> {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { battle: true } });
+    if (!duel || duel.battle.status !== 'RUNNING' || !duel.photoBId || (duel.status !== 'READY' && duel.status !== 'ACTIVE')) return false;
+    const reset = await this.prisma.duel.updateMany({
+      where: { id: duel.id, status: duel.status, stage: duel.stage },
+      data: { status: 'PENDING', messageId: null, mediaMessageIds: [], postedAt: null, endsAt: null, readyAt: null, remindedAt: null, preparedFileUniqueId: null },
+    });
+    if (reset.count === 0) return false;
+    await this.deleteMessages([...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]);
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Duel', entityId: duel.id, details: { republish: true, round: duel.round, position: duel.position } });
+    await this.scheduler.enqueueDuelPrepare(duel.id, duel.stage);
     return true;
   }
 

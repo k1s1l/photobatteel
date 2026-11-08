@@ -480,6 +480,11 @@ export const ru = {
       `Работ: ${p.entries}` +
       (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
     battleCreate: '➕ Запланировать батл',
+    republishButton: (n: number) => `🔁 Перевыложить пару ${n}`,
+    republishConfirm: (n: number) =>
+      `<b>🔁 Перевыложить пару ${n}?</b>\n\nБот удалит из канала её пост и кнопки и заново пришлёт тебе готовый пост. ` +
+      'Перешли его в канал без автора — появятся новые кнопки. Уже отданные голоса сохранятся, время голосования начнётся заново.',
+    republishDone: '✅ Готово. Пост пары сейчас придёт сюда — перешли его в канал без автора.',
     battleCancel: '❌ Отменить батл',
     battleCancelConfirm: (title: string) => `Отменить батл «${title}»? Все работы снимаются, открытые пары закрываются.`,
     battleAskStart: (p: { timeZone: string; example: string }) =>

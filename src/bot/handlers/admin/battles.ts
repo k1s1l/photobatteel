@@ -38,6 +38,10 @@ async function showBattles(ctx: BotContext): Promise<void> {
   }
   const a = ctx.locale.admin;
   const rows = [];
+  if (current?.status === 'RUNNING' && current.currentRound > 0) {
+    const duels = await battles.republishable(current.id, current.currentRound);
+    for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
+  }
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
   rows.push([button(a.buttons.panel, PANEL)]);
@@ -124,6 +128,24 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await respond(ctx, ctx.locale.admin.battleCreated({ title: escapeHtml(battle.title), start: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) }), {
       keyboard: backToPanel(ctx.locale),
     });
+  });
+
+  admin.action(/^a:bt:rp:(\d+)$/, async (ctx) => {
+    const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx));
+    await answer(ctx);
+    if (!duel) return;
+    await respond(ctx, ctx.locale.admin.republishConfirm(duel.position), {
+      keyboard: inline([[button(ctx.locale.common.yes, `a:bt:rpy:${duel.id}`), button(ctx.locale.common.no, 'a:bt')]]),
+    });
+  });
+
+  admin.action(/^a:bt:rpy:(\d+)$/, async (ctx) => {
+    const duelId = matchInt(ctx);
+    const done = await ctx.deps.locks.withLock(`duel:${duelId}`, 30_000, () => ctx.deps.services.battles.republish(duelId, adminUserId(ctx)));
+    if (done === undefined) return answer(ctx, ctx.locale.common.busy);
+    if (!done) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
+    await answer(ctx);
+    await respond(ctx, ctx.locale.admin.republishDone, { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
   });
 
   admin.action(/^a:bt:cancel:(\d+)$/, async (ctx) => {
