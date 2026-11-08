@@ -2,13 +2,14 @@ import type { DuelSide, PrismaClient, User } from '../../generated/prisma/client
 import { DomainError, isUniqueViolation } from '../../lib/errors.js';
 import type { ChannelInfo, JobScheduler, TelegramGateway } from '../contracts.js';
 import type { SettingsService } from '../settings/settings.service.js';
+import { ALL_PHOTOS, entryCount, PHOTO_ID_FIELD, SIDES, VOTE_FIELD, type DuelVotes } from './sides.js';
 
-export interface DuelVoteResult {
+export interface DuelVoteResult extends DuelVotes {
   /** The side the user now supports, or null when the vote was withdrawn. */
   side: DuelSide | null;
-  votesA: number;
-  votesB: number;
 }
+
+const VOTE_SELECT = { votesA: true, votesB: true, votesC: true, votesD: true } as const;
 
 const MEMBERSHIP_TTL_MS = 10 * 60_000;
 
@@ -35,15 +36,17 @@ export class DuelVoteService {
     let result: DuelVoteResult;
     try {
       result = await this.prisma.$transaction(async (tx) => {
-        const duel = await tx.duel.findUnique({ where: { id: duelId }, include: { photoA: true, photoB: true } });
-        if (!duel?.photoB || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
+        const duel = await tx.duel.findUnique({ where: { id: duelId }, include: ALL_PHOTOS });
+        if (!duel || entryCount(duel) < 2 || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
           throw new DomainError('VOTING_CLOSED');
         }
-        const target = side === 'A' ? duel.photoA : duel.photoB;
+        const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD };
+        const target = photos[side];
+        if (!target || duel[PHOTO_ID_FIELD[side]] === null) throw new DomainError('VOTING_CLOSED');
         if (target.userId === voter.id) throw new DomainError('SELF_VOTE');
 
         const existing = await tx.duelVote.findUnique({ where: { duelId_stage_userId: { duelId, stage, userId: voter.id } } });
-        const counters: Record<DuelSide, number> = { A: 0, B: 0 };
+        const counters: Record<DuelSide, number> = { A: 0, B: 0, C: 0, D: 0 };
         let newSide: DuelSide | null = side;
         if (!existing) {
           await tx.duelVote.create({ data: { duelId, stage, userId: voter.id, side } });
@@ -57,25 +60,20 @@ export class DuelVoteService {
           counters[existing.side] -= 1;
           counters[side] += 1;
         }
-        const updated = await tx.duel.update({
-          where: { id: duelId },
-          data: { votesA: { increment: counters.A }, votesB: { increment: counters.B } },
-          select: { votesA: true, votesB: true },
-        });
-        for (const [photo, delta] of [
-          [duel.photoA, counters.A],
-          [duel.photoB, counters.B],
-        ] as const) {
-          if (delta === 0) continue;
-          await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: delta } } });
-          await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: delta } } });
+        const data = Object.fromEntries(SIDES.filter((s) => counters[s] !== 0).map((s) => [VOTE_FIELD[s], { increment: counters[s] }]));
+        const updated = await tx.duel.update({ where: { id: duelId }, data, select: VOTE_SELECT });
+        for (const s of SIDES) {
+          const photo = photos[s];
+          if (counters[s] === 0 || !photo) continue;
+          await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: counters[s] } } });
+          await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: counters[s] } } });
         }
         return { side: newSide, ...updated };
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       // A concurrent press already registered this vote.
-      const duel = await this.prisma.duel.findUniqueOrThrow({ where: { id: duelId }, select: { votesA: true, votesB: true } });
+      const duel = await this.prisma.duel.findUniqueOrThrow({ where: { id: duelId }, select: VOTE_SELECT });
       return { side, ...duel };
     }
     await this.scheduler.scheduleVoteRefresh(duelId);

@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import type { Battle, Duel, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
+import type { Battle, Duel, DuelSide, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
 import type { Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
 import { stripCustomEmoji } from '../../lib/entities-html.js';
@@ -11,12 +11,19 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
+import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, SIDES, sideNumber, voteList, votesOf } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
-type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; battle: Battle };
+type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; battle: Battle };
+
+/** Entries of a duel with their photos, in slot order. */
+function photosOf(duel: { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null }): { side: DuelSide; photo: Photo }[] {
+  const all = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD };
+  return SIDES.flatMap((side) => (all[side] ? [{ side, photo: all[side] }] : []));
+}
 
 /** Entries that compete in (or are waiting for) a battle. */
 const ENTRY_STATUSES = ['PENDING_MODERATION', 'ACCEPTED', 'IN_BATTLE', 'ELIMINATED', 'WINNER'] as const;
@@ -39,6 +46,8 @@ export interface ScheduleBattleInput {
   /** Voting time of the final; null/undefined = same as roundMinutes. */
   finalMinutes?: number | null;
   tiebreakMinutes: number;
+  /** Entries in the final post: 2 (a pair) up to 4 (one post with all finalists). */
+  finalSize?: number;
   createdById: number | null;
 }
 
@@ -54,16 +63,20 @@ export function shuffle<T>(items: readonly T[]): T[] {
   return result;
 }
 
-/** Pairs entries in order; with an odd count the last entry gets a bye. */
+/** The final: the round where all remaining entries fit in one post. */
+export function isFinalRound(battle: Pick<Battle, 'finalSize'>, entriesInRound: number): boolean {
+  return entriesInRound <= Math.max(2, battle.finalSize);
+}
+
 /** Voting time of a pair: tiebreak reposts, the final and regular rounds can differ. */
-export function votingMinutes(battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes'>, stage: number, entriesInRound: number): number {
+export function votingMinutes(battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes' | 'finalSize'>, stage: number, entriesInRound: number): number {
   if (stage > 0) return battle.tiebreakMinutes;
-  return entriesInRound <= 2 ? (battle.finalMinutes ?? battle.roundMinutes) : battle.roundMinutes;
+  return isFinalRound(battle, entriesInRound) ? (battle.finalMinutes ?? battle.roundMinutes) : battle.roundMinutes;
 }
 
 /** When a pair published at `now` stops voting: the admin's round end if set, else its voting time. */
 export function duelEnd(
-  battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes' | 'roundEndsAt' | 'currentRound'>,
+  battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes' | 'roundEndsAt' | 'currentRound' | 'finalSize'>,
   round: number,
   stage: number,
   entriesInRound: number,
@@ -73,6 +86,7 @@ export function duelEnd(
   return new Date(now.getTime() + votingMinutes(battle, stage, entriesInRound) * 60_000);
 }
 
+/** Pairs entries in order; with an odd count the last entry gets a bye. */
 export function pairEntries(ids: readonly number[]): { a: number; b: number | null }[] {
   const pairs: { a: number; b: number | null }[] = [];
   for (let i = 0; i < ids.length; i += 2) pairs.push({ a: ids[i]!, b: ids[i + 1] ?? null });
@@ -134,10 +148,23 @@ export class BattleService {
     return this.prisma.duel.findUnique({ where: { id } });
   }
 
-  /** The duel an entry is being voted on right now, and which side (1 or 2) it is. */
-  async activeDuelOf(photoId: number): Promise<{ duel: Duel; side: 1 | 2 } | null> {
+  /** The duel an entry is being voted on right now, and its number in it (1–4). */
+  async activeDuelOf(photoId: number): Promise<{ duel: Duel; side: number } | null> {
     const active = await findActiveDuel(this.prisma, photoId);
-    return active ? { duel: active.duel, side: active.side === 'A' ? 1 : 2 } : null;
+    return active ? { duel: active.duel, side: sideNumber(active.side) } : null;
+  }
+
+  /** Changes how many entries play in the final (before the final round has started). */
+  async setFinalSize(battleId: number, size: number, actorUserId: number | null): Promise<Battle> {
+    if (!Number.isInteger(size) || size < 2 || size > MAX_FINAL_SIZE) throw new RangeError('Invalid final size');
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (!battle || (battle.status !== 'SCHEDULED' && battle.status !== 'RUNNING')) throw new DomainError('INVALID_STATE');
+    if (battle.status === 'RUNNING' && battle.currentRound > 0 && isFinalRound(battle, await this.roundEntries(battleId, battle.currentRound))) {
+      throw new DomainError('INVALID_STATE');
+    }
+    const updated = await this.prisma.battle.update({ where: { id: battleId }, data: { finalSize: size } });
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finalSize: size } });
+    return updated;
   }
 
   async entriesCount(battleId: number): Promise<number> {
@@ -160,6 +187,8 @@ export class BattleService {
     if (input.roundMinutes < 5 || input.roundMinutes > 7 * 24 * 60) throw new RangeError('Invalid round duration');
     if (input.tiebreakMinutes < 1 || input.tiebreakMinutes > 24 * 60) throw new RangeError('Invalid tiebreak duration');
     if (input.finalMinutes != null && (input.finalMinutes < 5 || input.finalMinutes > 7 * 24 * 60)) throw new RangeError('Invalid final duration');
+    const finalSize = input.finalSize ?? 2;
+    if (!Number.isInteger(finalSize) || finalSize < 2 || finalSize > MAX_FINAL_SIZE) throw new RangeError('Invalid final size');
 
     const battle = await this.prisma.$transaction(async (tx) => {
       if (await tx.battle.findFirst({ where: { status: { in: ['SCHEDULED', 'RUNNING'] } } })) throw new DomainError('BATTLE_EXISTS');
@@ -170,6 +199,7 @@ export class BattleService {
           roundMinutes: input.roundMinutes,
           finalMinutes: input.finalMinutes ?? null,
           tiebreakMinutes: input.tiebreakMinutes,
+          finalSize,
           createdById: input.createdById,
         },
       });
@@ -230,6 +260,7 @@ export class BattleService {
     const result = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.battle.updateMany({ where: { id: battleId, status: 'SCHEDULED' }, data: { status: 'RUNNING', startedAt: new Date() } });
       if (claimed.count === 0) return null;
+      const { finalSize } = await tx.battle.findUniqueOrThrow({ where: { id: battleId }, select: { finalSize: true } });
       // Entries still waiting for moderation when the battle starts do not take part.
       await tx.photo.updateMany({ where: { battleId, status: 'PENDING_MODERATION' }, data: { status: 'CANCELLED' } });
       const entries = await tx.photo.findMany({ where: { battleId, status: 'ACCEPTED' }, select: { id: true } });
@@ -240,7 +271,7 @@ export class BattleService {
       await tx.photo.updateMany({ where: { battleId, status: 'ACCEPTED' }, data: { status: 'IN_BATTLE' } });
       await this.activity.log({ action: 'BATTLE_STARTED', entityType: 'Battle', entityId: battleId, details: { entries: entries.length } }, tx);
       if (entries.length === 1) return { started: true as const, soleWinner: entries[0]!.id, entries: 1 };
-      await this.createRound(tx, battleId, 1, shuffle(entries.map((entry) => entry.id)));
+      await this.createRound(tx, battleId, 1, shuffle(entries.map((entry) => entry.id)), finalSize);
       return { started: true as const, soleWinner: null, entries: entries.length };
     });
     if (!result) return;
@@ -257,8 +288,18 @@ export class BattleService {
     await this.scheduler.triggerTick();
   }
 
-  /** Creates duels for a round; byes are finished immediately. */
-  private async createRound(tx: Prisma.TransactionClient, battleId: number, round: number, photoIds: number[]): Promise<void> {
+  /**
+   * Creates duels for a round; byes are finished immediately. When the remaining
+   * entries fit in the final (2–4 by the battle's setting), they all go into one post.
+   */
+  private async createRound(tx: Prisma.TransactionClient, battleId: number, round: number, photoIds: number[], finalSize: number): Promise<void> {
+    if (photoIds.length >= 3 && photoIds.length <= Math.min(finalSize, MAX_FINAL_SIZE)) {
+      const [a, b, c, d] = photoIds;
+      await tx.duel.create({ data: { battleId, round, position: 1, photoAId: a!, photoBId: b!, photoCId: c!, photoDId: d ?? null } });
+      await tx.battle.update({ where: { id: battleId }, data: { currentRound: round, roundEndsAt: null } });
+      if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: 1, final: photoIds.length } }, tx);
+      return;
+    }
     const pairs = pairEntries(await this.latestGetsBye(tx, photoIds));
     const now = new Date();
     for (const [index, pair] of pairs.entries()) {
@@ -295,12 +336,12 @@ export class BattleService {
    * who publishes it in the channel. Called by the duel job (one at a time, paced).
    */
   async prepareDuel(duelId: number, stage: number): Promise<PrepareOutcome> {
-    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { photoA: true, photoB: true, battle: true } });
-    if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || !duel.photoB || duel.battle.status !== 'RUNNING') return 'skipped';
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { ...ALL_PHOTOS, battle: true } });
+    if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || entryCount(duel) < 2 || duel.battle.status !== 'RUNNING') return 'skipped';
     const adminChats = await this.notifications.adminChatIds();
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
-    const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage };
+    const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage, finalSize: duel.battle.finalSize };
     // The pair is usually published right away; the end shown in the post is an estimate from now.
     const expectedEnd = duelEnd(duel.battle, duel.round, stage, stageInfo.entriesInRound, new Date());
     const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
@@ -326,14 +367,11 @@ export class BattleService {
    * Returns the collage's file_unique_id (null for albums, which are recognised by the entries' files).
    */
   private async sendPrepared(duel: DuelWithPhotos, caption: string, adminChats: number[]): Promise<string | null> {
-    const photoB = duel.photoB!;
-    const isCollage = duel.photoA.mediaType === 'PHOTO' && photoB.mediaType === 'PHOTO';
-    const collage = isCollage
-      ? await buildDuelCollage(
-          await this.telegram.downloadFile(duel.photoA.fileId, MAX_MEDIA_BYTES),
-          await this.telegram.downloadFile(photoB.fileId, MAX_MEDIA_BYTES),
-        )
-      : null;
+    const photos = photosOf(duel).map((entry) => entry.photo);
+    const isCollage = photos.every((photo) => photo.mediaType === 'PHOTO');
+    const images: Buffer[] = [];
+    if (isCollage) for (const photo of photos) images.push(await this.telegram.downloadFile(photo.fileId, MAX_MEDIA_BYTES));
+    const collage = isCollage ? await buildDuelCollage(...images) : null;
     let html = caption;
     let collageRef: { fileId: string; uniqueId: string } | null = null;
 
@@ -345,10 +383,10 @@ export class BattleService {
           if (!collageRef && largest) collageRef = { fileId: largest.file_id, uniqueId: largest.file_unique_id };
           return;
         }
-        await this.telegram.sendMediaGroup(chatId, [
-          { type: duel.photoA.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: duel.photoA.fileId, caption: text },
-          { type: photoB.mediaType === 'VIDEO' ? 'video' : 'photo', fileId: photoB.fileId },
-        ]);
+        await this.telegram.sendMediaGroup(
+          chatId,
+          photos.map((photo, index) => ({ type: photo.mediaType === 'VIDEO' ? ('video' as const) : ('photo' as const), fileId: photo.fileId, ...(index === 0 ? { caption: text } : {}) })),
+        );
       };
       try {
         await send(html);
@@ -375,22 +413,22 @@ export class BattleService {
     if (ids.length === 0) return false;
     const byFiles = (status: 'READY' | 'ACTIVE') => ({
       status,
-      OR: [{ preparedFileUniqueId: { in: ids } }, { photoA: { fileUniqueId: { in: ids } } }, { photoB: { fileUniqueId: { in: ids } } }],
+      OR: [{ preparedFileUniqueId: { in: ids } }, ...anySlotFile(ids)],
     });
 
-    const duel = await this.prisma.duel.findFirst({ where: byFiles('READY'), include: { photoA: true, photoB: true, battle: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
-    if (!duel?.photoB) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+    const duel = await this.prisma.duel.findFirst({ where: byFiles('READY'), include: { ...ALL_PHOTOS, battle: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
+    if (!duel || entryCount(duel) < 2) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
 
     const settings = await this.settings.get();
     const stage = duel.stage;
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
-    const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage };
+    const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage, finalSize: duel.battle.finalSize };
     const now = new Date();
     const endsAt = duelEnd(duel.battle, duel.round, stage, entriesInRound, now);
     const buttonsText = await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votesA: duel.votesA, votesB: duel.votesB }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel) }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -417,7 +455,7 @@ export class BattleService {
     const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
     await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: stageValues(l, stageInfo).stage as string, ends }));
     if (stage === 0) {
-      for (const photo of [duel.photoA, duel.photoB]) {
+      for (const { photo } of photosOf(duel)) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
         if (author) await this.notifications.notifyUser(author, (l) => l.battle.entryPosted({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
       }
@@ -446,7 +484,7 @@ export class BattleService {
   /** Pairs of the current round an admin may publish again (prepared or already in the channel). */
   async republishable(battleId: number, round: number): Promise<Duel[]> {
     return this.prisma.duel.findMany({
-      where: { battleId, round, status: { in: ['READY', 'ACTIVE'] }, photoBId: { not: null } },
+      where: { battleId, round, status: { in: ['READY', 'ACTIVE'] }, photoBId: { not: null } }, // photoB is set in every real (non-bye) duel
       orderBy: { position: 'asc' },
     });
   }
@@ -476,7 +514,7 @@ export class BattleService {
     const found = await this.prisma.duel.findFirst({
       where: {
         status: 'READY',
-        OR: [{ preparedFileUniqueId: { in: fileUniqueIds } }, { photoA: { fileUniqueId: { in: fileUniqueIds } } }, { photoB: { fileUniqueId: { in: fileUniqueIds } } }],
+        OR: [{ preparedFileUniqueId: { in: fileUniqueIds } }, ...anySlotFile(fileUniqueIds)],
       },
       select: { id: true },
     });
@@ -491,29 +529,37 @@ export class BattleService {
     return true;
   }
 
-  /** Decides a finished duel stage: winner, or a tiebreak repost. */
+  /**
+   * Decides a finished duel stage: the entry with most votes wins (pair or group
+   * final). A tie for the first place is re-voted; after the last tiebreak the
+   * earlier of the tied entries wins. Entries withdrawn meanwhile cannot win.
+   */
   async closeDuel(duelId: number, stage: number): Promise<void> {
     const outcome = await this.prisma.$transaction(async (tx) => {
-      const duel = await tx.duel.findUnique({ where: { id: duelId }, include: { photoA: true, photoB: true } });
-      if (!duel || duel.status !== 'ACTIVE' || duel.stage !== stage || !duel.photoB) return null;
-      if (duel.votesA === duel.votesB && duel.stage < this.options.maxTiebreaks) {
+      const duel = await tx.duel.findUnique({ where: { id: duelId }, include: ALL_PHOTOS });
+      if (!duel || duel.status !== 'ACTIVE' || duel.stage !== stage || entryCount(duel) < 2) return null;
+      const contenders = photosOf(duel).filter(({ photo }) => photo.status === 'IN_BATTLE');
+      const pool = contenders.length > 0 ? contenders : photosOf(duel);
+      const top = Math.max(...pool.map(({ side }) => votesOf(duel, side)));
+      const leaders = pool.filter(({ side }) => votesOf(duel, side) === top);
+      if (leaders.length > 1 && duel.stage < this.options.maxTiebreaks) {
         const updated = await tx.duel.updateMany({
           where: { id: duelId, status: 'ACTIVE', stage },
-          data: { status: 'PENDING', stage: stage + 1, votesA: 0, votesB: 0, endsAt: null },
+          data: { status: 'PENDING', stage: stage + 1, votesA: 0, votesB: 0, votesC: 0, votesD: 0, endsAt: null },
         });
         return updated.count ? { kind: 'tiebreak' as const, duel } : null;
       }
-      let winner: Photo;
-      if (duel.votesA !== duel.votesB) winner = duel.votesA > duel.votesB ? duel.photoA : duel.photoB;
-      else winner = earlierEntry(duel.photoA, duel.photoB);
-      const loser = winner.id === duel.photoA.id ? duel.photoB : duel.photoA;
+      const winner = leaders.map((entry) => entry.photo).reduce((a, b) => earlierEntry(a, b));
+      const losers = photosOf(duel)
+        .map((entry) => entry.photo)
+        .filter((photo) => photo.id !== winner.id);
       const finished = await tx.duel.updateMany({
         where: { id: duelId, status: 'ACTIVE', stage },
         data: { status: 'FINISHED', winnerPhotoId: winner.id, finishedAt: new Date() },
       });
       if (finished.count === 0) return null;
-      await tx.photo.updateMany({ where: { id: loser.id, status: 'IN_BATTLE' }, data: { status: 'ELIMINATED' } });
-      return { kind: 'finished' as const, duel, winner, loser };
+      await tx.photo.updateMany({ where: { id: { in: losers.map((photo) => photo.id) }, status: 'IN_BATTLE' }, data: { status: 'ELIMINATED' } });
+      return { kind: 'finished' as const, duel, winner, losers };
     });
     if (!outcome) return;
 
@@ -522,16 +568,16 @@ export class BattleService {
       await this.scheduler.enqueueDuelPrepare(duelId, stage + 1);
       return;
     }
-    const { duel, winner, loser } = outcome;
-    await this.closeButtons(duel, winner.id === duel.photoAId ? 'a' : 'b');
+    const { duel, winner, losers } = outcome;
+    await this.closeButtons(duel, entriesOf(duel).find((entry) => entry.photoId === winner.id)?.side ?? 'tie');
     const postId = duel.mediaMessageIds[0] ?? duel.messageId;
     const link = postId ? channelPostLink(this.channel, postId) : '';
-    const [winnerUser, loserUser] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: winner.userId } }),
-      this.prisma.user.findUnique({ where: { id: loser.userId } }),
-    ]);
+    const winnerUser = await this.prisma.user.findUnique({ where: { id: winner.userId } });
     if (winnerUser) await this.notifications.notifyUser(winnerUser, (l) => l.battle.duelWon({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
-    if (loserUser) await this.notifications.notifyUser(loserUser, (l) => l.battle.duelLost({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
+    for (const loser of losers) {
+      const loserUser = await this.prisma.user.findUnique({ where: { id: loser.userId } });
+      if (loserUser) await this.notifications.notifyUser(loserUser, (l) => l.battle.duelLost({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
+    }
   }
 
   /** When every duel of the current round is finished: next round, or the final result. */
@@ -550,7 +596,7 @@ export class BattleService {
       if (winners.length <= 1) return { final: winners[0] ?? null, battle };
       const claimed = await tx.battle.updateMany({ where: { id: battleId, currentRound: battle.currentRound }, data: { currentRound: battle.currentRound + 1 } });
       if (claimed.count === 0) return null;
-      await this.createRound(tx, battleId, battle.currentRound + 1, winners);
+      await this.createRound(tx, battleId, battle.currentRound + 1, winners, battle.finalSize);
       return { final: undefined, battle, round: battle.currentRound + 1, entries: winners.length };
     });
     if (!next) return;
@@ -597,9 +643,12 @@ export class BattleService {
    */
   async forfeit(photoId: number): Promise<void> {
     const duel = await this.prisma.duel.findFirst({
-      where: { status: { in: ['PENDING', 'READY', 'ACTIVE'] }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
+      where: { status: { in: ['PENDING', 'READY', 'ACTIVE'] }, ...inAnySlot(photoId) },
     });
     if (!duel) return;
+    // In a group final with more than two entries the others keep playing; the
+    // withdrawn entry simply cannot win (see closeDuel).
+    if (entryCount(duel) > 2) return;
     const opponent = duel.photoAId === photoId ? duel.photoBId : duel.photoAId;
     const updated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: { in: ['PENDING', 'READY', 'ACTIVE'] } },
@@ -616,7 +665,7 @@ export class BattleService {
     if (!duel?.messageId || duel.status !== 'ACTIVE') return;
     const settings = await this.settings.get();
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, activeDuelKeyboard(this.locale, duel, settings.paidVotesEnabled));
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, activeDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel) }, settings.paidVotesEnabled));
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') throw error;
     }
@@ -625,17 +674,17 @@ export class BattleService {
   /** Link to the latest channel post of an entry, if it was published. */
   async entryPostLink(photoId: number): Promise<string | null> {
     const duel = await this.prisma.duel.findFirst({
-      where: { messageId: { not: null }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
+      where: { messageId: { not: null }, ...inAnySlot(photoId) },
       orderBy: [{ round: 'desc' }],
     });
     const postId = duel?.mediaMessageIds[0] ?? duel?.messageId;
     return postId ? channelPostLink(this.channel, postId) : null;
   }
 
-  private async closeButtons(duel: Duel, winner: 'a' | 'b' | 'tie'): Promise<void> {
+  private async closeButtons(duel: Duel, winner: DuelSide | 'tie'): Promise<void> {
     if (!duel.messageId) return;
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, duel, winner));
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel) }, winner));
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') this.logger.warn({ err: error, duelId: duel.id }, 'Failed to close duel buttons');
     }
@@ -654,7 +703,7 @@ export class BattleService {
 
   private async roundAnnouncement(battle: Battle, round: number, entries: number): Promise<string> {
     const end = this.time(new Date(Date.now() + votingMinutes(battle, 0, entries) * 60_000));
-    return this.render('round', { battle: battle.title, round, roundName: roundName(this.locale, round, entries), entries, end }, { round, entriesInRound: entries });
+    return this.render('round', { battle: battle.title, round, roundName: roundName(this.locale, round, entries, battle.finalSize), entries, end }, { round, entriesInRound: entries, finalSize: battle.finalSize });
   }
 
   /** "16:00" in the battle time zone. */
@@ -664,8 +713,8 @@ export class BattleService {
 
   /** Number of entries playing in a round (a bye counts once). */
   private async roundEntries(battleId: number, round: number): Promise<number> {
-    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoBId: true } });
-    return duels.reduce((sum, duel) => sum + (duel.photoBId ? 2 : 1), 0);
+    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true } });
+    return duels.reduce((sum, duel) => sum + entryCount(duel), 0);
   }
 
   /** Prepared posts that nobody published for a while: remind the admins once. */
@@ -677,7 +726,8 @@ export class BattleService {
     for (const duel of stale) {
       const claimed = await this.prisma.duel.updateMany({ where: { id: duel.id, status: 'READY', remindedAt: null }, data: { remindedAt: now } });
       if (claimed.count === 0) continue;
-      const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage: duel.stage };
+      const finalSize = (await this.prisma.battle.findUnique({ where: { id: duel.battleId }, select: { finalSize: true } }))?.finalSize ?? 2;
+      const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage: duel.stage, finalSize };
       await this.notifications.notifyAdmins((l) => l.admin.publishReminder(stageValues(l, stageInfo).stage as string));
     }
   }

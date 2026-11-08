@@ -40,19 +40,37 @@ describe('duel post', () => {
   });
 
   it('builds vote buttons for both entries and the paid +1 button', () => {
-    const markup = activeDuelKeyboard(uk, { id: 7, stage: 1, votesA: 12, votesB: 9 }, true);
+    const markup = activeDuelKeyboard(uk, { id: 7, stage: 1, votes: [{ side: 'A' as const, votes: 12 }, { side: 'B' as const, votes: 9 }] }, true);
     expect(markup.inline_keyboard[0]?.map((b) => [b.text, 'callback_data' in b ? b.callback_data : ''])).toEqual([
       ['Підтримати 1 · 12', 'd:7:1:a'],
       ['Підтримати 2 · 9', 'd:7:1:b'],
     ]);
     expect(markup.inline_keyboard[1]?.[0]).toMatchObject({ text: '⭐ +1 голос', callback_data: 'dp:7' });
-    expect(activeDuelKeyboard(uk, { id: 7, stage: 0, votesA: 0, votesB: 0 }, false).inline_keyboard).toHaveLength(1);
+    expect(activeDuelKeyboard(uk, { id: 7, stage: 0, votes: [{ side: 'A' as const, votes: 0 }, { side: 'B' as const, votes: 0 }] }, false).inline_keyboard).toHaveLength(1);
   });
 
   it('marks the winner on the closed keyboard', () => {
-    const markup = closedDuelKeyboard(uk, { id: 7, stage: 0, votesA: 3, votesB: 5 }, 'b');
+    const markup = closedDuelKeyboard(uk, { id: 7, stage: 0, votes: [{ side: 'A' as const, votes: 3 }, { side: 'B' as const, votes: 5 }] }, 'B');
     expect(markup.inline_keyboard[0]?.[1]?.text).toBe('🏆 Підтримати 2 · 5');
-    expect(closedDuelKeyboard(uk, { id: 7, stage: 0, votesA: 4, votesB: 4 }, 'tie').inline_keyboard[1]?.[0]?.text).toContain('Нічия');
+    expect(closedDuelKeyboard(uk, { id: 7, stage: 0, votes: [{ side: 'A' as const, votes: 4 }, { side: 'B' as const, votes: 4 }] }, 'tie').inline_keyboard[1]?.[0]?.text).toContain('Нічия');
+  });
+
+  it('lays out 3 or 4 entries of a group final two per row', () => {
+    const markup = activeDuelKeyboard(uk, { id: 9, stage: 0, votes: [{ side: 'A' as const, votes: 5 }, { side: 'B' as const, votes: 4 }, { side: 'C' as const, votes: 3 }, { side: 'D' as const, votes: 2 }] }, true);
+    expect(markup.inline_keyboard.map((row) => row.map((b) => ('callback_data' in b ? b.callback_data : '')))).toEqual([
+      ['d:9:0:a', 'd:9:0:b'],
+      ['d:9:0:c', 'd:9:0:d'],
+      ['dp:9'],
+    ]);
+    const closed = closedDuelKeyboard(uk, { id: 9, stage: 0, votes: [{ side: 'A' as const, votes: 1 }, { side: 'B' as const, votes: 2 }, { side: 'C' as const, votes: 9 }] }, 'C');
+    expect(closed.inline_keyboard[1]?.[0]?.text).toBe('🏆 Підтримати 3 · 9');
+  });
+
+  it('builds a collage of 3 in a row and of 4 as a grid', async () => {
+    const three = await sharp(await buildDuelCollage(await makeJpeg(800, 800), await makeJpeg(800, 800), await makePng(500, 900))).metadata();
+    expect(three.width! / three.height!).toBeGreaterThan(2);
+    const four = await sharp(await buildDuelCollage(await makeJpeg(800, 800), await makeJpeg(800, 800), await makeJpeg(800, 800), await makeJpeg(800, 800))).metadata();
+    expect(four.width! / four.height!).toBeLessThan(1);
   });
 
   it('builds one collage image from two photos of any size', async () => {

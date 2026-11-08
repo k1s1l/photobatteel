@@ -246,15 +246,15 @@ export const ru = {
     },
     stage: (p: { roundName: string; duel: number; final: boolean; tiebreak: boolean }) =>
       `${p.tiebreak ? '⚡ Переголосование! ' : ''}${p.final ? p.roundName : `${p.roundName} · Пара ${p.duel}`}`,
-    voteButton: (p: { side: 1 | 2; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
+    voteButton: (p: { side: number; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
     paidButton: '⭐ +1 голос',
     closedButton: '🏁 Голосование завершено',
     tieButton: '⚡ Ничья — переголосование ниже',
-    voted: (side: 1 | 2) => `🔥 Голос за работу ${side} учтён!`,
+    voted: (side: number) => `🔥 Голос за работу ${side} учтён!`,
     withdrawn: 'Голос отменён.',
     closed: 'Голосование в этой паре завершено.',
     chooseSide: (p: { round: number; duel: number }) => `<b>⭐ Голоса — раунд ${p.round}, пара ${p.duel}</b>\n\nЗа какую работу?`,
-    side: (side: 1 | 2) => `Работа ${side}`,
+    side: (side: number) => `Работа ${side}`,
   },
 
   payments: {
@@ -264,17 +264,17 @@ export const ru = {
       'Удобнее всего — нажать «⭐ +1 голос» под нужной парой в канале.\n\n' +
       `Твой баланс: <b>${p.balance}</b>\n\n` +
       'Купить голоса на баланс:',
-    menuForSide: (p: { side: 1 | 2; round: number; duel: number; balance: number }) =>
+    menuForSide: (p: { side: number; round: number; duel: number; balance: number }) =>
       `<b>⭐ Голоса за работу ${p.side}</b> (раунд ${p.round}, пара ${p.duel})\n\n` +
       'Купленные голоса сразу добавятся этой работе.' +
       (p.balance > 0 ? `\nНа балансе: ${p.balance} — можно отдать прямо сейчас.` : ''),
     packStars: (p: { votes: number; price: number }) => `${p.votes} гол. — ${p.price} ⭐`,
     packCard: (p: { votes: number; price: string }) => `${p.votes} гол. — ${p.price} 💳`,
     spendButton: (amount: number) => `🎁 +${amount} с баланса`,
-    spent: (p: { amount: number; side: 1 | 2; left: number }) => `⭐ Работа ${p.side} получила +${p.amount}. Осталось на балансе: ${p.left}.`,
+    spent: (p: { amount: number; side: number; left: number }) => `⭐ Работа ${p.side} получила +${p.amount}. Осталось на балансе: ${p.left}.`,
     invoiceTitle: (votes: number) => `${votes} голосов — Photo Battle`,
     invoiceToBalance: (votes: number) => `${votes} дополнительных голосов на баланс.`,
-    invoiceToSide: (p: { votes: number; side: 1 | 2 }) => `${p.votes} дополнительных голосов за работу ${p.side} в текущей паре.`,
+    invoiceToSide: (p: { votes: number; side: number }) => `${p.votes} дополнительных голосов за работу ${p.side} в текущей паре.`,
     invoiceLabel: (votes: number) => `${votes} голосов`,
     paidToBalance: (p: { votes: number; balance: number }) => `✅ Оплата прошла! На баланс зачислено ${p.votes} гол. Сейчас на балансе: ${p.balance}.`,
     paidToPhoto: (votes: number) => `✅ Оплата прошла! Работа получила +${votes} гол.`,
@@ -501,6 +501,11 @@ export const ru = {
     battleStartInvalid: 'Не понял время или оно уже прошло. Пример: <code>14:00</code> или <code>06.11 14:00</code>',
     battleAskRound: 'Сколько длится голосование в каждой паре?',
     battleAskFinal: 'А сколько длится голосование в финале?',
+    battleAskFinalSize: 'Сколько работ будет в финале? Финал — один пост со всеми финалистами и кнопками «Поддержать 1 / 2 / 3 / 4».',
+    finalSizeOption: (n: number) => `${n} работы`,
+    finalSizeButton: (n: number) => `🏁 Финал: ${n} работы (нажми, чтобы сменить)`,
+    finalSizeSet: (n: number) => `В финале будет до ${n} работ.`,
+    finalSizeLocked: 'Финал уже начался — размер финала менять нельзя.',
     battleFinalSame: 'Как в раундах',
     battleCreated: (p: { title: string; start: string }) => `⚔️ Батл «${p.title}» запланирован на ${p.start} и анонсирован в канале.`,
     battleCancelled: (title: string) => `❌ Батл «${title}» отменён.`,
@@ -525,8 +530,8 @@ export const ru = {
       '<code>{stage}</code> — «Раунд 1 · Пара 3», «Полуфинал · Пара 2», «Финал», при ничьей с «⚡ Переголосование!». ' +
       '<code>{roundName}</code> — «Раунд 1» / «Полуфинал» / «Финал». <code>{end}</code> — до скольки идёт голосование, например «16:00».',
     designRoundsHint:
-      '👇 Можно оформить каждый раунд по-своему: выбери Раунд 1–4 или Финал. Где ничего не загружено, берётся общее оформление (кнопка «Загрузить своё»).',
-    stageNames: { r1: 'Раунд 1', r2: 'Раунд 2', r3: 'Раунд 3', r4: 'Раунд 4', final: 'Финал' },
+      '👇 Можно оформить каждый раунд по-своему: выбери Раунд 1–4 или Финал (на 2, 3 или 4 работы). Где ничего не загружено, берётся общее оформление (кнопка «Загрузить своё»).',
+    stageNames: { r1: 'Раунд 1', r2: 'Раунд 2', r3: 'Раунд 3', r4: 'Раунд 4', final: 'Финал', final3: 'Финал (3 работы)', final4: 'Финал (4 работы)' },
     designVariant: (p: { name: string; stage: string; custom: boolean; placeholders: string }) =>
       `<b>${p.name} · ${p.stage}</b>\n\n` +
       (p.custom ? 'Сейчас — <b>отдельное оформление</b> для этого этапа.' : 'Отдельного оформления нет — берётся общее.') +

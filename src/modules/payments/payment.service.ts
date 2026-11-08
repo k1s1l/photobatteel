@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { inAnySlot, sideOf, VOTE_FIELD, votesOf } from '../duels/sides.js';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import { escapeHtml } from '../../lib/format.js';
@@ -56,10 +57,10 @@ type Db = PrismaClient | Prisma.TransactionClient;
 /** The open duel an entry is playing right now, and its side in it. */
 export async function findActiveDuel(db: Db, photoId: number, now: Date = new Date()): Promise<{ duel: Duel; side: DuelSide } | null> {
   const duel = await db.duel.findFirst({
-    where: { status: 'ACTIVE', endsAt: { gt: now }, OR: [{ photoAId: photoId }, { photoBId: photoId }] },
+    where: { status: 'ACTIVE', endsAt: { gt: now }, ...inAnySlot(photoId) },
   });
-  if (!duel) return null;
-  return { duel, side: duel.photoAId === photoId ? 'A' : 'B' };
+  const side = duel ? sideOf(duel, photoId) : null;
+  return duel && side ? { duel, side } : null;
 }
 
 export interface CompletedPayment {
@@ -302,12 +303,12 @@ export class PaymentService {
       if (given) {
         const stillOpen = given.duel.status === 'ACTIVE' && given.duel.stage === given.stage;
         if (stillOpen) {
-          const sideVotes = given.side === 'A' ? given.duel.votesA : given.duel.votesB;
+          const sideVotes = votesOf(given.duel, given.side);
           reclaimed = Math.min(given.amount, sideVotes);
           if (reclaimed > 0) {
             await tx.duel.update({
               where: { id: given.duelId },
-              data: given.side === 'A' ? { votesA: { decrement: reclaimed } } : { votesB: { decrement: reclaimed } },
+              data: { [VOTE_FIELD[given.side]]: { decrement: reclaimed } },
             });
             await tx.photo.update({ where: { id: given.photoId }, data: { votesCount: { decrement: reclaimed }, paidVotes: { decrement: reclaimed } } });
             await tx.user.update({ where: { id: given.photo.userId }, data: { votesReceived: { decrement: reclaimed } } });
@@ -598,8 +599,8 @@ export class PaymentService {
   ): Promise<number> {
     const updated = await tx.duel.update({
       where: { id: duel.id },
-      data: side === 'A' ? { votesA: { increment: amount } } : { votesB: { increment: amount } },
-      select: { votesA: true, votesB: true },
+      data: { [VOTE_FIELD[side]]: { increment: amount } },
+      select: { votesA: true, votesB: true, votesC: true, votesD: true },
     });
     // Overtime: paid votes in the last minutes give the other side time to answer.
     const overtimeMs = (this.options.overtimeMinutes ?? 0) * 60_000;
@@ -612,7 +613,7 @@ export class PaymentService {
     await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: amount }, paidVotes: { increment: amount } } });
     await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: amount } } });
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });
-    return side === 'A' ? updated.votesA : updated.votesB;
+    return votesOf(updated, side);
   }
 }
 

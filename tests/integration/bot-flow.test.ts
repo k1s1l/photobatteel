@@ -326,8 +326,10 @@ describe('bot: admin', () => {
     await press(ADMIN_TG_ID, 'a:bt:round:120');
     expect(texts('editMessageText').at(-1)).toContain('голосование в финале');
     await press(ADMIN_TG_ID, 'a:bt:final:360');
+    expect(texts('editMessageText').at(-1)).toContain('Сколько работ будет в финале');
+    await press(ADMIN_TG_ID, 'a:bt:size:3');
     const battle = await ctx.prisma.battle.findFirstOrThrow();
-    expect(battle).toMatchObject({ title: 'Фотобатл #1', status: 'SCHEDULED', roundMinutes: 120, finalMinutes: 360, tiebreakMinutes: 10 });
+    expect(battle).toMatchObject({ title: 'Фотобатл #1', status: 'SCHEDULED', roundMinutes: 120, finalMinutes: 360, tiebreakMinutes: 10, finalSize: 3 });
     expect(battle.startsAt.getTime()).toBeGreaterThan(Date.now());
   });
 

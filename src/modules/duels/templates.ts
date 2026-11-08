@@ -32,7 +32,7 @@ export function isTemplateKey(value: string): value is TemplateKey {
 export const STAGED_KEYS = ['duel', 'round', 'buttons'] as const;
 export type StagedKey = (typeof STAGED_KEYS)[number];
 
-export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final'] as const;
+export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final', 'final3', 'final4'] as const;
 export type StageVariant = (typeof STAGE_VARIANTS)[number];
 
 export function isStagedKey(value: string): value is StagedKey {
@@ -47,11 +47,20 @@ export function isStageVariant(value: string): value is StageVariant {
 export interface StagePoint {
   round: number;
   entriesInRound: number;
+  /** Entries in the battle's final post (2–4; default 2). */
+  finalSize?: number;
 }
 
-/** The final wins over the round number (a small battle may start with its final). */
+function isFinal(point: StagePoint): boolean {
+  return point.entriesInRound <= Math.max(2, point.finalSize ?? 2);
+}
+
+/**
+ * The final wins over the round number (a small battle may start with its final).
+ * A group final of 3 or 4 entries has its own design ("final3"/"final4") and falls back to "final".
+ */
 export function stageVariant(point: StagePoint): StageVariant | null {
-  if (point.entriesInRound <= 2) return 'final';
+  if (isFinal(point)) return point.entriesInRound === 3 ? 'final3' : point.entriesInRound === 4 ? 'final4' : 'final';
   const id = `r${point.round}`;
   return isStageVariant(id) ? id : null;
 }
@@ -71,7 +80,10 @@ export function stageTemplates(settings: BotSettings): Record<string, string> {
 export function templateFor(settings: BotSettings, locale: Locale, key: TemplateKey, point?: StagePoint): string {
   if (point && isStagedKey(key)) {
     const variant = stageVariant(point);
-    const staged = variant ? stageTemplates(settings)[stageTemplateId(key, variant)] : undefined;
+    const saved = stageTemplates(settings);
+    const staged =
+      (variant ? saved[stageTemplateId(key, variant)] : undefined) ??
+      (variant === 'final3' || variant === 'final4' ? saved[stageTemplateId(key, 'final')] : undefined);
     if (staged) return staged;
   }
   return settings[TEMPLATE_FIELDS[key]] ?? locale.templates[key];
@@ -87,24 +99,23 @@ export function renderTemplate(template: string, key: TemplateKey, values: Recor
   return linkifyHtml(html);
 }
 
-/** "Фінал" for the last pair, "Півфінал" for 3–4 entries, otherwise "Раунд N". */
-export function roundName(locale: Locale, round: number, entriesInRound: number): string {
-  if (entriesInRound <= 2) return locale.duel.roundNames.final;
-  if (entriesInRound <= 4) return locale.duel.roundNames.semifinal;
+/** "Фінал" for the last post, "Півфінал" for the round before it, otherwise "Раунд N". */
+export function roundName(locale: Locale, round: number, entriesInRound: number, finalSize = 2): string {
+  const size = Math.max(2, finalSize);
+  if (entriesInRound <= size) return locale.duel.roundNames.final;
+  if (entriesInRound <= size * 2) return locale.duel.roundNames.semifinal;
   return locale.duel.roundNames.round(round);
 }
 
-export interface StageInfo {
-  round: number;
-  entriesInRound: number;
+export interface StageInfo extends StagePoint {
   duel: number;
   stage: number;
 }
 
 /** Values shared by the duel post and the buttons message. */
 export function stageValues(locale: Locale, info: StageInfo): Record<string, string | number> {
-  const name = roundName(locale, info.round, info.entriesInRound);
-  const final = info.entriesInRound <= 2;
+  const name = roundName(locale, info.round, info.entriesInRound, info.finalSize);
+  const final = isFinal(info);
   return {
     roundName: name,
     round: info.round,

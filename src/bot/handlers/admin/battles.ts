@@ -11,6 +11,7 @@ import { backToPanel, PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
 
 const ROUND_MINUTES = [15, 30, 60, 120, 180, 360, 720, 1440] as const;
+const FINAL_SIZES = [2, 3, 4] as const;
 const RECENT_BATTLES = 5;
 
 async function showBattles(ctx: BotContext): Promise<void> {
@@ -43,6 +44,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
+  if (current) rows.push([button(a.finalSizeButton(current.finalSize), `a:bt:fs:${current.id}`)]);
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
   rows.push([button(a.buttons.panel, PANEL)]);
@@ -129,6 +131,24 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       return answer(ctx, ctx.locale.common.alreadyProcessed);
     }
     if (finalMinutes !== 0 && !(ROUND_MINUTES as readonly number[]).includes(finalMinutes)) return answer(ctx);
+    setState(ctx, { ...state, step: 'size', finalMinutes });
+    await answer(ctx);
+    await respond(ctx, ctx.locale.admin.battleAskFinalSize, {
+      keyboard: inline([
+        FINAL_SIZES.map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
+        [button(ctx.locale.common.cancel, 'a:cancel')],
+      ]),
+    });
+  });
+
+  admin.action(/^a:bt:size:(\d+)$/, async (ctx) => {
+    const state = getState(ctx);
+    const finalSize = matchInt(ctx);
+    if (state?.kind !== 'battle_create' || state.step !== 'size' || !state.startsAt || !state.roundMinutes || state.finalMinutes === undefined) {
+      return answer(ctx, ctx.locale.common.alreadyProcessed);
+    }
+    if (!(FINAL_SIZES as readonly number[]).includes(finalSize)) return answer(ctx);
+    const finalMinutes = state.finalMinutes;
     const minutes = state.roundMinutes;
     const startsAt = new Date(state.startsAt);
     if (startsAt <= new Date()) {
@@ -142,6 +162,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       startsAt,
       roundMinutes: minutes,
       finalMinutes: finalMinutes || null,
+      finalSize,
       tiebreakMinutes: ctx.deps.env.TIEBREAK_MINUTES,
       createdById: adminUserId(ctx),
     });
@@ -149,6 +170,21 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await respond(ctx, ctx.locale.admin.battleCreated({ title: escapeHtml(battle.title), start: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) }), {
       keyboard: backToPanel(ctx.locale),
     });
+  });
+
+  // 2 → 3 → 4 → 2 entries in the final; locked once the final has started.
+  admin.action(/^a:bt:fs:(\d+)$/, async (ctx) => {
+    const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
+    if (!battle) return answer(ctx);
+    const next = battle.finalSize >= 4 ? 2 : battle.finalSize + 1;
+    try {
+      await ctx.deps.services.battles.setFinalSize(battle.id, next, adminUserId(ctx));
+    } catch (error) {
+      if (!isDomainError(error)) throw error;
+      return answer(ctx, ctx.locale.admin.finalSizeLocked, true);
+    }
+    await answer(ctx, ctx.locale.admin.finalSizeSet(next));
+    await showBattles(ctx);
   });
 
   admin.action(/^a:bt:end:(\d+)$/, async (ctx) => {

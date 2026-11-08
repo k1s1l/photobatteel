@@ -310,6 +310,66 @@ describe('design template and errors', () => {
   });
 });
 
+describe('group final', () => {
+  it('plays a final of 3 in one post: 3 buttons, own design, tie re-vote, the leader wins', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.setStageTemplate('buttons', 'final3', 'ФІНАЛ НА ТРЬОХ {stage}', admin.id);
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, finalMinutes: 60, tiebreakMinutes: 10, finalSize: 3, createdById: null });
+    const created = await entries(6);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    expect(await ctx.prisma.duel.count({ where: { round: 1 } })).toBe(3);
+    for (const duel of await ctx.prisma.duel.findMany({ where: { status: 'ACTIVE' } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+
+    // Round 2: the 3 winners in one post.
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 2 } });
+    expect(final.photoCId).not.toBeNull();
+    expect(final.photoDId).toBeNull();
+    expect(adminTexts().some((t) => t.includes('Финал'))).toBe(true);
+    await postPendingDuels(ctx);
+    const buttons = toChannel('sendMessage').at(-1)!;
+    expect(String(buttons.args[0])).toBe('ФІНАЛ НА ТРЬОХ Финал');
+    const keyboard = (buttons.args[1] as { replyMarkup: { inline_keyboard: { callback_data: string }[][] } }).replyMarkup.inline_keyboard;
+    expect(keyboard.flat().map((b) => b.callback_data)).toEqual([`d:${final.id}:0:a`, `d:${final.id}:0:b`, `d:${final.id}:0:c`]);
+    const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } });
+    expect(live.endsAt!.getTime() - live.postedAt!.getTime()).toBe(60 * 60_000);
+
+    // Free vote and paid votes for entry 3.
+    const voter = await createUser(ctx);
+    await ctx.services.duelVotes.vote(final.id, 0, 'C', voter);
+    const fan = await createUser(ctx);
+    await ctx.prisma.user.update({ where: { id: fan.id }, data: { voteBalance: 2 } });
+    await ctx.services.payments.spendVotes(await ctx.prisma.user.findUniqueOrThrow({ where: { id: fan.id } }), final.photoCId!, 2);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } })).toMatchObject({ votesA: 0, votesB: 0, votesC: 3 });
+
+    // A tie for the first place is re-voted.
+    await ctx.prisma.duel.update({ where: { id: final.id }, data: { votesA: 3, votesB: 1, votesC: 3 } });
+    await expireDuels(ctx);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } })).toMatchObject({ status: 'PENDING', stage: 1, votesA: 0, votesC: 0 });
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.update({ where: { id: final.id }, data: { votesA: 1, votesB: 2, votesC: 5 } });
+    await expireDuels(ctx);
+
+    const done = await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } });
+    expect(done).toMatchObject({ status: 'FINISHED', winnerPhotoId: final.photoCId });
+    const statuses = await ctx.prisma.photo.findMany({ where: { id: { in: [final.photoAId, final.photoBId!, final.photoCId!] } } });
+    expect(statuses.filter((p) => p.status === 'ELIMINATED')).toHaveLength(2);
+    expect(created).toHaveLength(6);
+  });
+
+  it('starts with the final when all entries fit in it, and a 4-entry final is a 2×2 post', async () => {
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 4, createdById: null });
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    const final = await ctx.prisma.duel.findFirstOrThrow();
+    expect([final.photoAId, final.photoBId, final.photoCId, final.photoDId].every((id) => id !== null)).toBe(true);
+    await preparePendingDuels(ctx);
+    expect(toAdmin('sendPhoto')).toHaveLength(1);
+    expect(await ctx.services.battles.setFinalSize(battle.id, 2, null).catch((e: { code: string }) => e.code)).toBe('INVALID_STATE');
+  });
+});
+
 describe('templates, final duration and reminders', () => {
   it('uses the admin designs for the announcement, round, buttons and winner posts', async () => {
     const admin = await createAdmin(ctx);

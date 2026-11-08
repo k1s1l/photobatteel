@@ -38,6 +38,8 @@ function placeholdersList(key: TemplateKey): string {
 /** A tournament moment that matches the per-round design being previewed. */
 function samplePoint(variant?: StageVariant): StagePoint {
   if (variant === 'final') return { round: 4, entriesInRound: 2 };
+  if (variant === 'final3') return { round: 3, entriesInRound: 3, finalSize: 3 };
+  if (variant === 'final4') return { round: 3, entriesInRound: 4, finalSize: 4 };
   if (variant) return { round: Number(variant.slice(1)), entriesInRound: 16 };
   return { round: 1, entriesInRound: 8 };
 }
@@ -46,7 +48,7 @@ function samplePoint(variant?: StageVariant): StagePoint {
 function sampleValues(ctx: BotContext, key: TemplateKey, variant?: StageVariant): Record<string, string | number> {
   const locale = ctx.deps.services.battles.channelLocale;
   const point = samplePoint(variant);
-  const stageInfo = { ...point, duel: variant === 'final' ? 1 : 3, stage: 0 };
+  const stageInfo = { ...point, duel: variant?.startsWith('final') ? 1 : 3, stage: 0 };
   const stage: Record<string, string | number> = { ...stageValues(locale, stageInfo), end: formatTime(new Date(Date.now() + 60 * 60_000), ctx.deps.env.TIMEZONE, locale.intl) };
   const start = formatDateTime(new Date(Date.now() + 60 * 60_000), ctx.deps.env.TIMEZONE, locale.intl);
   const samples: Record<TemplateKey, Record<string, string | number>> = {
@@ -61,12 +63,23 @@ function sampleValues(ctx: BotContext, key: TemplateKey, variant?: StageVariant)
   return samples[key];
 }
 
+/** Preview vote counts: 2 buttons, or 3–4 for a group final design. */
+function sampleVotes(variant?: StageVariant): { side: 'A' | 'B' | 'C' | 'D'; votes: number }[] {
+  const all = [
+    { side: 'A' as const, votes: 12 },
+    { side: 'B' as const, votes: 9 },
+    { side: 'C' as const, votes: 7 },
+    { side: 'D' as const, votes: 4 },
+  ];
+  return all.slice(0, variant === 'final3' ? 3 : variant === 'final4' ? 4 : 2);
+}
+
 async function sendPreview(ctx: BotContext, key: TemplateKey, template: string, variant?: StageVariant): Promise<void> {
   const settings = await ctx.deps.services.settings.get();
   const html = renderTemplate(template, key, sampleValues(ctx, key, variant));
   const locale = ctx.deps.services.battles.channelLocale;
   // Preview buttons are inert: they point at a duel that does not exist.
-  const keyboard = key === 'duel' || key === 'buttons' ? activeDuelKeyboard(locale, { id: 0, stage: 0, votesA: 12, votesB: 9 }, settings.paidVotesEnabled) : undefined;
+  const keyboard = key === 'duel' || key === 'buttons' ? activeDuelKeyboard(locale, { id: 0, stage: 0, votes: sampleVotes(variant) }, settings.paidVotesEnabled) : undefined;
   const extra = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, ...(keyboard ? { reply_markup: keyboard } : {}) };
   try {
     await ctx.reply(html, extra);
@@ -107,7 +120,7 @@ async function showTemplate(ctx: BotContext, key: TemplateKey): Promise<void> {
 function stageRows(ctx: BotContext, key: StagedKey, saved: Record<string, string>): ReturnType<typeof button>[][] {
   const label = (variant: StageVariant): string => `${saved[stageTemplateId(key, variant)] ? '✏️ ' : ''}${ctx.locale.admin.stageNames[variant]}`;
   const item = (variant: StageVariant) => button(label(variant), `a:tpl:v:${key}:${variant}`);
-  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')]];
+  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')], [item('final3'), item('final4')]];
 }
 
 async function showVariant(ctx: BotContext, key: StagedKey, variant: StageVariant): Promise<void> {

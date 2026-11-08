@@ -50,6 +50,8 @@ enum DuelStatus {
 enum DuelSide {
   A
   B
+  C
+  D
 }
 
 enum AdminRole {
@@ -186,6 +188,8 @@ model Photo {
 
   duelsAsA        Duel[]     @relation("DuelPhotoA")
   duelsAsB        Duel[]     @relation("DuelPhotoB")
+  duelsAsC        Duel[]     @relation("DuelPhotoC")
+  duelsAsD        Duel[]     @relation("DuelPhotoD")
   duelsWon        Duel[]     @relation("DuelWinner")
   paidVoteEntries PaidVote[]
   payments        Payment[]
@@ -210,6 +214,8 @@ model Battle {
   currentRound    Int          @default(0)
   /// Admin-chosen end of the current round's voting (null = every pair votes roundMinutes)
   roundEndsAt     DateTime?
+  /// Entries in the final post: 2 = a regular pair, 3 or 4 = one post with all finalists
+  finalSize       Int          @default(2)
   winnerPhotoId   Int?         @unique
   winnerPhoto     Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
   createdById     Int?
@@ -236,11 +242,18 @@ model Duel {
   photoA          Photo      @relation("DuelPhotoA", fields: [photoAId], references: [id], onDelete: Cascade)
   photoBId        Int?
   photoB          Photo?     @relation("DuelPhotoB", fields: [photoBId], references: [id], onDelete: Cascade)
+  /// Finals of 3 or 4 entries use the extra slots
+  photoCId        Int?
+  photoC          Photo?     @relation("DuelPhotoC", fields: [photoCId], references: [id], onDelete: Cascade)
+  photoDId        Int?
+  photoD          Photo?     @relation("DuelPhotoD", fields: [photoDId], references: [id], onDelete: Cascade)
   status          DuelStatus @default(PENDING)
   /// 0 = main vote, 1.. = tiebreak reposts (votes start from zero each stage)
   stage           Int        @default(0)
   votesA          Int        @default(0) // votes of the current stage
   votesB          Int        @default(0)
+  votesC          Int        @default(0)
+  votesD          Int        @default(0)
   /// file_unique_id of the prepared collage; identifies the admin's channel post (photo duels)
   preparedFileUniqueId String?
   /// When the post was sent to admins, and when they were reminded to publish it

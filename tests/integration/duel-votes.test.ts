@@ -27,9 +27,9 @@ beforeEach(async () => {
 
 describe('free votes in duels', () => {
   it('counts one vote, moves it to the other side and withdraws it', async () => {
-    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'A', voter)).toEqual({ side: 'A', votesA: 1, votesB: 0 });
-    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'B', voter)).toEqual({ side: 'B', votesA: 0, votesB: 1 });
-    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'B', voter)).toEqual({ side: null, votesA: 0, votesB: 0 });
+    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'A', voter)).toEqual({ side: 'A', votesA: 1, votesB: 0, votesC: 0, votesD: 0 });
+    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'B', voter)).toEqual({ side: 'B', votesA: 0, votesB: 1, votesC: 0, votesD: 0 });
+    expect(await ctx.services.duelVotes.vote(duel.id, 0, 'B', voter)).toEqual({ side: null, votesA: 0, votesB: 0, votesC: 0, votesD: 0 });
     expect(await ctx.prisma.duelVote.count()).toBe(0);
     expect(ctx.scheduler.voteRefreshes).toEqual([duel.id, duel.id, duel.id]);
   });

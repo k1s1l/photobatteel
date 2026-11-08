@@ -1,4 +1,5 @@
 import type { Telegraf } from 'telegraf';
+import { entriesOf, entryCount, PHOTO_ID_FIELD, sideFromLetter, sideNumber } from '../../modules/duels/sides.js';
 import { message } from 'telegraf/filters';
 import { allTranslations } from '../../i18n/index.js';
 import { isDomainError } from '../../lib/errors.js';
@@ -44,14 +45,14 @@ export async function showVotesMenu(ctx: BotContext): Promise<void> {
 export async function showDuelSides(ctx: BotContext, duelId: number): Promise<void> {
   if (!(await salesEnabled(ctx))) return;
   const duel = await ctx.deps.services.battles.getDuel(duelId);
-  if (duel?.status !== 'ACTIVE' || !duel.photoBId) {
+  if (duel?.status !== 'ACTIVE' || entryCount(duel) < 2) {
     await ctx.reply(ctx.locale.errors.VOTING_CLOSED());
     return;
   }
-  await ctx.reply(ctx.locale.duel.chooseSide({ round: duel.round, duel: duel.position }), {
-    parse_mode: 'HTML',
-    reply_markup: inline([[button(ctx.locale.duel.side(1), `pay:side:${duel.id}:a`), button(ctx.locale.duel.side(2), `pay:side:${duel.id}:b`)]]),
-  });
+  const buttons = entriesOf(duel).map(({ side }) => button(ctx.locale.duel.side(sideNumber(side)), `pay:side:${duel.id}:${side.toLowerCase()}`));
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  await ctx.reply(ctx.locale.duel.chooseSide({ round: duel.round, duel: duel.position }), { parse_mode: 'HTML', reply_markup: inline(rows) });
 }
 
 export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
@@ -60,15 +61,16 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
   bot.command('paysupport', (ctx) => ctx.reply(ctx.locale.payments.support, { parse_mode: 'HTML' }));
   bot.command('terms', (ctx) => ctx.reply(ctx.locale.payments.terms, { parse_mode: 'HTML' }));
 
-  bot.action(/^pay:side:(\d+):(a|b)$/, async (ctx) => {
+  bot.action(/^pay:side:(\d+):([a-d])$/, async (ctx) => {
     const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx, 1));
     await answer(ctx);
-    if (duel?.status !== 'ACTIVE' || !duel.photoBId) {
+    const letter = sideFromLetter(matchString(ctx, 2));
+    const photoId = duel && letter ? duel[PHOTO_ID_FIELD[letter]] : null;
+    if (duel?.status !== 'ACTIVE' || !letter || photoId === null || entryCount(duel) < 2) {
       await ctx.reply(ctx.locale.errors.VOTING_CLOSED());
       return;
     }
-    const side = matchString(ctx, 2) === 'a' ? 1 : 2;
-    const photoId = side === 1 ? duel.photoAId : duel.photoBId;
+    const side = sideNumber(letter);
     const balance = currentUser(ctx).voteBalance;
     const rows = await packButtons(ctx, photoId)();
     const spend = SPEND_STEPS.filter((amount) => amount <= balance).map((amount) => button(ctx.locale.payments.spendButton(amount), `pay:spend:${photoId}:${amount}`));
