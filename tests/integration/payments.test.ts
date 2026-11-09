@@ -35,7 +35,7 @@ describe('vote packages', () => {
     const admin = await createAdmin(ctx);
     await ctx.services.payments.ensureDefaultPackages();
     const packs = await ctx.services.payments.listPackages(true);
-    expect(packs.map((p) => p.votes)).toEqual([5, 20, 50]);
+    expect(packs.map((p) => p.votes)).toEqual([10, 20, 50]);
     await ctx.services.payments.updatePackagePrice(packs[0]!.id, 30, 3500, admin.id);
     expect(await ctx.services.payments.getPackage(packs[0]!.id)).toMatchObject({ priceStars: 30, priceCard: 3500 });
     await ctx.services.payments.togglePackage(packs[0]!.id, admin.id);
@@ -50,7 +50,7 @@ describe('buying votes for a duel side', () => {
     const buyer = await createUser(ctx);
     const [pack] = await ctx.services.payments.listPackages(true);
     const stars = await ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', duel.photoAId);
-    expect(stars).toMatchObject({ currency: 'XTR', amount: pack!.priceStars, votes: 5, payload: orderPayload(stars.payment.id) });
+    expect(stars).toMatchObject({ currency: 'XTR', amount: pack!.priceStars, votes: 10, payload: orderPayload(stars.payment.id) });
     expect(await ctx.services.payments.createInvoice(buyer, pack!.id, 'CARD', null)).toMatchObject({ currency: 'UAH', amount: pack!.priceCard });
     await expireDuels(ctx);
     await expect(ctx.services.payments.createInvoice(buyer, pack!.id, 'STARS', duel.photoAId)).rejects.toMatchObject({ code: 'VOTING_CLOSED' });
@@ -89,7 +89,7 @@ describe('buying votes for a duel side', () => {
     const [pack] = await ctx.services.payments.listPackages(true);
     const invoice = await ctx.services.payments.createInvoice(fan, pack!.id, 'STARS', duel.photoAId);
     await expireDuels(ctx);
-    expect(await pay(invoice, Number(fan.telegramId))).toMatchObject({ creditedTo: 'balance', targetUnavailable: true, balance: 5 });
+    expect(await pay(invoice, Number(fan.telegramId))).toMatchObject({ creditedTo: 'balance', targetUnavailable: true, balance: 10 });
   });
 
   it('spends balance votes on a side and never goes below zero', async () => {
@@ -141,7 +141,7 @@ describe('refunds and statistics', () => {
     await pay(invoice, Number(fan.telegramId), 'tg-charge-1');
 
     const { reclaimed, payment } = await ctx.services.payments.refundStars(invoice.payment.id, admin.id);
-    expect(reclaimed).toBe(5);
+    expect(reclaimed).toBe(10);
     expect(payment.status).toBe('REFUNDED');
     expect(ctx.telegram.callsOf('refundStarPayment')[0]).toMatchObject({ chatId: Number(fan.telegramId), args: ['tg-charge-1'] });
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesA).toBe(0);
@@ -151,7 +151,7 @@ describe('refunds and statistics', () => {
   it('does not allow a card price below 10 UAH (Monobank minimum)', async () => {
     const admin = await createAdmin(ctx);
     const [pack] = await ctx.services.payments.listPackages(true);
-    expect(pack).toMatchObject({ votes: 5, priceCard: 1000 });
+    expect(pack).toMatchObject({ votes: 10, priceCard: 1000 });
     await expect(ctx.services.payments.updatePackagePrice(pack!.id, 5, 900, admin.id)).rejects.toBeInstanceOf(RangeError);
     expect(await ctx.services.payments.updatePackagePrice(pack!.id, 5, 1000, admin.id)).toMatchObject({ priceCard: 1000 });
   });
@@ -162,6 +162,6 @@ describe('refunds and statistics', () => {
     await pay(await ctx.services.payments.createInvoice(buyer, small!.id, 'STARS', null), Number(buyer.telegramId));
     await pay(await ctx.services.payments.createInvoice(buyer, medium!.id, 'CARD', null), Number(buyer.telegramId));
     await ctx.services.payments.createInvoice(buyer, medium!.id, 'CARD', null); // unpaid
-    expect(await ctx.services.payments.stats()).toMatchObject({ paid: 2, stars: 5, cardTotal: 2000, votesSold: 25 });
+    expect(await ctx.services.payments.stats()).toMatchObject({ paid: 2, stars: 10, cardTotal: 2000, votesSold: 30 });
   });
 });

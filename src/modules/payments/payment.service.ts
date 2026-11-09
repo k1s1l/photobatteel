@@ -18,7 +18,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Default packs created on first start; admins can change prices or hide packs. */
 export const DEFAULT_PACKAGES = [
-  { votes: 5, priceStars: 5, priceCard: 1000, sortOrder: 1 },
+  { votes: 10, priceStars: 10, priceCard: 1000, sortOrder: 1 },
   { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2 },
   { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3 },
 ] as const;

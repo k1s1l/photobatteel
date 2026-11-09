@@ -279,8 +279,8 @@ describe('bot: voting under duel posts', () => {
         successful_payment: { currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: String(invoice.payload.payload), telegram_payment_charge_id: 'c1', provider_payment_charge_id: '' },
       },
     } as Update);
-    expect(texts('sendMessage').at(-1)).toContain('Работа получила +5');
-    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(5);
+    expect(texts('sendMessage').at(-1)).toContain('Работа получила +10');
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(10);
   });
 });
 

@@ -44,7 +44,7 @@ describe('transfer orders', () => {
     await enableTransfers(false);
     expect(await ctx.services.payments.transferAvailable()).toBe(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
-    expect(order.payment).toMatchObject({ method: 'TRANSFER', status: 'PENDING', currency: 'UAH', amount: pack!.priceCard, votes: 5 });
+    expect(order.payment).toMatchObject({ method: 'TRANSFER', status: 'PENDING', currency: 'UAH', amount: pack!.priceCard, votes: 10 });
     expect(order.payment.code).toMatch(/^PB[A-Z2-9]{5}$/);
     expect(order.details).toBe('5375 4141 0000 0000');
     expect(order.automatic).toBe(false);
@@ -62,10 +62,10 @@ describe('transfer orders', () => {
     const admin = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: BigInt(ADMIN_TG_ID) } });
     const result = await ctx.services.payments.reviewTransfer(order.payment.id, admin.id, true);
     expect(result.kind).toBe('paid');
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
-    expect(dmTo(buyer).some((t) => t.includes('На баланс зачислено 5'))).toBe(true);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(10);
+    expect(dmTo(buyer).some((t) => t.includes('На баланс зачислено 10'))).toBe(true);
     await expect(ctx.services.payments.reviewTransfer(order.payment.id, admin.id, true)).rejects.toMatchObject({ code: 'INVALID_STATE' });
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(10);
   });
 
   it('an admin can reject a transfer', async () => {
@@ -119,7 +119,7 @@ describe('transfer orders', () => {
     bank.items = [{ id: 'late-1', time: 1, amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! }];
     expect(await ctx.services.payments.pollBank()).toBe(1);
     expect(await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).toMatchObject({ status: 'PAID', bankTransactionId: 'late-1' });
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(10);
   });
 
   it('lets the buyer press "I paid" after the time ran out, but not after an admin rejected it', async () => {
@@ -151,7 +151,7 @@ describe('transfer orders', () => {
     expect(bank.statementCalls).toBe(callsBefore);
     expect(await ctx.services.payments.pollBank(new Date(Date.now() + 61_000))).toBe(0);
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: second.payment.id } })).status).toBe('PENDING');
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(10);
   });
 
   it('expires unpaid orders, escalates unmatched claims to admins and cancels unanswered ones', async () => {
