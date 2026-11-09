@@ -570,7 +570,7 @@ export const ru = {
     packageShow: '✅ Показывать пакет',
     askPackagePrice: (p: { votes: number; currency: string }) =>
       `Введи новую цену пакета «${p.votes} голосов»: звёзды и сумму в ${p.currency} через пробел, например <code>90 89</code>`,
-    packagePriceInvalid: 'Формат: два числа через пробел — звёзды и сумма картой, например <code>90 89</code>',
+    packagePriceInvalid: 'Формат: два числа через пробел — звёзды и сумма картой, например <code>20 20</code>. Сумма картой — от 10 (меньше Monobank не принимает).',
     packageSaved: '✅ Пакет обновлён.',
     paymentsList: '🧾 Последние оплаты',
     paymentsListTitle: '<b>🧾 Последние оплаты</b>',

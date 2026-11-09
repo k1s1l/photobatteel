@@ -511,7 +511,7 @@ export const uk: Locale = {
     packageShow: '✅ Показувати пакет',
     askPackagePrice: (p) =>
       `Введи нову ціну пакета «${p.votes} голосів»: зірки та суму в ${p.currency} через пробіл, наприклад <code>90 89</code>`,
-    packagePriceInvalid: 'Формат: два числа через пробіл — зірки та сума карткою, наприклад <code>90 89</code>',
+    packagePriceInvalid: 'Формат: два числа через пробіл — зірки та сума карткою, наприклад <code>20 20</code>. Сума карткою — від 10 (менше Monobank не приймає).',
     packageSaved: '✅ Пакет оновлено.',
     paymentsList: '🧾 Останні оплати',
     paymentsListTitle: '<b>🧾 Останні оплати</b>',

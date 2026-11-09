@@ -18,10 +18,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Default packs created on first start; admins can change prices or hide packs. */
 export const DEFAULT_PACKAGES = [
-  { votes: 5, priceStars: 25, priceCard: 2500, sortOrder: 1 },
-  { votes: 20, priceStars: 90, priceCard: 8900, sortOrder: 2 },
-  { votes: 50, priceStars: 200, priceCard: 19900, sortOrder: 3 },
+  { votes: 5, priceStars: 5, priceCard: 1000, sortOrder: 1 },
+  { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2 },
+  { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3 },
 ] as const;
+
+/** Monobank jars accept transfers from 10 UAH, so a card price below that cannot be paid. */
+export const MIN_CARD_PRICE = 1000;
 
 export interface PaymentOptions {
   /** A Telegram payment provider token is configured (in-Telegram card payments). */
@@ -146,7 +149,7 @@ export class PaymentService {
 
   async updatePackagePrice(id: number, priceStars: number, priceCard: number, adminUserId: number): Promise<VotePackage> {
     if (!Number.isInteger(priceStars) || priceStars < 1 || priceStars > 100_000) throw new RangeError('Invalid Stars price');
-    if (!Number.isInteger(priceCard) || priceCard < 100 || priceCard > 100_000_000) throw new RangeError('Invalid card price');
+    if (!Number.isInteger(priceCard) || priceCard < MIN_CARD_PRICE || priceCard > 100_000_000) throw new RangeError('Invalid card price');
     const pack = await this.prisma.votePackage.update({ where: { id }, data: { priceStars, priceCard } });
     await this.activity.log({ action: 'PACKAGE_UPDATED', userId: adminUserId, entityType: 'VotePackage', entityId: id, details: { priceStars, priceCard } });
     return pack;

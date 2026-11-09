@@ -148,12 +148,20 @@ describe('refunds and statistics', () => {
     await expect(ctx.services.payments.refundStars(invoice.payment.id, admin.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
   });
 
+  it('does not allow a card price below 10 UAH (Monobank minimum)', async () => {
+    const admin = await createAdmin(ctx);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    expect(pack).toMatchObject({ votes: 5, priceCard: 1000 });
+    await expect(ctx.services.payments.updatePackagePrice(pack!.id, 5, 900, admin.id)).rejects.toBeInstanceOf(RangeError);
+    expect(await ctx.services.payments.updatePackagePrice(pack!.id, 5, 1000, admin.id)).toMatchObject({ priceCard: 1000 });
+  });
+
   it('summarizes revenue by method', async () => {
     const buyer = await createUser(ctx);
     const [small, medium] = await ctx.services.payments.listPackages(true);
     await pay(await ctx.services.payments.createInvoice(buyer, small!.id, 'STARS', null), Number(buyer.telegramId));
     await pay(await ctx.services.payments.createInvoice(buyer, medium!.id, 'CARD', null), Number(buyer.telegramId));
     await ctx.services.payments.createInvoice(buyer, medium!.id, 'CARD', null); // unpaid
-    expect(await ctx.services.payments.stats()).toMatchObject({ paid: 2, stars: 25, cardTotal: 8900, votesSold: 25 });
+    expect(await ctx.services.payments.stats()).toMatchObject({ paid: 2, stars: 5, cardTotal: 2000, votesSold: 25 });
   });
 });
