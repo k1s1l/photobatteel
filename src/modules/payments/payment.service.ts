@@ -63,6 +63,14 @@ export async function findActiveDuel(db: Db, photoId: number, now: Date = new Da
   return duel && side ? { duel, side } : null;
 }
 
+/** A transfer that ran out of time is still accepted when the money arrives within a day. */
+const LATE_TRANSFER_MS = 24 * 60 * 60_000;
+
+/** Expired (not rejected by an admin) transfer orders that may still be paid. */
+function lateTransfers(now: Date = new Date()): Prisma.PaymentWhereInput {
+  return { method: 'TRANSFER', status: 'CANCELLED', confirmedById: null, createdAt: { gte: new Date(now.getTime() - LATE_TRANSFER_MS) } };
+}
+
 export interface CompletedPayment {
   payment: Payment;
   /** 'photo' — votes went to the target entry's current duel; 'balance' — to the buyer's balance. */
@@ -216,7 +224,7 @@ export class PaymentService {
     const result = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { user: true } });
       const claimed = await tx.payment.updateMany({
-        where: { id: paymentId, status: { in: ['PENDING', 'CLAIMED'] } },
+        where: { id: paymentId, OR: [{ status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers()] },
         data: { ...paidData, status: 'PAID', paidAt: new Date() },
       });
       if (claimed.count === 0) {
@@ -410,8 +418,9 @@ export class PaymentService {
   /** The buyer says the transfer is done. Without bank verification the admins are asked right away. */
   async claimTransfer(paymentId: number, user: User): Promise<{ automatic: boolean }> {
     const claimed = await this.prisma.payment.updateMany({
-      where: { id: paymentId, userId: user.id, method: 'TRANSFER', status: 'PENDING' },
-      data: { status: 'CLAIMED', claimedAt: new Date() },
+      // A buyer who paid a little after the time ran out can still press "I paid".
+      where: { id: paymentId, userId: user.id, method: 'TRANSFER', OR: [{ status: 'PENDING' }, lateTransfers()] },
+      data: { status: 'CLAIMED', claimedAt: new Date(), reviewRequestedAt: null },
     });
     if (claimed.count === 0) throw new DomainError('INVALID_STATE');
     const settings = await this.settings.get();
@@ -471,7 +480,7 @@ export class PaymentService {
     if (now.getTime() - this.lastBankPoll < 60_000) return 0;
 
     const open = await this.prisma.payment.findMany({
-      where: { method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] }, code: { not: null } },
+      where: { code: { not: null }, OR: [{ method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers(now)] },
       include: { user: true },
     });
     if (open.length === 0) return 0;

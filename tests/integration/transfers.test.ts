@@ -105,6 +105,37 @@ describe('transfer orders', () => {
     expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
   });
 
+  it('gives 5 minutes to pay and still accepts a transfer that arrives a bit later', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    expect(order.payment.expiresAt!.getTime() - order.payment.createdAt.getTime()).toBeLessThanOrEqual(5 * 60_000 + 1000);
+
+    await ctx.services.payments.expireTransfers(new Date(Date.now() + 6 * 60_000));
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('CANCELLED');
+
+    // The money arrives after the order expired: the bank check still finds it.
+    bank.items = [{ id: 'late-1', time: 1, amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! }];
+    expect(await ctx.services.payments.pollBank()).toBe(1);
+    expect(await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).toMatchObject({ status: 'PAID', bankTransactionId: 'late-1' });
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(5);
+  });
+
+  it('lets the buyer press "I paid" after the time ran out, but not after an admin rejected it', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(false);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    await ctx.services.payments.expireTransfers(new Date(Date.now() + 6 * 60_000));
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
+    expect(adminTexts().some((t) => t.includes(order.payment.code!))).toBe(true);
+
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: BigInt(ADMIN_TG_ID) } });
+    await ctx.services.payments.reviewTransfer(order.payment.id, admin.id, false);
+    await expect(ctx.services.payments.claimTransfer(order.payment.id, buyer)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);

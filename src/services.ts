@@ -82,7 +82,7 @@ export function createServices(deps: ServiceDeps): Services {
     {
       cardEnabled: !!env.PAYMENT_PROVIDER_TOKEN,
       cardCurrency: env.CARD_CURRENCY,
-      transferTtlMinutes: env.TRANSFER_TTL_MINUTES ?? 30,
+      transferTtlMinutes: env.TRANSFER_TTL_MINUTES ?? 5,
       manualReviewHours: env.TRANSFER_REVIEW_HOURS ?? 12,
       reviewAfterMinutes: env.TRANSFER_REVIEW_AFTER_MINUTES ?? 5,
       overtimeMinutes: env.OVERTIME_MINUTES ?? 0,
