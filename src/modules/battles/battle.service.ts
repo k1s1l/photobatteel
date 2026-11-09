@@ -319,6 +319,7 @@ export class BattleService {
       return;
     }
     await this.prepareAnnouncement(await this.roundAnnouncement(battle, 1, result.entries));
+    await this.prepareByePost(battle, 1);
     await this.scheduler.triggerTick();
   }
 
@@ -641,6 +642,7 @@ export class BattleService {
       return;
     }
     await this.prepareAnnouncement(await this.roundAnnouncement(next.battle, next.round!, next.entries!));
+    await this.prepareByePost(next.battle, next.round!);
     await this.scheduler.triggerTick();
   }
 
@@ -765,6 +767,35 @@ export class BattleService {
       const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage: duel.stage, finalSize };
       await this.notifications.notifyAdmins((l) => l.admin.publishReminder(stageValues(l, stageInfo).stage as string));
     }
+  }
+
+  /**
+   * An entry that advances without a vote (odd number of entries) gets its own
+   * post, prepared for the admins to forward; its author is told too.
+   */
+  private async prepareByePost(battle: Battle, round: number): Promise<void> {
+    const bye = await this.prisma.duel.findFirst({ where: { battleId: battle.id, round, photoBId: null }, include: { photoA: { include: { user: true } } } });
+    if (!bye) return;
+    const entries = await this.roundEntries(battle.id, round);
+    const caption = await this.render('bye', { battle: battle.title, round, roundName: roundName(this.locale, round, entries, battle.finalSize) });
+    const photo = bye.photoA;
+    await this.notifications.notifyAdmins((l) => l.admin.byeReady(round));
+    for (const chatId of await this.notifications.adminChatIds()) {
+      const send = (text: string) =>
+        photo.mediaType === 'VIDEO'
+          ? this.telegram.sendMediaGroup(chatId, [{ type: 'video', fileId: photo.fileId, caption: text }])
+          : this.telegram.sendPhoto(chatId, photo.fileId, { caption: text, parseMode: 'HTML' });
+      try {
+        await send(caption).catch(async (error: unknown) => {
+          // Premium emoji need the bot owner's Telegram Premium; without it send regular emoji.
+          if (classifyTelegramError(error).kind !== 'permanent' || !caption.includes('<tg-emoji')) throw error;
+          await send(stripCustomEmoji(caption));
+        });
+      } catch (error) {
+        this.logger.error({ err: error, battleId: battle.id, round }, 'Failed to prepare the bye post');
+      }
+    }
+    await this.notifications.notifyUser(photo.user, (l) => l.battle.byeDm(round));
   }
 
   /** Channel announcements are prepared for the admins too: a short note, then the ready text to forward. */

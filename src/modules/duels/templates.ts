@@ -4,7 +4,7 @@ import { linkifyHtml } from '../../lib/entities-html.js';
 import { escapeHtml } from '../../lib/format.js';
 
 /** Every post the bot prepares can be designed by an admin. */
-export const TEMPLATE_KEYS = ['duel', 'announce', 'round', 'winner', 'buttons'] as const;
+export const TEMPLATE_KEYS = ['duel', 'announce', 'round', 'winner', 'buttons', 'bye'] as const;
 export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
 
 export const TEMPLATE_FIELDS = {
@@ -13,6 +13,7 @@ export const TEMPLATE_FIELDS = {
   round: 'roundTemplate',
   winner: 'winnerTemplate',
   buttons: 'buttonsTemplate',
+  bye: 'byeTemplate',
 } as const satisfies Record<TemplateKey, keyof BotSettings>;
 
 /** Placeholders each template understands. */
@@ -22,6 +23,7 @@ export const TEMPLATE_PLACEHOLDERS: Record<TemplateKey, readonly string[]> = {
   round: ['battle', 'roundName', 'round', 'entries', 'end'],
   winner: ['battle', 'votes'],
   buttons: ['stage', 'roundName', 'round', 'duel', 'end'],
+  bye: ['battle', 'roundName', 'round'],
 };
 
 export function isTemplateKey(value: string): value is TemplateKey {

@@ -308,6 +308,8 @@ model BotSettings {
   roundTemplate      String?
   winnerTemplate     String?
   buttonsTemplate    String?
+  /// Post for an entry that advances without a vote (odd number of entries)
+  byeTemplate        String?
   /// Per-round designs, e.g. {"buttons:final": "<b>ФІНАЛ</b>"}; override the templates above for that round
   stageTemplates     Json     @default("{}")
   /// Payment by transfer to the owner's card / Monobank jar

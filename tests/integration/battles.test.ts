@@ -159,6 +159,21 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(keyboard).toContain('· 1');
   });
 
+  it('prepares a post for the entry that advances without a vote and tells its author', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ byeTemplate: '<b>{roundName}</b>: проходить автоматично' }, admin.id);
+    const battle = await openBattle(ctx);
+    const created = await entries(3);
+    await startBattle(ctx, battle.id);
+    const bye = await ctx.prisma.duel.findFirstOrThrow({ where: { photoBId: null }, include: { photoA: { include: { user: true } } } });
+    expect(adminTexts().some((t) => t.includes('проходит без голосования'))).toBe(true);
+    const post = toAdmin('sendPhoto').find((c) => (c.args[1] as { caption?: string }).caption === '<b>Полуфинал</b>: проходить автоматично');
+    expect(post?.args[0]).toBe(bye.photoA.fileId);
+    const dm = ctx.telegram.callsOf('sendMessage').filter((c) => c.chatId === Number(bye.photoA.user.telegramId)).map((c) => String(c.args[0]));
+    expect(dm.some((t) => t.includes('без голосования'))).toBe(true);
+    expect(created).toHaveLength(3);
+  });
+
   it('prepares videos as an album with the caption and links every album item', async () => {
     const battle = await openBattle(ctx);
     await entries(3, 'VIDEO');
@@ -167,7 +182,8 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(bye).toMatchObject({ status: 'FINISHED', winnerPhotoId: bye.photoAId });
 
     await preparePendingDuels(ctx);
-    const album = toAdmin('sendMediaGroup')[0]!.args[0] as { type: string; caption?: string }[];
+    // The first album is the post of the entry that advances without a vote; the pair is the 2-item album.
+    const album = toAdmin('sendMediaGroup').map((c) => c.args[0] as { type: string; caption?: string }[]).find((items) => items.length === 2)!;
     expect(album.map((item) => item.type)).toEqual(['video', 'video']);
     expect(album[0]!.caption).toContain('Пара 1');
     const duel = await ctx.prisma.duel.findFirstOrThrow({ where: { status: 'READY' }, include: { photoA: true, photoB: true } });

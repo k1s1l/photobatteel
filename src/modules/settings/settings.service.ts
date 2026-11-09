@@ -14,6 +14,7 @@ export type SettingsPatch = Partial<
     | 'roundTemplate'
     | 'winnerTemplate'
     | 'buttonsTemplate'
+    | 'byeTemplate'
     | 'transferEnabled'
     | 'transferDetails'
     | 'monobankAccountId'
@@ -24,7 +25,7 @@ export const LIMIT_OPTIONS = [0, 1, 2, 3, 5] as const;
 /** Telegram caption limit is 1024 visible characters; the template leaves room for placeholders. */
 export const MAX_TEMPLATE_LENGTH = 4000;
 
-const TEMPLATE_PATCH_KEYS = ['duelTemplate', 'announceTemplate', 'roundTemplate', 'winnerTemplate', 'buttonsTemplate'] as const;
+const TEMPLATE_PATCH_KEYS = ['duelTemplate', 'announceTemplate', 'roundTemplate', 'winnerTemplate', 'buttonsTemplate', 'byeTemplate'] as const;
 const SETTINGS_ID = 1;
 const CACHE_TTL_MS = 5_000;
 

@@ -59,6 +59,7 @@ function sampleValues(ctx: BotContext, key: TemplateKey, variant?: StageVariant)
       : { battle: 'Photo Battle', round: 3, roundName: locale.duel.roundNames.final, entries: 2, end: stage.end! },
     winner: { battle: 'Photo Battle', votes: 57 },
     buttons: stage,
+    bye: { battle: 'Photo Battle', round: 2, roundName: locale.duel.roundNames.round(2) },
   };
   return samples[key];
 }

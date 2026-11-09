@@ -217,6 +217,7 @@ export const ru = {
     defaultTitle: (n: number) => `Фотобатл #${n}`,
     announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
     winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
+    byeDm: (round: number) => `➡️ Твоя работа проходит в следующий раунд без голосования (раунд ${round}: нечётное число работ, а твою прислали последней). Удачи дальше! 🔥`,
     entryPosted: (p: { round: number; link: string }) =>
       `⚔️ Твоя работа вышла в канал — раунд ${p.round}!\n<a href="${p.link}">Открыть пару</a> — зови друзей голосовать 🔥`,
     duelWon: (p: { round: number; link: string }) => `🎉 Твоя работа выиграла пару в раунде ${p.round} и проходит дальше! <a href="${p.link}">Пост</a>`,
@@ -237,6 +238,7 @@ export const ru = {
     round: '⚔️ <b>{battle} — {roundName}</b>\n\nВ борьбе {entries} работ. Голосуй в парах ниже! 🔥',
     winner: '🏆 <b>Победитель батла «{battle}»</b>\n\n🔥 Голосов за весь батл: {votes}\n\nПоздравляем автора! 🎉',
     buttons: '🗳 {stage} — голосуй 👇',
+    bye: '➡️ <b>{roundName}</b>\n\nЭта работа проходит дальше без голосования: в раунде нечётное число работ, а её прислали последней.',
   },
 
   duel: {
@@ -451,6 +453,7 @@ export const ru = {
     publishReminder: (stage: string) => `⏰ ${stage} — пост ещё не опубликован. Перешли его в канал без автора, чтобы началось голосование.`,
     wrongChannel: (p: { got: string; expected: string }) =>
       `⚠️ Пост пары опубликован в канале «${p.got}», а бот работает с каналом ${p.expected}. Кнопки голосования не добавлены — перешли пост в ${p.expected} (или поменяй CHANNEL_ID).`,
+    byeReady: (round: number) => `➡️ Раунд ${round}: одна работа проходит без голосования (нечётное число работ). Перешли пост ниже в канал без автора:`,
     announcementReady: '📢 Пост для канала — перешли сообщение ниже без автора:',
     progress: (p: { finished: number; total: number; ready: number }) =>
       `завершено ${p.finished}/${p.total}` + (p.ready > 0 ? `, ждут публикации: ${p.ready}` : ''),
@@ -524,6 +527,7 @@ export const ru = {
       round: '🔁 Анонс раунда',
       winner: '🏆 Пост победителя',
       buttons: '🗳 Подпись над кнопками',
+      bye: '➡️ Проходит без голосования',
     },
     designType: (p: { name: string; custom: boolean; placeholders: string }) =>
       `<b>${p.name}</b>\n\n` +
