@@ -31,7 +31,14 @@ export class UserService {
    * Registers a new user or refreshes profile data. Writes only when
    * something changed (or activity timestamp is stale) to keep the hot path cheap.
    */
-  async upsertFromTelegram(profile: TelegramProfile): Promise<{ user: User; isNew: boolean }> {
+  /**
+   * Registers or refreshes a Telegram user. `privateChat` is true when the update
+   * comes from the user's chat with the bot: only then can the bot write to them,
+   * so only then is an earlier "can't deliver" mark cleared. Channel button presses
+   * register voters too, but the bot cannot message people who never opened it.
+   */
+  async upsertFromTelegram(profile: TelegramProfile, options: { privateChat?: boolean } = {}): Promise<{ user: User; isNew: boolean }> {
+    const privateChat = options.privateChat ?? true;
     if (!Number.isSafeInteger(profile.id) || profile.id <= 0) throw new DomainError('FORBIDDEN', {}, 'Invalid Telegram id');
     const telegramId = BigInt(profile.id);
     const firstName = (profile.first_name || '').slice(0, 128) || 'Участник';
@@ -42,17 +49,26 @@ export class UserService {
     if (existing) {
       const changed = existing.username !== username || existing.firstName !== firstName || existing.lastName !== lastName;
       const stale = Date.now() - existing.lastActiveAt.getTime() > LAST_ACTIVE_RESOLUTION_MS;
-      if (!changed && !stale) return { user: existing, isNew: false };
+      const reachable = privateChat && existing.botBlockedAt !== null;
+      if (!changed && !stale && !reachable) return { user: existing, isNew: false };
       const user = await this.prisma.user.update({
         where: { id: existing.id },
-        data: { username, firstName, lastName, lastActiveAt: new Date(), botBlockedAt: null },
+        data: { username, firstName, lastName, lastActiveAt: new Date(), ...(privateChat ? { botBlockedAt: null } : {}) },
       });
       return { user, isNew: false };
     }
 
     try {
       const user = await this.prisma.user.create({
-        data: { telegramId, username, firstName, lastName, languageCode: profile.language_code?.slice(0, 8) ?? '' },
+        data: {
+          telegramId,
+          username,
+          firstName,
+          lastName,
+          languageCode: profile.language_code?.slice(0, 8) ?? '',
+          // Registered by a channel button press: the bot cannot write to them until they open it.
+          ...(privateChat ? {} : { botBlockedAt: new Date() }),
+        },
       });
       await this.activity.log({ action: 'USER_REGISTERED', userId: user.id, telegramId });
       return { user, isNew: true };

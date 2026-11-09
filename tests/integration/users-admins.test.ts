@@ -20,6 +20,17 @@ describe('1. user registration', () => {
     expect(await ctx.prisma.activityLog.count({ where: { action: 'USER_REGISTERED' } })).toBe(1);
   });
 
+  it('does not count people who only pressed channel buttons as reachable until they open the bot', async () => {
+    const profile = { id: 777001, first_name: 'Voter', is_bot: false };
+    const { user } = await ctx.services.users.upsertFromTelegram(profile, { privateChat: false });
+    expect(user.botBlockedAt).not.toBeNull();
+    // Further channel votes do not make them reachable…
+    await ctx.prisma.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date(0) } });
+    expect((await ctx.services.users.upsertFromTelegram(profile, { privateChat: false })).user.botBlockedAt).not.toBeNull();
+    // …opening the bot does.
+    expect((await ctx.services.users.upsertFromTelegram(profile, { privateChat: true })).user.botBlockedAt).toBeNull();
+  });
+
   it('rejects invalid Telegram ids', async () => {
     await expect(ctx.services.users.upsertFromTelegram({ id: -5, first_name: 'X' })).rejects.toThrow();
   });

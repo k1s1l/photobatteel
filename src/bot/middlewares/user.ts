@@ -10,7 +10,9 @@ export const loadUser: MiddlewareFn<BotContext> = async (ctx, next) => {
   if (!ctx.from || ctx.from.is_bot) return;
 
   const { users, admins } = ctx.deps.services;
-  const { user, isNew } = await users.upsertFromTelegram(ctx.from);
+  // Votes under channel posts come with the channel message: the user may never have opened the bot.
+  const privateChat = ctx.chat?.type === 'private' || (!ctx.chat && !ctx.callbackQuery);
+  const { user, isNew } = await users.upsertFromTelegram(ctx.from, { privateChat });
   ctx.user = user;
   ctx.locale = getLocale(user.languageCode);
   ctx.isAdmin = await admins.isAdmin(ctx.from.id);

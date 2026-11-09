@@ -472,7 +472,7 @@ export const ru = {
     broadcastPreview: '👆 Так будет выглядеть объявление. Отправить всем пользователям?',
     broadcastSend: '📢 Отправить',
     broadcastStarted: (recipients: number) => `📢 Рассылка запущена. Получателей: ${recipients}. Отчёт придёт по завершении.`,
-    broadcastDone: (p: { sent: number; failed: number }) => `📢 Рассылка завершена.\n✅ Доставлено: ${p.sent}\n⚠️ Не доставлено: ${p.failed}`,
+    broadcastDone: (p: { sent: number; failed: number }) => `📢 Рассылка завершена.\n✅ Доставлено: ${p.sent}\n⚠️ Не доставлено: ${p.failed}` + (p.failed > 0 ? '\n\nНе доставлено тем, кто голосовал в канале, но ни разу не открывал бота, или заблокировал его. Telegram не даёт ботам писать первыми. В следующих рассылках они не будут учитываться, пока сами не напишут боту.' : ''),
     battlesTitle: '<b>⚔️ Батлы</b>',
     battlesEmpty: 'Батлов пока не было.',
     battleInfo: (p: { title: string; status: string; start: string; roundMinutes: number; finalMinutes: number; tiebreakMinutes: number; entries: number; round: number; progress: string | null }) =>
