@@ -1,7 +1,8 @@
 import type { Composer } from 'telegraf';
 import type { Message } from 'telegraf/types';
 import { entitiesToHtml, isNarrowText, stripCustomEmoji, visibleLength } from '../../../lib/entities-html.js';
-import { formatDateTime, formatTime } from '../../../lib/format.js';
+import { escapeHtml, formatDateTime, formatTime, truncate } from '../../../lib/format.js';
+import { classifyTelegramError } from '../../../lib/telegram-errors.js';
 import { activeDuelKeyboard } from '../../../modules/duels/duel-post.js';
 import {
   isStagedKey,
@@ -84,9 +85,12 @@ async function sendPreview(ctx: BotContext, key: TemplateKey, template: string, 
   const extra = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, ...(keyboard ? { reply_markup: keyboard } : {}) };
   try {
     await ctx.reply(html, extra);
-  } catch {
-    // Premium emoji in a bot's message need the bot owner's Telegram Premium.
+  } catch (error) {
+    // Telegram refused premium emoji: show the post with regular ones and say why.
     await ctx.reply(stripCustomEmoji(html), extra);
+    if (html.includes('<tg-emoji')) {
+      await ctx.reply(ctx.locale.admin.emojiPreviewRejected(escapeHtml(truncate(classifyTelegramError(error).description, 200))), { parse_mode: 'HTML' });
+    }
   }
 }
 

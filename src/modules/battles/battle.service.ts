@@ -443,7 +443,7 @@ export class BattleService {
         // Premium emoji need the bot owner's Telegram Premium; without it send regular emoji.
         const classified = classifyTelegramError(error);
         if (classified.kind !== 'permanent' || !/emoji|entit/i.test(classified.description) || !html.includes('<tg-emoji')) throw error;
-        this.logger.warn({ duelId: duel.id, error: classified.description }, 'Custom emoji rejected, preparing with regular emoji');
+        await this.emojiRejected('duel', classified.description);
         html = stripCustomEmoji(html);
         await send(html);
       }
@@ -488,6 +488,7 @@ export class BattleService {
       // The bot itself cannot use premium emoji in the channel: retry with regular ones.
       const classified = classifyTelegramError(error);
       if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
+      await this.emojiRejected('buttons', classified.description);
       buttons = await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(buttonsText), buttonsOptions);
     }
     const activated = await this.prisma.duel.updateMany({
@@ -817,6 +818,7 @@ export class BattleService {
         await send(caption).catch(async (error: unknown) => {
           // Premium emoji need the bot owner's Telegram Premium; without it send regular emoji.
           if (classifyTelegramError(error).kind !== 'permanent' || !caption.includes('<tg-emoji')) throw error;
+          await this.emojiRejected('bye', classifyTelegramError(error).description);
           await send(stripCustomEmoji(caption));
         });
       } catch (error) {
@@ -841,6 +843,19 @@ export class BattleService {
   private async prepareAnnouncement(html: string): Promise<void> {
     await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
     await this.notifications.notifyAdmins(() => html, { parseMode: 'HTML', disablePreview: true });
+  }
+
+  private lastEmojiAlert = 0;
+
+  /**
+   * Telegram refused premium emoji, so the post goes out with their regular
+   * fallback (often ❤️). Admins get Telegram's exact reason (at most hourly).
+   */
+  private async emojiRejected(where: 'duel' | 'buttons' | 'bye', reason: string): Promise<void> {
+    this.logger.warn({ where, error: reason }, 'Custom emoji rejected, sent with regular emoji');
+    if (Date.now() - this.lastEmojiAlert < 60 * 60_000) return;
+    this.lastEmojiAlert = Date.now();
+    await this.notifications.notifyAdmins((l) => l.admin.emojiRejected({ where: l.admin.emojiPlaces[where], reason: escapeHtml(truncate(reason, 200)) }));
   }
 
   /** Permanent errors while preparing a duel post — alert admins at most every 30 minutes. */

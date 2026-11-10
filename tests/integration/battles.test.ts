@@ -520,6 +520,20 @@ describe('templates, final duration and reminders', () => {
     expect((await ctx.prisma.duel.findFirstOrThrow()).stackedButtons).toBe(true);
   });
 
+  it('tells the admins why Telegram refused premium emoji and still publishes the buttons', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ buttonsTemplate: '<tg-emoji emoji-id="5">❤</tg-emoji> ПЕРВЫЙ РАУНД — голосуй за свою работу' }, admin.id);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    ctx.telegram.failNext('sendMessage', telegramError(400, 'Bad Request: CUSTOM_EMOJI_NOT_ALLOWED'));
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    await ctx.services.battles.linkChannelPost({ messageId: 700, fileUniqueIds: [duel.preparedFileUniqueId!] });
+    expect(String(toChannel('sendMessage').at(-1)!.args[0])).toBe('❤ ПЕРВЫЙ РАУНД — голосуй за свою работу');
+    expect(adminTexts().some((t) => t.includes('CUSTOM_EMOJI_NOT_ALLOWED') && t.includes('подпись над кнопками'))).toBe(true);
+  });
+
   it('gives the final its own voting time', async () => {
     const battle = await ctx.services.battles.schedule({
       title: 'F',

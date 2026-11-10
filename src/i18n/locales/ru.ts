@@ -508,6 +508,11 @@ export const ru = {
       priceSaved: (price: number) => `✅ Цена места в финале: ${price} ⭐.`,
       back: '🎟 К местам в финале',
     },
+    emojiPlaces: { duel: 'пост пары', buttons: 'подпись над кнопками', bye: 'пост «проходит без голосования»' },
+    emojiRejected: (p: { where: string; reason: string }) =>
+      `⚠️ Telegram не принял премиум-эмодзи (${p.where}) — пост вышел с обычными эмодзи (на месте букв могут быть ❤️). Шаблон не испорчен, переделывать его не нужно.\n\nПричина от Telegram: <code>${p.reason}</code>`,
+    emojiPreviewRejected: (reason: string) =>
+      `⚠️ Telegram не принял премиум-эмодзи в этом тексте, поэтому выше они показаны обычными. Причина: <code>${reason}</code>`,
     finalSpotSold: (p: { who: string; price: number }) => `🎟 Куплено место в финале за ${p.price} ⭐: ${p.who}. Работа появится в финале автоматически.`,
     finalSpotRefundFailed: (paymentId: number) => `⚠️ Не удалось вернуть звёзды за место в финале (платёж #${paymentId}). Верни вручную в разделе «Платежи».`,
     announcementReady: '📢 Пост для канала — перешли сообщение ниже без автора:',
