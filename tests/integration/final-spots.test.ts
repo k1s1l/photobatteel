@@ -115,11 +115,11 @@ describe('places in the final', () => {
     expect(await ctx.services.finalSpots.offer(null)).toMatchObject({ available: false, reason: 'FINAL_STARTED' });
   });
 
-  it('refunds unused places when the battle is cancelled and keeps the final within 4 entries', async () => {
+  it('refunds unused places when the battle is cancelled and keeps the final within 6 entries', async () => {
     const { battle } = await battleInRound2();
     const buyer = await consenting();
     await buy(buyer, 'ch-cancel');
-    await expect(ctx.services.battles.setFinalSize(battle.id, 4, null)).rejects.toMatchObject({ code: 'FINAL_SPOTS_TAKEN' });
+    await expect(ctx.services.battles.setFinalSize(battle.id, 6, null)).rejects.toMatchObject({ code: 'FINAL_SPOTS_TAKEN' });
     const admin = await ctx.prisma.user.findFirstOrThrow({ where: { admin: { isNot: null } } });
     await ctx.services.battles.cancel(battle.id, admin.id);
     expect(ctx.telegram.callsOf('refundStarPayment').map((c) => c.args[0])).toEqual(['ch-cancel']);

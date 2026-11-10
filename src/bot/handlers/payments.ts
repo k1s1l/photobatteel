@@ -62,7 +62,7 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
   bot.command('paysupport', (ctx) => ctx.reply(ctx.locale.payments.support, { parse_mode: 'HTML' }));
   bot.command('terms', (ctx) => ctx.reply(ctx.locale.payments.terms, { parse_mode: 'HTML' }));
 
-  bot.action(/^pay:side:(\d+):([a-d])$/, async (ctx) => {
+  bot.action(/^pay:side:(\d+):([a-f])$/, async (ctx) => {
     const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx, 1));
     await answer(ctx);
     const letter = sideFromLetter(matchString(ctx, 2));

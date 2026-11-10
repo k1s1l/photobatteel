@@ -11,18 +11,18 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
-import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, SIDES, sideNumber, voteList, votesOf } from '../duels/sides.js';
+import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, SIDES, sideNumber, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import { isFinalRound, takenSpots, type FinalSpotService } from '../final-spots/final-spot.service.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
-type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; battle: Battle };
+type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null; battle: Battle };
 
 /** Entries of a duel with their photos, in slot order. */
-function photosOf(duel: { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null }): { side: DuelSide; photo: Photo }[] {
-  const all = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD };
+function photosOf(duel: { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null }): { side: DuelSide; photo: Photo }[] {
+  const all = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF };
   return SIDES.flatMap((side) => (all[side] ? [{ side, photo: all[side] }] : []));
 }
 
@@ -343,8 +343,10 @@ export class BattleService {
    */
   private async createRound(tx: Prisma.TransactionClient, battleId: number, round: number, photoIds: number[], finalSize: number): Promise<void> {
     if (photoIds.length >= 3 && photoIds.length <= Math.min(finalSize, MAX_FINAL_SIZE)) {
-      const [a, b, c, d] = photoIds;
-      await tx.duel.create({ data: { battleId, round, position: 1, photoAId: a!, photoBId: b!, photoCId: c!, photoDId: d ?? null } });
+      const [a, b, c, d, e, f] = photoIds;
+      await tx.duel.create({
+        data: { battleId, round, position: 1, photoAId: a!, photoBId: b!, photoCId: c!, photoDId: d ?? null, photoEId: e ?? null, photoFId: f ?? null },
+      });
       await tx.battle.update({ where: { id: battleId }, data: { currentRound: round, roundEndsAt: null } });
       if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: 1, final: photoIds.length } }, tx);
       return;
@@ -596,7 +598,7 @@ export class BattleService {
       if (leaders.length > 1 && duel.stage < this.options.maxTiebreaks) {
         const updated = await tx.duel.updateMany({
           where: { id: duelId, status: 'ACTIVE', stage },
-          data: { status: 'PENDING', stage: stage + 1, votesA: 0, votesB: 0, votesC: 0, votesD: 0, endsAt: null },
+          data: { status: 'PENDING', stage: stage + 1, ...ZERO_VOTES, endsAt: null },
         });
         return updated.count ? { kind: 'tiebreak' as const, duel } : null;
       }
@@ -779,7 +781,7 @@ export class BattleService {
 
   /** Number of entries playing in a round (a bye counts once). */
   private async roundEntries(battleId: number, round: number): Promise<number> {
-    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true } });
+    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true } });
     return duels.reduce((sum, duel) => sum + entryCount(duel), 0);
   }
 

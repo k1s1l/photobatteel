@@ -9,7 +9,7 @@ const VOTE_LOCK_MS = 3_000;
 
 /** Buttons under duel posts in the channel. */
 export function registerVoteHandlers(bot: Telegraf<BotContext>): void {
-  bot.action(/^d:(\d+):(\d+):([a-d])$/, async (ctx) => {
+  bot.action(/^d:(\d+):(\d+):([a-f])$/, async (ctx) => {
     const duelId = matchInt(ctx, 1);
     const stage = matchInt(ctx, 2);
     const side = sideFromLetter(matchString(ctx, 3))!;

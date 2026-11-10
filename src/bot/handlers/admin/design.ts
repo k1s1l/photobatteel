@@ -1,3 +1,4 @@
+import type { DuelSide } from '../../../generated/prisma/client.js';
 import type { Composer } from 'telegraf';
 import type { Message } from 'telegraf/types';
 import { entitiesToHtml, isNarrowText, stripCustomEmoji, visibleLength } from '../../../lib/entities-html.js';
@@ -39,8 +40,10 @@ function placeholdersList(key: TemplateKey): string {
 /** A tournament moment that matches the per-round design being previewed. */
 function samplePoint(variant?: StageVariant): StagePoint {
   if (variant === 'final') return { round: 4, entriesInRound: 2 };
-  if (variant === 'final3') return { round: 3, entriesInRound: 3, finalSize: 3 };
-  if (variant === 'final4') return { round: 3, entriesInRound: 4, finalSize: 4 };
+  if (variant?.startsWith('final')) {
+    const size = Number(variant.slice(5));
+    return { round: 3, entriesInRound: size, finalSize: size };
+  }
   if (variant) return { round: Number(variant.slice(1)), entriesInRound: 16 };
   return { round: 1, entriesInRound: 8 };
 }
@@ -66,14 +69,17 @@ function sampleValues(ctx: BotContext, key: TemplateKey, variant?: StageVariant)
 }
 
 /** Preview vote counts: 2 buttons, or 3–4 for a group final design. */
-function sampleVotes(variant?: StageVariant): { side: 'A' | 'B' | 'C' | 'D'; votes: number }[] {
+function sampleVotes(variant?: StageVariant): { side: DuelSide; votes: number }[] {
   const all = [
     { side: 'A' as const, votes: 12 },
     { side: 'B' as const, votes: 9 },
     { side: 'C' as const, votes: 7 },
     { side: 'D' as const, votes: 4 },
+    { side: 'E' as const, votes: 3 },
+    { side: 'F' as const, votes: 1 },
   ];
-  return all.slice(0, variant === 'final3' ? 3 : variant === 'final4' ? 4 : 2);
+  const size = variant?.startsWith('final') && variant !== 'final' ? Number(variant.slice(5)) : 2;
+  return all.slice(0, size);
 }
 
 async function sendPreview(ctx: BotContext, key: TemplateKey, template: string, variant?: StageVariant): Promise<void> {
@@ -125,7 +131,7 @@ async function showTemplate(ctx: BotContext, key: TemplateKey): Promise<void> {
 function stageRows(ctx: BotContext, key: StagedKey, saved: Record<string, string>): ReturnType<typeof button>[][] {
   const label = (variant: StageVariant): string => `${saved[stageTemplateId(key, variant)] ? '✏️ ' : ''}${ctx.locale.admin.stageNames[variant]}`;
   const item = (variant: StageVariant) => button(label(variant), `a:tpl:v:${key}:${variant}`);
-  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')], [item('final3'), item('final4')]];
+  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')], [item('final3'), item('final4')], [item('final5'), item('final6')]];
 }
 
 async function showVariant(ctx: BotContext, key: StagedKey, variant: StageVariant): Promise<void> {

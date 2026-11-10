@@ -374,6 +374,26 @@ describe('group final', () => {
     expect(created).toHaveLength(6);
   });
 
+  it('plays a final of 6 in one 3×2 post with buttons 1–6', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.setStageTemplate('buttons', 'final6', 'ФІНАЛ ШІСТЬОХ — голосуй за найкращу роботу', admin.id);
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 6, createdById: null });
+    await entries(6);
+    await startBattle(ctx, battle.id);
+    const final = await ctx.prisma.duel.findFirstOrThrow();
+    expect(final.photoFId).not.toBeNull();
+    await postPendingDuels(ctx);
+    const buttons = toChannel('sendMessage').at(-1)!;
+    expect(String(buttons.args[0])).toBe('ФІНАЛ ШІСТЬОХ — голосуй за найкращу роботу');
+    const keyboard = (buttons.args[1] as { replyMarkup: { inline_keyboard: { callback_data: string }[][] } }).replyMarkup.inline_keyboard;
+    expect(keyboard.map((row) => row.length)).toEqual([2, 2, 2]);
+    expect(keyboard.flat().at(-1)!.callback_data).toBe(`d:${final.id}:0:f`);
+
+    await ctx.services.duelVotes.vote(final.id, 0, 'F', await createUser(ctx));
+    await expireDuels(ctx);
+    expect(await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: final.photoFId });
+  });
+
   it('rebuilds a "pair + bye" round of 3 into a final of 3 when the admin switches the final size', async () => {
     const battle = await openBattle(ctx);
     await entries(6);

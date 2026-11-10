@@ -65,7 +65,7 @@ export function isFinalRound(battle: Pick<Battle, 'finalSize'>, entriesInRound: 
 }
 
 async function roundEntries(db: Db, battleId: number, round: number): Promise<number> {
-  const duels = await db.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true } });
+  const duels = await db.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true } });
   return duels.reduce((sum, duel) => sum + entryCount(duel), 0);
 }
 

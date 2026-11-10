@@ -73,6 +73,15 @@ describe('duel post', () => {
     expect(four.width! / four.height!).toBeLessThan(1);
   });
 
+  it('builds a 3×2 collage for 5 and 6 entries', async () => {
+    const photos = await Promise.all(Array.from({ length: 6 }, () => makeJpeg(800, 800)));
+    const six = await sharp(await buildDuelCollage(...photos)).metadata();
+    const five = await sharp(await buildDuelCollage(...photos.slice(0, 5))).metadata();
+    expect(six.width! / six.height!).toBeCloseTo(five.width! / five.height!);
+    expect(six.width).toBeGreaterThan(six.height!);
+    await expect(buildDuelCollage(...photos, photos[0]!)).rejects.toBeInstanceOf(RangeError);
+  });
+
   it('builds one collage image from two photos of any size', async () => {
     const collage = await buildDuelCollage(await makeJpeg(1200, 800), await makePng(500, 900));
     const meta = await sharp(collage).metadata();

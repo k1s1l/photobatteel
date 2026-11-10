@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { inAnySlot, sideOf, VOTE_FIELD, votesOf } from '../duels/sides.js';
+import { inAnySlot, sideOf, VOTE_FIELD, VOTE_SELECT, votesOf } from '../duels/sides.js';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import { escapeHtml } from '../../lib/format.js';
@@ -614,7 +614,7 @@ export class PaymentService {
     const updated = await tx.duel.update({
       where: { id: duel.id },
       data: { [VOTE_FIELD[side]]: { increment: amount } },
-      select: { votesA: true, votesB: true, votesC: true, votesD: true },
+      select: VOTE_SELECT,
     });
     // Overtime: paid votes in the last minutes give the other side time to answer.
     const overtimeMs = (this.options.overtimeMinutes ?? 0) * 60_000;

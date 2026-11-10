@@ -52,6 +52,8 @@ enum DuelSide {
   B
   C
   D
+  E
+  F
 }
 
 enum AdminRole {
@@ -191,6 +193,8 @@ model Photo {
   duelsAsB        Duel[]     @relation("DuelPhotoB")
   duelsAsC        Duel[]     @relation("DuelPhotoC")
   duelsAsD        Duel[]     @relation("DuelPhotoD")
+  duelsAsE        Duel[]     @relation("DuelPhotoE")
+  duelsAsF        Duel[]     @relation("DuelPhotoF")
   duelsWon        Duel[]     @relation("DuelWinner")
   paidVoteEntries PaidVote[]
   payments        Payment[]
@@ -216,7 +220,7 @@ model Battle {
   currentRound    Int          @default(0)
   /// Admin-chosen end of the current round's voting (null = every pair votes roundMinutes)
   roundEndsAt     DateTime?
-  /// Entries in the final post: 2 = a regular pair, 3 or 4 = one post with all finalists
+  /// Entries in the final post: 2 = a regular pair, 3 to 6 = one post with all finalists
   finalSize       Int          @default(2)
   winnerPhotoId   Int?         @unique
   winnerPhoto     Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
@@ -245,11 +249,15 @@ model Duel {
   photoA          Photo      @relation("DuelPhotoA", fields: [photoAId], references: [id], onDelete: Cascade)
   photoBId        Int?
   photoB          Photo?     @relation("DuelPhotoB", fields: [photoBId], references: [id], onDelete: Cascade)
-  /// Finals of 3 or 4 entries use the extra slots
+  /// Group finals of 3 to 6 entries use the extra slots
   photoCId        Int?
   photoC          Photo?     @relation("DuelPhotoC", fields: [photoCId], references: [id], onDelete: Cascade)
   photoDId        Int?
   photoD          Photo?     @relation("DuelPhotoD", fields: [photoDId], references: [id], onDelete: Cascade)
+  photoEId        Int?
+  photoE          Photo?     @relation("DuelPhotoE", fields: [photoEId], references: [id], onDelete: Cascade)
+  photoFId        Int?
+  photoF          Photo?     @relation("DuelPhotoF", fields: [photoFId], references: [id], onDelete: Cascade)
   status          DuelStatus @default(PENDING)
   /// 0 = main vote, 1.. = tiebreak reposts (votes start from zero each stage)
   stage           Int        @default(0)
@@ -257,6 +265,8 @@ model Duel {
   votesB          Int        @default(0)
   votesC          Int        @default(0)
   votesD          Int        @default(0)
+  votesE          Int        @default(0)
+  votesF          Int        @default(0)
   /// file_unique_id of the prepared collage; identifies the admin's channel post (photo duels)
   preparedFileUniqueId String?
   /// When the post was sent to admins, and when they were reminded to publish it

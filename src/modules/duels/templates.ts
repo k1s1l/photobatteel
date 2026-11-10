@@ -34,7 +34,7 @@ export function isTemplateKey(value: string): value is TemplateKey {
 export const STAGED_KEYS = ['duel', 'round', 'buttons'] as const;
 export type StagedKey = (typeof STAGED_KEYS)[number];
 
-export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final', 'final3', 'final4'] as const;
+export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final', 'final3', 'final4', 'final5', 'final6'] as const;
 export type StageVariant = (typeof STAGE_VARIANTS)[number];
 
 export function isStagedKey(value: string): value is StagedKey {
@@ -59,10 +59,13 @@ function isFinal(point: StagePoint): boolean {
 
 /**
  * The final wins over the round number (a small battle may start with its final).
- * A group final of 3 or 4 entries has its own design ("final3"/"final4") and falls back to "final".
+ * A group final of 3–6 entries has its own design ("final3"…"final6") and falls back to "final".
  */
 export function stageVariant(point: StagePoint): StageVariant | null {
-  if (isFinal(point)) return point.entriesInRound === 3 ? 'final3' : point.entriesInRound === 4 ? 'final4' : 'final';
+  if (isFinal(point)) {
+    const group = `final${point.entriesInRound}`;
+    return isStageVariant(group) ? group : 'final';
+  }
   const id = `r${point.round}`;
   return isStageVariant(id) ? id : null;
 }
@@ -85,7 +88,7 @@ export function templateFor(settings: BotSettings, locale: Locale, key: Template
     const saved = stageTemplates(settings);
     const staged =
       (variant ? saved[stageTemplateId(key, variant)] : undefined) ??
-      (variant === 'final3' || variant === 'final4' ? saved[stageTemplateId(key, 'final')] : undefined);
+      (variant && variant !== 'final' && variant.startsWith('final') ? saved[stageTemplateId(key, 'final')] : undefined);
     if (staged) return staged;
   }
   return settings[TEMPLATE_FIELDS[key]] ?? locale.templates[key];

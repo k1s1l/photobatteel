@@ -1,3 +1,4 @@
+import { MAX_FINAL_SIZE } from '../../../modules/duels/sides.js';
 import type { Composer } from 'telegraf';
 import { escapeHtml, formatDateTime } from '../../../lib/format.js';
 import { isDomainError } from '../../../lib/errors.js';
@@ -11,7 +12,7 @@ import { backToPanel, PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
 
 const ROUND_MINUTES = [15, 30, 60, 120, 180, 360, 720, 1440] as const;
-const FINAL_SIZES = [2, 3, 4] as const;
+const FINAL_SIZES = [2, 3, 4, 5, 6] as const;
 const RECENT_BATTLES = 5;
 
 async function showBattles(ctx: BotContext): Promise<void> {
@@ -135,7 +136,8 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await answer(ctx);
     await respond(ctx, ctx.locale.admin.battleAskFinalSize, {
       keyboard: inline([
-        FINAL_SIZES.map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
+        FINAL_SIZES.slice(0, 3).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
+        FINAL_SIZES.slice(3).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
         [button(ctx.locale.common.cancel, 'a:cancel')],
       ]),
     });
@@ -172,11 +174,11 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     });
   });
 
-  // 2 → 3 → 4 → 2 entries in the final; locked once the final has started.
+  // 2 → 3 → … → 6 → 2 entries in the final; locked once the final has started.
   admin.action(/^a:bt:fs:(\d+)$/, async (ctx) => {
     const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
     if (!battle) return answer(ctx);
-    const next = battle.finalSize >= 4 ? 2 : battle.finalSize + 1;
+    const next = battle.finalSize >= MAX_FINAL_SIZE ? 2 : battle.finalSize + 1;
     try {
       await ctx.deps.services.battles.setFinalSize(battle.id, next, adminUserId(ctx));
     } catch (error) {

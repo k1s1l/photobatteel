@@ -2,14 +2,13 @@ import type { DuelSide, PrismaClient, User } from '../../generated/prisma/client
 import { DomainError, isUniqueViolation } from '../../lib/errors.js';
 import type { ChannelInfo, JobScheduler, TelegramGateway } from '../contracts.js';
 import type { SettingsService } from '../settings/settings.service.js';
-import { ALL_PHOTOS, entryCount, PHOTO_ID_FIELD, SIDES, VOTE_FIELD, type DuelVotes } from './sides.js';
+import { ALL_PHOTOS, entryCount, PHOTO_ID_FIELD, SIDES, VOTE_FIELD, VOTE_SELECT, type DuelVotes } from './sides.js';
 
 export interface DuelVoteResult extends DuelVotes {
   /** The side the user now supports, or null when the vote was withdrawn. */
   side: DuelSide | null;
 }
 
-const VOTE_SELECT = { votesA: true, votesB: true, votesC: true, votesD: true } as const;
 
 const MEMBERSHIP_TTL_MS = 10 * 60_000;
 
@@ -40,13 +39,13 @@ export class DuelVoteService {
         if (!duel || entryCount(duel) < 2 || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
           throw new DomainError('VOTING_CLOSED');
         }
-        const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD };
+        const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF };
         const target = photos[side];
         if (!target || duel[PHOTO_ID_FIELD[side]] === null) throw new DomainError('VOTING_CLOSED');
         if (target.userId === voter.id) throw new DomainError('SELF_VOTE');
 
         const existing = await tx.duelVote.findUnique({ where: { duelId_stage_userId: { duelId, stage, userId: voter.id } } });
-        const counters: Record<DuelSide, number> = { A: 0, B: 0, C: 0, D: 0 };
+        const counters: Record<DuelSide, number> = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
         let newSide: DuelSide | null = side;
         if (!existing) {
           await tx.duelVote.create({ data: { duelId, stage, userId: voter.id, side } });
