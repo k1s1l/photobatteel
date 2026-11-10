@@ -335,7 +335,7 @@ export const ru = {
       (p.automatic ? '\nГолоса начислятся автоматически.' : ''),
     transferPaidButton: '✅ Я оплатил',
     transferCancelButton: '❌ Отменить',
-    transferClaimedAuto: '⏳ Проверяю оплату — обычно это 1–2 минуты. Голоса начислятся автоматически, я напишу.',
+    transferClaimedAuto: '⏳ Проверяю оплату — обычно это 1–2 минуты. Как только она подтвердится, голоса начислятся, я напишу.',
     transferClaimedManual: '⏳ Администратор проверит перевод и начислит голоса. Я напишу, как только это произойдёт.',
     transferCancelled: 'Заказ отменён.',
     transferExpired: (code: string) => `⌛ Время на оплату заказа ${code} вышло, заказ отменён. Если ты уже перевёл деньги — нажми «✅ Я оплатил» в сообщении с реквизитами: бот всё равно засчитает перевод.`,
@@ -640,6 +640,7 @@ export const ru = {
     transfersEmpty: 'Открытых заявок нет.',
     transferRow: (p: { id: number; code: string; amount: string; votes: number; buyer: string; status: string }) =>
       `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
+    transferAutoConfirmed: (code: string) => `✅ Оплата ${code} подтверждена автоматически по выписке Monobank — нажимать ничего не нужно.`,
     transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string }) =>
       `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\nГолосов: ${p.votes}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — начислить голоса, ❌ — отклонить.`,
     transferApproved: (id: number) => `✅ Перевод #${id} подтверждён, голоса начислены.`,

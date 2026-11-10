@@ -428,8 +428,9 @@ export class PaymentService {
     if (claimed.count === 0) throw new DomainError('INVALID_STATE');
     const settings = await this.settings.get();
     const automatic = this.bankVerification(settings.monobankAccountId);
-    if (!automatic) await this.requestReview(paymentId);
-    else await this.pollBank();
+    // Admins are asked right away; the bank check (when set up) may confirm it first.
+    await this.requestReview(paymentId);
+    if (automatic) await this.pollBank();
     return { automatic };
   }
 
@@ -511,6 +512,7 @@ export class PaymentService {
         credited += 1;
         open.splice(open.indexOf(payment), 1);
         await this.notifyPaid(payment.user, completed);
+        if (completed.payment.reviewRequestedAt) await this.notifications.notifyAdmins((l) => l.admin.transferAutoConfirmed(payment.code ?? ''));
       } catch (error) {
         // The same bank transaction cannot pay for two orders (unique bankTransactionId).
         if ((error as { code?: string }).code !== 'P2002') throw error;

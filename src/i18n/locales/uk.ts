@@ -578,6 +578,7 @@ export const uk: Locale = {
     transfersTitle: '<b>🔎 Заявки на переказ</b>',
     transfersEmpty: 'Відкритих заявок немає.',
     transferRow: (p) => `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
+    transferAutoConfirmed: (code: string) => `✅ Оплату ${code} підтверджено автоматично за випискою Monobank — натискати нічого не потрібно.`,
     transferReview: (p) =>
       `🔎 <b>Перевір переказ</b> #${p.id}\nКод: <code>${p.code}</code>\nСума: ${p.amount}\nГолосів: ${p.votes}\nПокупець: ${p.buyer}\n\nГроші прийшли? ✅ — нарахувати голоси, ❌ — відхилити.`,
     transferApproved: (id) => `✅ Переказ #${id} підтверджено, голоси нараховано.`,

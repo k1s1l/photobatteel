@@ -102,6 +102,8 @@ describe('transfer orders', () => {
     expect(await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).toMatchObject({ status: 'PAID', bankTransactionId: 'tx-1' });
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(20);
     expect(dmTo(buyer).some((t) => t.includes('Работа получила +20'))).toBe(true);
+    expect(adminTexts().some((t) => t.includes('подтверждена автоматически'))).toBe(false); // nobody pressed "I paid"
+
     expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
   });
 
@@ -136,6 +138,18 @@ describe('transfer orders', () => {
     await expect(ctx.services.payments.claimTransfer(order.payment.id, buyer)).rejects.toMatchObject({ code: 'INVALID_STATE' });
   });
 
+  it('asks the admins as soon as the buyer presses "I paid" and tells them when the bank confirmed it', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    await ctx.services.payments.claimTransfer(order.payment.id, buyer);
+    expect(adminTexts().some((t) => t.includes('Проверь перевод') && t.includes(order.payment.code!))).toBe(true);
+    bank.items = [{ id: 'tx-fast', time: 1, amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! }];
+    expect(await ctx.services.payments.pollBank(new Date(Date.now() + 61_000))).toBe(1);
+    expect(adminTexts().some((t) => t.includes('подтверждена автоматически') && t.includes(order.payment.code!))).toBe(true);
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
@@ -162,13 +176,11 @@ describe('transfer orders', () => {
     const claimed = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     await ctx.services.payments.claimTransfer(claimed.payment.id, buyer);
 
-    // The bank check gets 5 minutes, then the admins are asked.
-    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 4 * 60_000) } });
-    await ctx.services.payments.expireTransfers();
-    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
+    // Even with the bank check, the admins are asked right away — and only once.
+    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
     await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 6 * 60_000) } });
     await ctx.services.payments.expireTransfers();
-    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(true);
+    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
 
     const in31min = new Date(Date.now() + 31 * 60_000);
     await ctx.services.payments.expireTransfers(in31min);
