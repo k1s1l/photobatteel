@@ -29,6 +29,7 @@ export function adminPanelKeyboard(locale: Locale, pending: number): InlineKeybo
     [button(b.delete, 'a:in:delete'), button(b.settings, 'a:set')],
     [button(b.block, 'a:in:block'), button(b.unblock, 'a:in:unblock')],
     [button(b.broadcast, 'a:bc'), button(b.payments, 'a:pay')],
+    [button(b.finalSpots, 'a:fs')],
   ]);
 }
 

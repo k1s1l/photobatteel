@@ -1,4 +1,4 @@
-import type { Battle, FinalSpot, Prisma, PrismaClient, User } from '../../generated/prisma/client.js';
+import type { Battle, BotSettings, FinalSpot, Photo, Prisma, PrismaClient, User } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import { escapeHtml } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
@@ -7,6 +7,7 @@ import type { TelegramGateway } from '../contracts.js';
 import { entryCount, MAX_FINAL_SIZE } from '../duels/sides.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { DraftInput } from '../photos/photo.service.js';
+import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -21,6 +22,22 @@ export interface FinalSpotOptions {
   price: number;
   /** Places on sale per battle (0 = off). */
   maxSpots: number;
+}
+
+/** The sale rules an admin set in the panel. */
+export function spotRules(settings: Pick<BotSettings, 'finalSpotsEnabled' | 'finalSpotCount' | 'finalSpotPrice'>): FinalSpotOptions {
+  return { price: settings.finalSpotPrice, maxSpots: settings.finalSpotsEnabled ? settings.finalSpotCount : 0 };
+}
+
+export const MAX_SPOTS_PER_BATTLE = 2;
+
+export type SpotWithDetails = FinalSpot & { user: User; photo: Photo | null };
+
+export interface SpotsOverview {
+  rules: FinalSpotOptions & { enabled: boolean; count: number };
+  battle: Battle | null;
+  offer: SpotOffer;
+  spots: SpotWithDetails[];
 }
 
 export type SpotUnavailableReason = 'DISABLED' | 'NO_BATTLE' | 'TOO_EARLY' | 'FINAL_STARTED' | 'SOLD_OUT' | 'ALREADY_BOUGHT' | 'STILL_PLAYING';
@@ -96,11 +113,39 @@ export class FinalSpotService {
     private readonly notifications: NotificationService,
     private readonly telegram: TelegramGateway,
     private readonly logger: Logger,
-    readonly options: FinalSpotOptions,
+    private readonly settings: SettingsService,
   ) {}
 
+  private async rules(): Promise<FinalSpotOptions> {
+    return spotRules(await this.settings.get());
+  }
+
   async offer(user: User | null): Promise<SpotOffer> {
-    return spotOffer(this.prisma, user?.id ?? null, this.options);
+    return spotOffer(this.prisma, user?.id ?? null, await this.rules());
+  }
+
+  /** Admin panel: the rules, the current battle and who bought places in it. */
+  async overview(): Promise<SpotsOverview> {
+    const settings = await this.settings.get();
+    const battle = await this.prisma.battle.findFirst({ where: { status: { in: ['SCHEDULED', 'RUNNING'] } }, orderBy: { id: 'desc' } });
+    const spots = battle
+      ? await this.prisma.finalSpot.findMany({ where: { battleId: battle.id }, include: { user: true, photo: true }, orderBy: { id: 'asc' } })
+      : [];
+    return {
+      rules: { ...spotRules(settings), enabled: settings.finalSpotsEnabled, count: settings.finalSpotCount },
+      battle,
+      offer: await spotOffer(this.prisma, null, spotRules(settings)),
+      spots,
+    };
+  }
+
+  /** Admin: returns the Stars of a place that has not gone into the final yet. */
+  async refundByAdmin(spotId: number, adminUserId: number): Promise<boolean> {
+    const spot = await this.prisma.finalSpot.findUnique({ where: { id: spotId } });
+    if (!spot || spot.usedAt || spot.refundedAt) return false;
+    await this.refundUnused([spotId]);
+    await this.activity.log({ action: 'PAYMENT_REFUNDED', userId: adminUserId, entityType: 'FinalSpot', entityId: spotId, details: { by: 'admin' } });
+    return !!(await this.prisma.finalSpot.findUnique({ where: { id: spotId } }))?.refundedAt;
   }
 
   /** Creates a pending Stars order for a place; the caller sends the invoice. */
@@ -144,7 +189,7 @@ export class FinalSpotService {
       if (claimed.count === 0) return { kind: 'duplicate' as const };
       // Serialize sales of the same battle so two buyers cannot take one last place.
       await tx.$executeRaw`SELECT id FROM "Battle" WHERE id = ${payment.finalSpotBattleId} FOR UPDATE`;
-      const offer = await spotOffer(tx, payment.userId, this.options);
+      const offer = await spotOffer(tx, payment.userId, await this.rules());
       if (!offer.available || offer.battle.id !== payment.finalSpotBattleId) return { kind: 'refund' as const, reason: offer.available ? ('FINAL_STARTED' as const) : offer.reason, payment };
       const spot = await tx.finalSpot.create({ data: { battleId: offer.battle.id, userId: payment.userId, paymentId: payment.id } });
       await this.activity.log(
@@ -160,7 +205,8 @@ export class FinalSpotService {
     }
     // Only admins see who bought a place; it is never shown in the channel.
     const who = escapeHtml([result.user.firstName, result.user.username ? `@${result.user.username}` : ''].filter(Boolean).join(' '));
-    await this.notifications.notifyAdmins((l) => l.admin.finalSpotSold({ who, price: this.options.price }));
+    const price = (await this.prisma.payment.findUniqueOrThrow({ where: { id } })).amount;
+    await this.notifications.notifyAdmins((l) => l.admin.finalSpotSold({ who, price }));
     return { kind: 'reserved', spot: result.spot, battle: result.battle };
   }
 
@@ -209,7 +255,7 @@ export class FinalSpotService {
       if (marked.count === 0) continue;
       if (spot.photoId) await this.prisma.photo.updateMany({ where: { id: spot.photoId, status: 'ACCEPTED' }, data: { status: 'CANCELLED' } });
       await this.refundPayment(spot.paymentId, Number(spot.user.telegramId), spot.payment.telegramChargeId);
-      await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.refunded(this.options.price));
+      await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.refunded(spot.payment.amount));
     }
   }
 

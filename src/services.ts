@@ -31,8 +31,6 @@ export interface ServiceDeps {
     TRANSFER_REVIEW_HOURS?: number;
     TRANSFER_REVIEW_AFTER_MINUTES?: number;
     OVERTIME_MINUTES?: number;
-    FINAL_SPOTS?: number;
-    FINAL_SPOT_PRICE?: number;
   };
   /** Bank statement reader; defaults to Monobank when MONOBANK_TOKEN is set (tests pass a fake). */
   bank?: BankClient | null;
@@ -71,10 +69,7 @@ export function createServices(deps: ServiceDeps): Services {
     timeZone: env.TIMEZONE,
     maxTiebreaks: env.MAX_TIEBREAKS,
   });
-  const finalSpots = new FinalSpotService(prisma, activity, notifications, telegram, logger, {
-    price: env.FINAL_SPOT_PRICE ?? 25,
-    maxSpots: env.FINAL_SPOTS ?? 2,
-  });
+  const finalSpots = new FinalSpotService(prisma, activity, notifications, telegram, logger, settings);
   battles.attachFinalSpots(finalSpots);
   const duelVotes = new DuelVoteService(prisma, settings, scheduler, telegram, channel);
   const photos = new PhotoService(prisma, settings, battles, activity, notifications, logger);

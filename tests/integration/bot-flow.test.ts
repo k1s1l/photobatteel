@@ -319,6 +319,40 @@ describe('bot: place in the final', () => {
   });
 });
 
+describe('bot: admin — places in the final', () => {
+  it('shows buyers and lets the admin change count, price, switch the sale off and refund a buyer', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 6; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.updateMany({ where: { status: 'ACTIVE' }, data: { votesA: 1 } });
+    await expireDuels(ctx);
+    const buyer = await ctx.prisma.user.update({ where: { id: (await createUser(ctx)).id }, data: { consentAt: new Date(), firstName: 'Buyer' } });
+    const invoice = await ctx.services.finalSpots.createInvoice(buyer);
+    await ctx.services.finalSpots.completePayment({ payload: invoice.payload, telegramUserId: Number(buyer.telegramId), telegramChargeId: 'adm-1' });
+
+    await press(ADMIN_TG_ID, 'a:fs');
+    const screen = texts('editMessageText').at(-1)!;
+    expect(screen).toContain('Места в финале');
+    expect(screen).toContain('Buyer');
+    expect(screen).toContain('ждём фото');
+
+    await press(ADMIN_TG_ID, 'a:fs:cnt');
+    expect((await ctx.services.settings.get()).finalSpotCount).toBe(1);
+    await press(ADMIN_TG_ID, 'a:fs:price');
+    await sendText(ADMIN_TG_ID, '30');
+    expect((await ctx.services.settings.get()).finalSpotPrice).toBe(30);
+
+    const spot = await ctx.prisma.finalSpot.findFirstOrThrow();
+    await press(ADMIN_TG_ID, `a:fs:rf:${spot.id}`);
+    await press(ADMIN_TG_ID, `a:fs:rfy:${spot.id}`);
+    expect(ctx.telegram.callsOf('refundStarPayment').map((c) => c.args[0])).toEqual(['adm-1']);
+
+    await press(ADMIN_TG_ID, 'a:fs:tog');
+    expect(await ctx.services.finalSpots.offer(null)).toMatchObject({ available: false, reason: 'DISABLED' });
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

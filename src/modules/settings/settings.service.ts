@@ -18,6 +18,9 @@ export type SettingsPatch = Partial<
     | 'transferEnabled'
     | 'transferDetails'
     | 'monobankAccountId'
+    | 'finalSpotsEnabled'
+    | 'finalSpotCount'
+    | 'finalSpotPrice'
   >
 >;
 
@@ -55,6 +58,12 @@ export class SettingsService {
   async update(patch: SettingsPatch, actorUserId: number | null): Promise<BotSettings> {
     if (patch.maxPhotosPerBattle !== undefined && (!Number.isInteger(patch.maxPhotosPerBattle) || patch.maxPhotosPerBattle < 0 || patch.maxPhotosPerBattle > 100)) {
       throw new RangeError('Invalid maxPhotosPerBattle');
+    }
+    if (patch.finalSpotCount !== undefined && (!Number.isInteger(patch.finalSpotCount) || patch.finalSpotCount < 1 || patch.finalSpotCount > 2)) {
+      throw new RangeError('Invalid finalSpotCount');
+    }
+    if (patch.finalSpotPrice !== undefined && (!Number.isInteger(patch.finalSpotPrice) || patch.finalSpotPrice < 1 || patch.finalSpotPrice > 100_000)) {
+      throw new RangeError('Invalid finalSpotPrice');
     }
     const templates = TEMPLATE_PATCH_KEYS.filter((key) => patch[key] !== undefined);
     if (templates.some((key) => (patch[key]?.length ?? 0) > MAX_TEMPLATE_LENGTH)) throw new RangeError('Template is too long');
