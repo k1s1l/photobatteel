@@ -63,6 +63,9 @@ const envSchema = z
     TRANSFER_REVIEW_AFTER_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(5),
     /** Paid votes in the last N minutes of a pair extend its voting to N minutes from that moment (0 = off). */
     OVERTIME_MINUTES: z.coerce.number().int().min(0).max(60).default(5),
+    /** Places in the final sold per battle for Stars (0 = off) and their price. */
+    FINAL_SPOTS: z.coerce.number().int().min(0).max(2).default(2),
+    FINAL_SPOT_PRICE: z.coerce.number().int().min(1).max(100_000).default(25),
     /** Hours a claimed transfer waits for an admin before it is cancelled. */
     TRANSFER_REVIEW_HOURS: z.coerce.number().int().min(1).max(7 * 24).default(12),
     DEFAULT_LANGUAGE: z.enum(['uk', 'ru']).default('uk'),

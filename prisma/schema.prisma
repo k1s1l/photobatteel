@@ -140,6 +140,7 @@ model User {
   broadcasts     Broadcast[]
   payments       Payment[]
   paidVotes      PaidVote[]
+  finalSpots     FinalSpot[]
 
   @@index([votesReceived])
   @@index([username])
@@ -194,6 +195,7 @@ model Photo {
   paidVoteEntries PaidVote[]
   payments        Payment[]
   wonBattle       Battle?    @relation("BattleWinner")
+  finalSpot       FinalSpot?
 
   @@index([userId, status])
   @@index([battleId, status])
@@ -225,8 +227,9 @@ model Battle {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  photos Photo[] @relation("BattlePhotos")
-  duels  Duel[]
+  photos     Photo[]     @relation("BattlePhotos")
+  duels      Duel[]
+  finalSpots FinalSpot[]
 
   @@index([status, startsAt])
 }
@@ -385,6 +388,9 @@ model Payment {
   claimedAt        DateTime?
   reviewRequestedAt DateTime?    // admins were asked to check it manually
   confirmedById    Int?          // admin who confirmed or rejected it manually
+  /// Set when the payment buys a place in this battle's final (votes = 0)
+  finalSpotBattleId Int?
+  finalSpot         FinalSpot?
   createdAt        DateTime      @default(now())
   paidAt           DateTime?
   refundedAt       DateTime?
@@ -412,4 +418,29 @@ model PaidVote {
   @@index([photoId])
   @@index([duelId, stage])
   @@index([userId, createdAt])
+}
+
+
+/**
+ * A place in a battle's final bought for Stars. The buyer then sends a photo or
+ * video (photoId), which joins the final post when the final round starts.
+ */
+model FinalSpot {
+  id        Int       @id @default(autoincrement())
+  battleId  Int
+  battle    Battle    @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentId Int       @unique
+  payment   Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  photoId   Int?      @unique
+  photo     Photo?    @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  /// The entry was put into the final post
+  usedAt     DateTime?
+  /// Stars returned (no photo before the final, or the battle was cancelled)
+  refundedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([battleId, userId])
+  @@index([battleId])
 }

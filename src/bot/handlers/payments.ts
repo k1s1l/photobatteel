@@ -1,3 +1,4 @@
+import { answerFinalSpotCheckout, completeFinalSpot, isFinalSpotPayload } from './final-spots.js';
 import type { Telegraf } from 'telegraf';
 import { entriesOf, entryCount, PHOTO_ID_FIELD, sideFromLetter, sideNumber } from '../../modules/duels/sides.js';
 import { message } from 'telegraf/filters';
@@ -167,6 +168,7 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
 
   bot.on('pre_checkout_query', async (ctx) => {
     const query = ctx.preCheckoutQuery;
+    if (isFinalSpotPayload(query.invoice_payload)) return answerFinalSpotCheckout(ctx);
     const problem = await ctx.deps.services.payments.validateCheckout({
       payload: query.invoice_payload,
       telegramUserId: query.from.id,
@@ -184,6 +186,7 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
 
   bot.on(message('successful_payment'), async (ctx) => {
     const paid = ctx.message.successful_payment;
+    if (isFinalSpotPayload(paid.invoice_payload)) return completeFinalSpot(ctx, paid);
     const result = await ctx.deps.services.payments.completePayment({
       payload: paid.invoice_payload,
       telegramUserId: ctx.from.id,

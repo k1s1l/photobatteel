@@ -22,7 +22,9 @@ export type DomainErrorCode =
   | 'NOT_SUBSCRIBED'
   | 'INSUFFICIENT_BALANCE'
   | 'PAYMENTS_DISABLED'
-  | 'VOTING_STARTED';
+  | 'VOTING_STARTED'
+  | 'FINAL_SPOT_UNAVAILABLE'
+  | 'FINAL_SPOTS_TAKEN';
 
 export class DomainError extends Error {
   constructor(

@@ -26,7 +26,7 @@ export function testPrisma(): PrismaClient {
   return shared;
 }
 
-const TABLES = ['ActivityLog', 'PaidVote', 'Payment', 'VotePackage', 'DuelVote', 'Duel', 'Broadcast', 'Photo', 'Battle', 'Admin', 'BotSettings', 'User'];
+const TABLES = ['ActivityLog', 'FinalSpot', 'PaidVote', 'Payment', 'VotePackage', 'DuelVote', 'Duel', 'Broadcast', 'Photo', 'Battle', 'Admin', 'BotSettings', 'User'];
 
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`);

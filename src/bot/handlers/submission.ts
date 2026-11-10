@@ -133,6 +133,29 @@ async function handleIncomingMedia(ctx: BotContext, msg: MediaMessage): Promise<
     return;
   }
 
+  // A bought place in the final: this media is the buyer's work for the final.
+  if (await services.finalSpots.openSpot(user.id)) {
+    const done = await locks.withLock(`intake:${user.id}`, INTAKE_LOCK_MS, async () => {
+      const progress = await ctx.reply(ctx.locale.submission.processing);
+      try {
+        const { input, upload } = await prepareDraft(ctx, media);
+        if (upload) {
+          // Image files are re-uploaded as photos so they can be published in a collage.
+          const sent = await ctx.replyWithPhoto({ source: upload, filename: 'final.jpg' });
+          input.fileId = sent.photo.at(-1)?.file_id ?? input.fileId;
+        }
+        await services.finalSpots.attachPhoto(user, input);
+      } finally {
+        await ctx.deleteMessage(progress.message_id).catch(() => undefined);
+      }
+      return true;
+    });
+    if (done === undefined) await ctx.reply(ctx.locale.common.busy);
+    else await ctx.reply(ctx.locale.finalSpot.photoAccepted);
+    setState(ctx, undefined);
+    return;
+  }
+
   const result = await locks.withLock(`intake:${user.id}`, INTAKE_LOCK_MS, async () => {
     const battle = await services.photos.assertCanSubmit(user);
     const progress = await ctx.reply(ctx.locale.submission.processing);

@@ -3,6 +3,7 @@ import type { Battle } from '../../generated/prisma/client.js';
 import { allTranslations, type Locale } from '../../i18n/index.js';
 import { escapeHtml, formatDate, formatDateTime } from '../../lib/format.js';
 import { currentUser, type BotContext } from '../context.js';
+import { button, inline } from '../keyboards.js';
 
 export function battleStatusLabel(locale: Locale, battle: Battle): string {
   switch (battle.status) {
@@ -38,6 +39,9 @@ async function showBattle(ctx: BotContext): Promise<void> {
     await ctx.reply(ctx.locale.battle.none);
     return;
   }
+  // A place in the final for Stars, when it is on sale for this user.
+  const offer = await ctx.deps.services.finalSpots.offer(currentUser(ctx));
+  const keyboard = offer.available ? inline([[button(ctx.locale.finalSpot.button(offer.price), 'fs:buy')]]) : undefined;
   await ctx.reply(
     ctx.locale.battle.info({
       title: escapeHtml(battle.title),
@@ -46,8 +50,10 @@ async function showBattle(ctx: BotContext): Promise<void> {
       round: battle.currentRound,
       entries: await battles.entriesCount(battle.id),
     }),
-    { parse_mode: 'HTML' },
+    { parse_mode: 'HTML', ...(keyboard ? { reply_markup: keyboard } : {}) },
   );
+  const spot = await ctx.deps.services.finalSpots.openSpot(currentUser(ctx).id);
+  if (spot && !spot.photoId) await ctx.reply(ctx.locale.finalSpot.waitingPhoto);
 }
 
 export function registerProfileHandlers(bot: Telegraf<BotContext>): void {

@@ -6,7 +6,7 @@ import { createBot } from '../../src/bot/bot.js';
 import type { BotContext } from '../../src/bot/context.js';
 import { parseEnv } from '../../src/config/env.js';
 import { LockService } from '../../src/lib/locks.js';
-import { ADMIN_TG_ID, CHANNEL, createEntry, createTestContext, createUser, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
+import { ADMIN_TG_ID, CHANNEL, createEntry, createTestContext, createUser, expireDuels, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 import { TEST_REDIS_URL } from '../helpers/env.js';
 import { silentLogger } from '../helpers/fakes.js';
 import { makeJpeg, makeUniqueJpeg } from '../helpers/images.js';
@@ -281,6 +281,41 @@ describe('bot: voting under duel posts', () => {
     } as Update);
     expect(texts('sendMessage').at(-1)).toContain('Работа получила +10');
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(10);
+  });
+});
+
+describe('bot: place in the final', () => {
+  it('sells a place for Stars from the battle screen and takes the photo for the final', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 6; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.updateMany({ where: { status: 'ACTIVE' }, data: { votesA: 1 } });
+    await expireDuels(ctx);
+
+    await consent(90);
+    await sendText(90, '/battle');
+    const info = api.filter((c) => c.method === 'sendMessage').at(-1)!;
+    expect(JSON.stringify(info.payload.reply_markup)).toContain('fs:buy');
+    await press(90, 'fs:buy');
+    const invoice = api.find((c) => c.method === 'sendInvoice')!;
+    expect(invoice.payload).toMatchObject({ currency: 'XTR', provider_token: '', prices: [{ amount: 25 }] });
+    const payload = String(invoice.payload.payload);
+    expect(payload.startsWith('spot:')).toBe(true);
+
+    await bot.handleUpdate({ update_id: updateId++, pre_checkout_query: { id: 'pcq-fs', from: from(90), currency: 'XTR', total_amount: 25, invoice_payload: payload } } as Update);
+    expect(api.filter((c) => c.method === 'answerPreCheckoutQuery').at(-1)?.payload).toMatchObject({ ok: true });
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: { message_id: messageId++, date: 0, chat: privateChat(90), from: from(90), successful_payment: { currency: 'XTR', total_amount: 25, invoice_payload: payload, telegram_payment_charge_id: 'fs-1', provider_payment_charge_id: '' } },
+    } as Update);
+    expect(texts('sendMessage').at(-1)).toContain('Место в финале твоё');
+
+    ctx.telegram.files.set('final90', await makeUniqueJpeg(90));
+    await sendPhoto(90, 'final90', 'fu90');
+    expect(texts('sendMessage').at(-1)).toContain('Работа принята в финал');
+    const spot = await ctx.prisma.finalSpot.findFirstOrThrow({ include: { photo: true } });
+    expect(spot.photo).toMatchObject({ fileUniqueId: 'fu90', status: 'ACCEPTED', battleId: battle.id });
   });
 });
 

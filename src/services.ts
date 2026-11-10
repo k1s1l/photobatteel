@@ -1,3 +1,4 @@
+import { FinalSpotService } from './modules/final-spots/final-spot.service.js';
 import type { PrismaClient } from './generated/prisma/client.js';
 import type { Env } from './config/env.js';
 import { getLocale, setDefaultLanguage } from './i18n/index.js';
@@ -30,6 +31,8 @@ export interface ServiceDeps {
     TRANSFER_REVIEW_HOURS?: number;
     TRANSFER_REVIEW_AFTER_MINUTES?: number;
     OVERTIME_MINUTES?: number;
+    FINAL_SPOTS?: number;
+    FINAL_SPOT_PRICE?: number;
   };
   /** Bank statement reader; defaults to Monobank when MONOBANK_TOKEN is set (tests pass a fake). */
   bank?: BankClient | null;
@@ -47,6 +50,7 @@ export interface Services {
   stats: StatsService;
   broadcasts: BroadcastService;
   payments: PaymentService;
+  finalSpots: FinalSpotService;
 }
 
 /**
@@ -67,6 +71,11 @@ export function createServices(deps: ServiceDeps): Services {
     timeZone: env.TIMEZONE,
     maxTiebreaks: env.MAX_TIEBREAKS,
   });
+  const finalSpots = new FinalSpotService(prisma, activity, notifications, telegram, logger, {
+    price: env.FINAL_SPOT_PRICE ?? 25,
+    maxSpots: env.FINAL_SPOTS ?? 2,
+  });
+  battles.attachFinalSpots(finalSpots);
   const duelVotes = new DuelVoteService(prisma, settings, scheduler, telegram, channel);
   const photos = new PhotoService(prisma, settings, battles, activity, notifications, logger);
   const stats = new StatsService(prisma);
@@ -91,5 +100,5 @@ export function createServices(deps: ServiceDeps): Services {
     bank,
   );
 
-  return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments };
+  return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments, finalSpots };
 }

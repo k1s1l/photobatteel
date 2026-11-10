@@ -13,6 +13,7 @@ import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
 import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, SIDES, sideNumber, voteList, votesOf } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
+import { isFinalRound, takenSpots, type FinalSpotService } from '../final-spots/final-spot.service.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
@@ -63,10 +64,7 @@ export function shuffle<T>(items: readonly T[]): T[] {
   return result;
 }
 
-/** The final: the round where all remaining entries fit in one post. */
-export function isFinalRound(battle: Pick<Battle, 'finalSize'>, entriesInRound: number): boolean {
-  return entriesInRound <= Math.max(2, battle.finalSize);
-}
+export { isFinalRound };
 
 /** Voting time of a pair: tiebreak reposts, the final and regular rounds can differ. */
 export function votingMinutes(battle: Pick<Battle, 'roundMinutes' | 'finalMinutes' | 'tiebreakMinutes' | 'finalSize'>, stage: number, entriesInRound: number): number {
@@ -106,6 +104,12 @@ export function pairEntries(ids: readonly number[]): { a: number; b: number | nu
  */
 export class BattleService {
   private lastAdminAlert = 0;
+  private finalSpots: FinalSpotService | null = null;
+
+  /** Bought places in the final are refunded through this service (set after construction). */
+  attachFinalSpots(service: FinalSpotService): void {
+    this.finalSpots = service;
+  }
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -163,6 +167,8 @@ export class BattleService {
     if (!Number.isInteger(size) || size < 2 || size > MAX_FINAL_SIZE) throw new RangeError('Invalid final size');
     const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
     if (!battle || (battle.status !== 'SCHEDULED' && battle.status !== 'RUNNING')) throw new DomainError('INVALID_STATE');
+    const taken = await takenSpots(this.prisma, battleId);
+    if (size + taken > MAX_FINAL_SIZE) throw new DomainError('FINAL_SPOTS_TAKEN', { taken });
 
     let rebuild: Duel[] | null = null;
     if (battle.status === 'RUNNING' && battle.currentRound > 0) {
@@ -180,20 +186,26 @@ export class BattleService {
       }
     }
 
+    let refund: number[] = [];
     const updated = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.battle.update({ where: { id: battleId }, data: { finalSize: size } });
+      let saved = await tx.battle.update({ where: { id: battleId }, data: { finalSize: size } });
       if (rebuild) {
-        const ids = rebuild.flatMap((duel) => entriesOf(duel).map((entry) => entry.photoId));
+        const spots = await this.takeSpotsIntoFinal(tx, battleId);
+        refund = spots.refund;
+        const ids = [...rebuild.flatMap((duel) => entriesOf(duel).map((entry) => entry.photoId)), ...spots.photoIds];
+        const finalSize = Math.min(MAX_FINAL_SIZE, Math.max(size, ids.length));
+        if (finalSize !== size) saved = await tx.battle.update({ where: { id: battleId }, data: { finalSize } });
         await tx.duel.deleteMany({ where: { id: { in: rebuild.map((duel) => duel.id) } } });
-        await this.createRound(tx, battleId, battle.currentRound, ids, size);
+        await this.createRound(tx, battleId, battle.currentRound, spots.photoIds.length > 0 ? shuffle(ids) : ids, finalSize);
       }
       await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finalSize: size, rebuilt: !!rebuild } }, tx);
       return saved;
     });
+    if (refund.length > 0) await this.finalSpots?.refundUnused(refund);
     if (rebuild) {
       // Posts of the old pairs that are already in the channel are removed.
       await this.deleteMessages(rebuild.flatMap((duel) => [...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]));
-      const entries = rebuild.reduce((sum, duel) => sum + entryCount(duel), 0);
+      const entries = await this.roundEntries(battleId, battle.currentRound);
       await this.notifications.notifyAdmins((l) => l.admin.finalRebuilt(entries));
       await this.prepareAnnouncement(await this.roundAnnouncement(updated, battle.currentRound, entries));
       await this.scheduler.triggerTick();
@@ -265,6 +277,8 @@ export class BattleService {
       return open;
     });
     for (const duel of duels) if (duel.messageId) await this.closeButtons(duel, 'tie');
+    const unused = await this.prisma.finalSpot.findMany({ where: { battleId, refundedAt: null, usedAt: null }, select: { id: true } });
+    if (unused.length > 0) await this.finalSpots?.refundUnused(unused.map((spot) => spot.id));
     return this.prisma.battle.findUniqueOrThrow({ where: { id: battleId } });
   }
 
@@ -629,13 +643,27 @@ export class BattleService {
         (await tx.photo.findMany({ where: { id: { in: winnerIds }, status: 'IN_BATTLE' }, select: { id: true } })).map((photo) => photo.id),
       );
       const winners = winnerIds.filter((id) => stillIn.has(id));
-      if (winners.length <= 1) return { final: winners[0] ?? null, battle };
+      // The final is next: bought places with a photo join it, places without one are refunded.
+      let ids = winners;
+      let finalSize = battle.finalSize;
+      let refund: number[] = [];
+      if (winners.length <= Math.max(2, battle.finalSize)) {
+        const spots = await this.takeSpotsIntoFinal(tx, battleId);
+        refund = spots.refund;
+        if (spots.photoIds.length > 0) {
+          ids = shuffle([...winners, ...spots.photoIds]);
+          finalSize = Math.min(MAX_FINAL_SIZE, Math.max(battle.finalSize, ids.length));
+          await tx.battle.update({ where: { id: battleId }, data: { finalSize } });
+        }
+      }
+      if (ids.length <= 1) return { final: ids[0] ?? null, battle, refund };
       const claimed = await tx.battle.updateMany({ where: { id: battleId, currentRound: battle.currentRound }, data: { currentRound: battle.currentRound + 1 } });
       if (claimed.count === 0) return null;
-      await this.createRound(tx, battleId, battle.currentRound + 1, winners, battle.finalSize);
-      return { final: undefined, battle, round: battle.currentRound + 1, entries: winners.length };
+      await this.createRound(tx, battleId, battle.currentRound + 1, ids, finalSize);
+      return { final: undefined, battle: { ...battle, finalSize }, round: battle.currentRound + 1, entries: ids.length, refund };
     });
     if (!next) return;
+    if (next.refund.length > 0) await this.finalSpots?.refundUnused(next.refund);
     if (next.final !== undefined) {
       if (next.final === null) await this.cancelEmpty(battleId);
       else await this.finishBattle(battleId, next.final);
@@ -796,6 +824,17 @@ export class BattleService {
       }
     }
     await this.notifications.notifyUser(photo.user, (l) => l.battle.byeDm(round));
+  }
+
+  /** Bought places whose photo is ready join the final; places without a photo are refunded. */
+  private async takeSpotsIntoFinal(tx: Prisma.TransactionClient, battleId: number): Promise<{ photoIds: number[]; refund: number[] }> {
+    const spots = await tx.finalSpot.findMany({ where: { battleId, refundedAt: null, usedAt: null }, include: { photo: true }, orderBy: { id: 'asc' } });
+    const ready = spots.filter((spot) => spot.photo?.status === 'ACCEPTED');
+    if (ready.length > 0) {
+      await tx.finalSpot.updateMany({ where: { id: { in: ready.map((spot) => spot.id) } }, data: { usedAt: new Date() } });
+      await tx.photo.updateMany({ where: { id: { in: ready.map((spot) => spot.photoId!) } }, data: { status: 'IN_BATTLE' } });
+    }
+    return { photoIds: ready.map((spot) => spot.photoId!), refund: spots.filter((spot) => !ready.includes(spot)).map((spot) => spot.id) };
   }
 
   /** Channel announcements are prepared for the admins too: a short note, then the ready text to forward. */
