@@ -353,6 +353,27 @@ describe('bot: admin — places in the final', () => {
   });
 });
 
+describe('bot: invite friends', () => {
+  it('counts a friend who opened the bot by the link and voted in the channel', async () => {
+    await sendText(300, '/start');
+    const inviter = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: 300n } });
+    await sendText(300, '/invite');
+    expect(texts('sendMessage').at(-1)).toContain(`start=ref_${inviter.id.toString(36)}`);
+
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 2; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+
+    await sendText(301, `/start ref_${inviter.id.toString(36)}`);
+    expect((await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: 301n } })).referredById).toBe(inviter.id);
+    await press(301, `d:${duel.id}:0:a`, { id: CHANNEL.id, type: 'channel' });
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: inviter.id } })).referralsCount).toBe(1);
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => String(c.args[0]).includes('Друг засчитан'))).toBe(true);
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

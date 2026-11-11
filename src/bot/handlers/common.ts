@@ -14,6 +14,8 @@ export async function showMainMenu(ctx: BotContext, text: string): Promise<void>
 export function registerCommonHandlers(bot: Telegraf<BotContext>): void {
   bot.start(async (ctx) => {
     setState(ctx, undefined);
+    // Invite link t.me/<bot>?start=ref_<id>: only people new to the bot count as friends.
+    if (ctx.isNewUser) await ctx.deps.services.referrals.attach(currentUser(ctx), ctx.payload);
     await showMainMenu(ctx, ctx.locale.start.welcome);
     // Deep link from the "⭐ +1" button under a duel: t.me/<bot>?start=duel_<id>
     const duel = /^duel_(\d{1,9})$/.exec(ctx.payload ?? '');

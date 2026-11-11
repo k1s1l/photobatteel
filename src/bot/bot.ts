@@ -9,6 +9,7 @@ import { registerProfileHandlers } from './handlers/profile.js';
 import { registerSubmissionHandlers } from './handlers/submission.js';
 import { registerPaymentHandlers } from './handlers/payments.js';
 import { registerFinalSpotHandlers } from './handlers/final-spots.js';
+import { registerReferralHandlers } from './handlers/referrals.js';
 import { registerVoteHandlers } from './handlers/votes.js';
 import { channelPosts } from './middlewares/channel-posts.js';
 import { chatFilter } from './middlewares/chat-filter.js';
@@ -49,6 +50,7 @@ export function createBot(bot: Telegraf<BotContext>, deps: AppContextDeps, redis
   registerProfileHandlers(bot);
   registerPaymentHandlers(bot);
   registerFinalSpotHandlers(bot);
+  registerReferralHandlers(bot);
   registerFallback(bot);
 
   bot.catch((error, ctx) => {

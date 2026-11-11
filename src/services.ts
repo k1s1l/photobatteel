@@ -1,4 +1,5 @@
 import { FinalSpotService } from './modules/final-spots/final-spot.service.js';
+import { ReferralService } from './modules/referrals/referral.service.js';
 import type { PrismaClient } from './generated/prisma/client.js';
 import type { Env } from './config/env.js';
 import { getLocale, setDefaultLanguage } from './i18n/index.js';
@@ -49,6 +50,7 @@ export interface Services {
   broadcasts: BroadcastService;
   payments: PaymentService;
   finalSpots: FinalSpotService;
+  referrals: ReferralService;
 }
 
 /**
@@ -95,5 +97,6 @@ export function createServices(deps: ServiceDeps): Services {
     bank,
   );
 
-  return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments, finalSpots };
+  const referrals = new ReferralService(prisma, activity, notifications, deps.bot.username);
+  return { activity, settings, admins, users, notifications, battles, duelVotes, photos, stats, broadcasts, payments, finalSpots, referrals };
 }

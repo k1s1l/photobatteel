@@ -14,6 +14,7 @@ export const loadUser: MiddlewareFn<BotContext> = async (ctx, next) => {
   const privateChat = ctx.chat?.type === 'private' || (!ctx.chat && !ctx.callbackQuery);
   const { user, isNew } = await users.upsertFromTelegram(ctx.from, { privateChat });
   ctx.user = user;
+  ctx.isNewUser = isNew;
   ctx.locale = getLocale(user.languageCode);
   ctx.isAdmin = await admins.isAdmin(ctx.from.id);
   if (ctx.isAdmin && isNew) await admins.linkUser(ctx.from.id, user.id);

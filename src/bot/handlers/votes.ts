@@ -19,6 +19,8 @@ export function registerVoteHandlers(bot: Telegraf<BotContext>): void {
         ctx.deps.services.duelVotes.vote(duelId, stage, side, user),
       );
       if (!result) return answer(ctx, ctx.locale.common.busy);
+      // A friend who came through an invite link counts once they vote.
+      if (result.side) await ctx.deps.services.referrals.countVote(user.id);
       await answer(ctx, result.side ? ctx.locale.duel.voted(sideNumber(result.side)) : ctx.locale.duel.withdrawn);
     } catch (error) {
       if (!isDomainError(error)) throw error;

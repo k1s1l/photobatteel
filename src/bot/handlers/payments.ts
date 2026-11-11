@@ -39,6 +39,7 @@ async function salesEnabled(ctx: BotContext): Promise<boolean> {
 export async function showVotesMenu(ctx: BotContext): Promise<void> {
   if (!(await salesEnabled(ctx))) return;
   const rows = await packButtons(ctx, 0)();
+  rows.push([button(ctx.locale.referrals.menuButton, 'ref:show')]);
   await ctx.reply(ctx.locale.payments.menu({ balance: currentUser(ctx).voteBalance }), { parse_mode: 'HTML', reply_markup: inline(rows) });
 }
 

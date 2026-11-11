@@ -129,6 +129,13 @@ model User {
   photosPublished Int       @default(0)
   votesReceived   Int       @default(0)
   voteBalance     Int       @default(0) // purchased votes not spent yet
+  /// Invited by this user (start=ref_…); counted once the friend votes in the channel
+  referredById      Int?
+  referredBy        User?     @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals         User[]    @relation("Referrals")
+  referralCountedAt DateTime?
+  referralsCount    Int       @default(0) // friends who joined and voted
+  referralRewards   Int       @default(0) // bonuses already given (one per 5 friends)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   lastActiveAt    DateTime  @default(now())

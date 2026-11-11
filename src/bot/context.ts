@@ -39,6 +39,8 @@ export interface BotContext extends Context {
   /** Registered profile of the sender; set by the user middleware for every update with a sender. */
   user?: User;
   isAdmin: boolean;
+  /** The sender wrote to the bot for the first time with this update. */
+  isNewUser?: boolean;
   locale: Locale;
 }
 
