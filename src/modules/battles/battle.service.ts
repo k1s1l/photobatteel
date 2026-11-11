@@ -32,6 +32,9 @@ const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const ADMIN_ALERT_INTERVAL_MS = 30 * 60_000;
 /** Admins are reminded once when a prepared duel post is not published within this time. */
 const PUBLISH_REMINDER_MS = 10 * 60_000;
+/** A pair waiting for a card transfer stays open 5 minutes at a time, at most 30 minutes after "I paid". */
+const TRANSFER_HOLD_STEP_MS = 5 * 60_000;
+const TRANSFER_HOLD_MAX_MS = 30 * 60_000;
 
 export interface BattleOptions {
   timeZone: string;
@@ -288,7 +291,10 @@ export class BattleService {
     for (const battle of due) await this.start(battle.id);
 
     const expired = await this.prisma.duel.findMany({ where: { status: 'ACTIVE', endsAt: { lte: now } }, select: { id: true, stage: true } });
-    for (const duel of expired) await this.closeDuel(duel.id, duel.stage);
+    for (const duel of expired) {
+      if (await this.holdForTransfer(duel.id, now)) continue;
+      await this.closeDuel(duel.id, duel.stage);
+    }
 
     const running = await this.prisma.battle.findMany({ where: { status: 'RUNNING' } });
     for (const battle of running) await this.advance(battle.id);
@@ -860,6 +866,42 @@ export class BattleService {
     await this.notifications.notifyAdmins((l) => l.admin.finalJoined(size));
     // Admins get the new final post (now with the extra entry) to publish again.
     if (final.status === 'READY' || final.status === 'ACTIVE') await this.republish(final.id, null);
+    return true;
+  }
+
+  private readonly heldPayments = new Set<number>();
+
+  /**
+   * A card transfer for an entry of this pair is being paid or waits for an
+   * admin: the pair stays open (5 more minutes at a time, at most 30 minutes
+   * after "I paid"), so the votes count where they were meant to.
+   */
+  private async holdForTransfer(duelId: number, now: Date): Promise<boolean> {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId } });
+    if (duel?.status !== 'ACTIVE') return false;
+    const pending = await this.prisma.payment.findFirst({
+      where: {
+        method: 'TRANSFER',
+        targetPhotoId: { in: entriesOf(duel).map((entry) => entry.photoId) },
+        OR: [
+          { status: 'CLAIMED', claimedAt: { gte: new Date(now.getTime() - TRANSFER_HOLD_MAX_MS) } },
+          { status: 'PENDING', expiresAt: { gt: now } },
+        ],
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (!pending) return false;
+    const endsAt = new Date(now.getTime() + TRANSFER_HOLD_STEP_MS);
+    const held = await this.prisma.duel.updateMany({ where: { id: duel.id, status: 'ACTIVE', stage: duel.stage }, data: { endsAt } });
+    if (held.count === 0) return false;
+    await this.scheduler.scheduleTickAt(endsAt, `hold-${duel.id}-${endsAt.getTime()}`);
+    if (pending.status === 'CLAIMED' && !this.heldPayments.has(pending.id)) {
+      this.heldPayments.add(pending.id);
+      const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
+      const finalSize = (await this.prisma.battle.findUnique({ where: { id: duel.battleId }, select: { finalSize: true } }))?.finalSize ?? 2;
+      const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage: duel.stage, finalSize };
+      await this.notifications.notifyAdmins((l) => l.admin.duelHeldForTransfer({ stage: stageValues(l, stageInfo).stage as string, code: pending.code ?? '' }));
+    }
     return true;
   }
 

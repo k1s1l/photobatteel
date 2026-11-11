@@ -150,6 +150,55 @@ describe('transfer orders', () => {
     expect(adminTexts().some((t) => t.includes('подтверждена автоматически') && t.includes(order.payment.code!))).toBe(true);
   });
 
+  it('keeps a pair open while a card transfer for it waits for the admin, so the votes count in the pair', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(false);
+    const battle = await openBattle(ctx);
+    await createEntry(ctx, await createUser(ctx));
+    await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, duel.photoBId);
+    await ctx.services.payments.claimTransfer(order.payment.id, buyer);
+
+    // Time is up, but the transfer is not confirmed yet: the pair stays open and the admins are reminded.
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+    await ctx.services.battles.tick();
+    const held = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } });
+    expect(held.status).toBe('ACTIVE');
+    expect(held.endsAt!.getTime()).toBeGreaterThan(Date.now() + 4 * 60_000);
+    expect(adminTexts().some((t) => t.includes('ждёт подтверждения перевод') && t.includes(order.payment.code!))).toBe(true);
+
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: BigInt(ADMIN_TG_ID) } });
+    await ctx.services.payments.reviewTransfer(order.payment.id, admin.id, true);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(pack!.votes);
+
+    // With nothing pending the pair closes as usual.
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+    await ctx.services.battles.tick();
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('FINISHED');
+  });
+
+  it('stops holding a pair 30 minutes after "I paid"', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(false);
+    const battle = await openBattle(ctx);
+    await createEntry(ctx, await createUser(ctx));
+    await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, duel.photoAId);
+    await ctx.services.payments.claimTransfer(order.payment.id, buyer);
+    await ctx.prisma.payment.update({ where: { id: order.payment.id }, data: { claimedAt: new Date(Date.now() - 31 * 60_000) } });
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() - 1000), votesA: 1 } });
+    await ctx.services.battles.tick();
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('FINISHED');
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);

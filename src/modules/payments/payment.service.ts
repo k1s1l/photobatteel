@@ -121,6 +121,25 @@ export class PaymentService {
     readonly bank: BankClient | null = null,
   ) {}
 
+  /** Overtime: a pair with less than N minutes left gets N minutes from now. */
+  private async extendNearEnd(db: Db, duel: Duel): Promise<void> {
+    const overtimeMs = (this.options.overtimeMinutes ?? 0) * 60_000;
+    const now = Date.now();
+    if (overtimeMs <= 0 || !duel.endsAt || duel.endsAt.getTime() - now >= overtimeMs) return;
+    const endsAt = new Date(now + overtimeMs);
+    const extended = await db.duel.updateMany({ where: { id: duel.id, status: 'ACTIVE', stage: duel.stage, endsAt: { lt: endsAt } }, data: { endsAt } });
+    if (extended.count > 0) this.pendingOvertime.push({ duelId: duel.id, stage: duel.stage, endsAt });
+  }
+
+  /** Somebody started paying for an entry: its pair must not close before the payment can count. */
+  private async holdForPayment(targetPhotoId: number | null): Promise<void> {
+    if (targetPhotoId === null) return;
+    const active = await findActiveDuel(this.prisma, targetPhotoId);
+    if (!active) return;
+    await this.extendNearEnd(this.prisma, active.duel);
+    await this.scheduleOvertime();
+  }
+
   /** Duel ends moved by overtime inside a transaction; their ticks are scheduled after it commits. */
   private pendingOvertime: { duelId: number; stage: number; endsAt: Date }[] = [];
 
@@ -176,6 +195,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.create({
       data: { userId: user.id, packageId: pack.id, votes: pack.votes, method, currency, amount, targetPhotoId },
     });
+    await this.holdForPayment(targetPhotoId);
     return { payment, payload: orderPayload(payment.id), currency, amount, votes: pack.votes };
   }
 
@@ -411,6 +431,7 @@ export class PaymentService {
             expiresAt,
           },
         });
+        await this.holdForPayment(targetPhotoId);
         return { payment, details: settings.transferDetails, automatic: this.bankVerification(settings.monobankAccountId) };
       } catch (error) {
         if (attempt >= 4 || (error as { code?: string }).code !== 'P2002') throw error;
@@ -426,6 +447,8 @@ export class PaymentService {
       data: { status: 'CLAIMED', claimedAt: new Date(), reviewRequestedAt: null },
     });
     if (claimed.count === 0) throw new DomainError('INVALID_STATE');
+    const claimedOrder = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    await this.holdForPayment(claimedOrder.targetPhotoId);
     const settings = await this.settings.get();
     const automatic = this.bankVerification(settings.monobankAccountId);
     // Admins are asked right away; the bank check (when set up) may confirm it first.
@@ -617,13 +640,7 @@ export class PaymentService {
       select: VOTE_SELECT,
     });
     // Overtime: paid votes in the last minutes give the other side time to answer.
-    const overtimeMs = (this.options.overtimeMinutes ?? 0) * 60_000;
-    const now = Date.now();
-    if (overtimeMs > 0 && duel.endsAt && duel.endsAt.getTime() - now < overtimeMs) {
-      const endsAt = new Date(now + overtimeMs);
-      const extended = await tx.duel.updateMany({ where: { id: duel.id, status: 'ACTIVE', stage: duel.stage, endsAt: { lt: endsAt } }, data: { endsAt } });
-      if (extended.count > 0) this.pendingOvertime.push({ duelId: duel.id, stage: duel.stage, endsAt });
-    }
+    await this.extendNearEnd(tx, duel);
     await tx.photo.update({ where: { id: photo.id }, data: { votesCount: { increment: amount }, paidVotes: { increment: amount } } });
     await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: amount } } });
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });

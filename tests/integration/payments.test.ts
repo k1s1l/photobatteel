@@ -131,6 +131,16 @@ describe('overtime', () => {
   });
 });
 
+describe('paying near the end', () => {
+  it('opening a Stars invoice for an entry in the last minutes extends its pair to 5 minutes', async () => {
+    const duel = await activeDuel();
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() + 60_000) } });
+    const [pack] = await ctx.services.payments.listPackages(true);
+    await ctx.services.payments.createInvoice(await createUser(ctx), pack!.id, 'STARS', duel.photoAId);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).endsAt!.getTime()).toBeGreaterThan(Date.now() + 4 * 60_000);
+  });
+});
+
 describe('refunds and statistics', () => {
   it('refunds Stars and takes back votes from a duel that is still open', async () => {
     const admin = await createAdmin(ctx);
