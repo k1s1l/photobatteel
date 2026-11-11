@@ -17,7 +17,7 @@ const INTAKE_LOCK_MS = 60_000;
 const ALBUM_LOCK_MS = 60_000;
 const CONFIRM_LOCK_MS = 15_000;
 
-type MediaMessage = Message.PhotoMessage | Message.DocumentMessage | Message.VideoMessage;
+export type MediaMessage = Message.PhotoMessage | Message.DocumentMessage | Message.VideoMessage;
 
 function battleStart(ctx: BotContext, battle: Battle): string {
   return formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl);
@@ -52,7 +52,7 @@ interface IncomingMedia {
   video?: { width: number; height: number; duration: number; mimeType: string };
 }
 
-function extractMedia(msg: MediaMessage): IncomingMedia | null {
+export function extractMedia(msg: MediaMessage): IncomingMedia | null {
   if ('photo' in msg) {
     const largest = msg.photo.at(-1);
     return largest ? { kind: 'photo', fileId: largest.file_id, fileUniqueId: largest.file_unique_id, declaredSize: largest.file_size } : null;
@@ -73,7 +73,7 @@ function extractMedia(msg: MediaMessage): IncomingMedia | null {
 }
 
 /** Validates the file and builds the draft; images are downloaded and fully decoded. */
-async function prepareDraft(ctx: BotContext, media: IncomingMedia): Promise<{ input: DraftInput; upload: Buffer | null }> {
+export async function prepareDraft(ctx: BotContext, media: IncomingMedia): Promise<{ input: DraftInput; upload: Buffer | null }> {
   const { env, gateway } = ctx.deps;
   if (media.kind === 'video' && media.video) {
     if (media.video.duration > env.MAX_VIDEO_DURATION_SECONDS) throw new DomainError('VIDEO_TOO_LONG', { max: env.MAX_VIDEO_DURATION_SECONDS });

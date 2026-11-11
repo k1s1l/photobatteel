@@ -374,6 +374,31 @@ describe('bot: invite friends', () => {
   });
 });
 
+describe('bot: admin gives a place in the final', () => {
+  it('gives a place by @username and sends the photo for the person', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 6; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.updateMany({ where: { status: 'ACTIVE' }, data: { votesA: 1 } });
+    await expireDuels(ctx);
+    await sendText(400, '/start');
+
+    await press(ADMIN_TG_ID, 'a:fs:grant');
+    await sendText(ADMIN_TG_ID, '@u400');
+    const spot = await ctx.prisma.finalSpot.findFirstOrThrow();
+    expect(spot).toMatchObject({ paymentId: null, photoId: null });
+    expect(JSON.stringify(api.filter((c) => c.method === 'sendMessage').at(-1)!.payload.reply_markup)).toContain(`a:fs:ph:${spot.id}`);
+
+    await press(ADMIN_TG_ID, `a:fs:ph:${spot.id}`);
+    ctx.telegram.files.set('adm-photo', await makeUniqueJpeg(400));
+    await sendPhoto(ADMIN_TG_ID, 'adm-photo', 'adm-photo-u');
+    expect(texts('sendMessage').at(-1)).toContain('Фото добавлено');
+    const filled = await ctx.prisma.finalSpot.findUniqueOrThrow({ where: { id: spot.id }, include: { photo: true } });
+    expect(filled.photo).toMatchObject({ fileUniqueId: 'adm-photo-u', userId: spot.userId, status: 'ACCEPTED' });
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

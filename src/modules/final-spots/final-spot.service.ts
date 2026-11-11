@@ -235,6 +235,17 @@ export class FinalSpotService {
     if (!user.consentAt) throw new DomainError('CONSENT_REQUIRED');
     const spot = await this.openSpot(user.id);
     if (!spot) throw new DomainError('INVALID_STATE');
+    return this.storePhoto(spot, user, input);
+  }
+
+  /** Admin sends the photo for a place they gave, so nobody waits for the person to answer. */
+  async attachPhotoByAdmin(spotId: number, input: DraftInput): Promise<FinalSpot> {
+    const spot = await this.prisma.finalSpot.findUnique({ where: { id: spotId }, include: { battle: true, user: true } });
+    if (!spot || spot.usedAt || spot.refundedAt || spot.battle.status !== 'RUNNING') throw new DomainError('INVALID_STATE');
+    return this.storePhoto(spot, spot.user, input);
+  }
+
+  private async storePhoto(spot: FinalSpot, user: User, input: DraftInput): Promise<FinalSpot> {
     const foreign = await this.prisma.photo.findFirst({
       where: { userId: { not: user.id }, status: { notIn: ['DRAFT', 'CANCELLED', 'DELETED'] }, OR: [{ contentHash: input.contentHash }, { fileUniqueId: input.fileUniqueId }] },
       select: { id: true },

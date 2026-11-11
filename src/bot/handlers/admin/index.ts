@@ -8,7 +8,7 @@ import { answer, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
 import { handleBattleWizardText, handleRoundEndText, registerBattleHandlers } from './battles.js';
 import { handleTemplateMessage, registerDesignHandlers } from './design.js';
-import { handleFinalSpotGrantInput, handleFinalSpotPriceInput, registerFinalSpotAdminHandlers } from './final-spots.js';
+import { handleFinalSpotGrantInput, handleFinalSpotPriceInput, handleSpotPhotoByAdmin, registerFinalSpotAdminHandlers } from './final-spots.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
@@ -17,7 +17,7 @@ import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
 import { blockUser, registerUserHandlers, unblockUser } from './users.js';
 
-const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'monobank_pick']);
+const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'admin_spot_photo', 'monobank_pick']);
 const MENU_BUTTONS = new Set(
   (['submit', 'votes', 'battle', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
 );
@@ -65,6 +65,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
 
   if (state.kind === 'admin_broadcast') return previewBroadcast(ctx, message.message_id);
   if (state.kind === 'admin_template') return handleTemplateMessage(ctx, message, state.key, state.variant);
+  if (state.kind === 'admin_spot_photo') return handleSpotPhotoByAdmin(ctx, message, state.spotId);
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind === 'battle_round_end') return handleRoundEndText(ctx, state.battleId, text);

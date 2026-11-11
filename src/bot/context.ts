@@ -18,6 +18,7 @@ export type ConversationState =
   | { kind: 'admin_template'; key: TemplateKey; variant?: StageVariant }
   | { kind: 'monobank_pick'; accounts: { id: string; label: string; sendLink?: string }[] }
   | { kind: 'battle_round_end'; battleId: number }
+  | { kind: 'admin_spot_photo'; spotId: number }
   | { kind: 'battle_create'; step: 'start' | 'round' | 'final' | 'size'; startsAt?: string; roundMinutes?: number; finalMinutes?: number };
 
 export interface SessionData {

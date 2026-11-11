@@ -1,4 +1,5 @@
 import type { Composer } from 'telegraf';
+import type { Message } from 'telegraf/types';
 import { isDomainError } from '../../../lib/errors.js';
 import { displayName, escapeHtml } from '../../../lib/format.js';
 import { MAX_SPOTS_PER_BATTLE, type SpotWithDetails } from '../../../modules/final-spots/final-spot.service.js';
@@ -6,6 +7,7 @@ import type { BotContext } from '../../context.js';
 import { setState } from '../../context.js';
 import { answer, matchInt, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
+import { extractMedia, prepareDraft, type MediaMessage } from '../submission.js';
 import { PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
 
@@ -66,17 +68,52 @@ export async function handleFinalSpotGrantInput(ctx: BotContext, text: string): 
     return;
   }
   setState(ctx, undefined);
+  let spotId: number;
   try {
-    await ctx.deps.services.finalSpots.grantByAdmin(target, adminUserId(ctx));
+    spotId = (await ctx.deps.services.finalSpots.grantByAdmin(target, adminUserId(ctx))).spot.id;
   } catch (error) {
     if (!isDomainError(error)) throw error;
     await ctx.reply(ctx.locale.errors[error.code](error.params), { parse_mode: 'HTML', reply_markup: inline([[button(s.back, 'a:fs')]]) });
     return;
   }
-  await ctx.reply(s.granted(escapeHtml(displayName(target))), { parse_mode: 'HTML', reply_markup: inline([[button(s.back, 'a:fs')]]) });
+  await ctx.reply(s.granted(escapeHtml(displayName(target))), {
+    parse_mode: 'HTML',
+    reply_markup: inline([[button(s.sendPhotoForHim, `a:fs:ph:${spotId}`)], [button(s.back, 'a:fs')]]),
+  });
+}
+
+/** The admin's photo/video for a place they gave: it goes into the final right away. */
+export async function handleSpotPhotoByAdmin(ctx: BotContext, message: Message, spotId: number): Promise<void> {
+  const s = ctx.locale.admin.finalSpots;
+  const media = 'photo' in message || 'video' in message || 'document' in message ? extractMedia(message as MediaMessage) : null;
+  if (!media) {
+    await ctx.reply(s.needPhoto, { reply_markup: inline([[button(ctx.locale.common.cancel, 'a:fs')]]) });
+    return;
+  }
+  const { input, upload } = await prepareDraft(ctx, media);
+  if (upload) {
+    // Image files are re-uploaded as photos so they can go into the collage.
+    const sent = await ctx.replyWithPhoto({ source: upload, filename: 'final.jpg' });
+    input.fileId = sent.photo.at(-1)?.file_id ?? input.fileId;
+  }
+  setState(ctx, undefined);
+  try {
+    await ctx.deps.services.finalSpots.attachPhotoByAdmin(spotId, input);
+  } catch (error) {
+    if (!isDomainError(error)) throw error;
+    await ctx.reply(ctx.locale.errors[error.code](error.params), { parse_mode: 'HTML', reply_markup: inline([[button(s.back, 'a:fs')]]) });
+    return;
+  }
+  await ctx.reply(s.photoAdded, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
 }
 
 export function registerFinalSpotAdminHandlers(admin: Composer<BotContext>): void {
+  admin.action(/^a:fs:ph:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    setState(ctx, { kind: 'admin_spot_photo', spotId: matchInt(ctx) });
+    await respond(ctx, ctx.locale.admin.finalSpots.askPhoto, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:fs')]]), forceNew: true });
+  });
+
   admin.action('a:fs:grant', async (ctx) => {
     await answer(ctx);
     setState(ctx, { kind: 'admin_input', action: 'final_spot_grant' });
