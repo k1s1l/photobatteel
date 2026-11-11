@@ -452,8 +452,10 @@ model FinalSpot {
   battle    Battle    @relation(fields: [battleId], references: [id], onDelete: Cascade)
   userId    Int
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  paymentId Int       @unique
-  payment   Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  /// null when an admin gave the place for free (grantedById)
+  paymentId   Int?      @unique
+  payment     Payment?  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  grantedById Int?
   photoId   Int?      @unique
   photo     Photo?    @relation(fields: [photoId], references: [id], onDelete: SetNull)
   /// The entry was put into the final post

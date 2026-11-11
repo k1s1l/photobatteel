@@ -73,6 +73,7 @@ export function createServices(deps: ServiceDeps): Services {
   });
   const finalSpots = new FinalSpotService(prisma, activity, notifications, telegram, logger, settings);
   battles.attachFinalSpots(finalSpots);
+  finalSpots.attachBattles(battles);
   const duelVotes = new DuelVoteService(prisma, settings, scheduler, telegram, channel);
   const photos = new PhotoService(prisma, settings, battles, activity, notifications, logger);
   const stats = new StatsService(prisma);

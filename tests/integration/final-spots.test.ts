@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { User } from '../../src/generated/prisma/client.js';
 import type { DraftInput } from '../../src/modules/photos/photo.service.js';
+import { makeUniqueJpeg } from '../helpers/images.js';
 import { createAdmin, createEntry, createTestContext, createUser, expireDuels, openBattle, postPendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 
 let ctx: TestContext;
@@ -124,4 +125,51 @@ describe('places in the final', () => {
     await ctx.services.battles.cancel(battle.id, admin.id);
     expect(ctx.telegram.callsOf('refundStarPayment').map((c) => c.args[0])).toEqual(['ch-cancel']);
   });
+
+  it('lets an admin give a place during a running final of 4: the entry joins, the post is prepared again, votes stay', async () => {
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 4, createdById: null });
+    for (let i = 0; i < 4; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const final = await ctx.prisma.duel.findFirstOrThrow();
+    await ctx.prisma.duel.update({ where: { id: final.id }, data: { votesA: 7, votesB: 2 } });
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { admin: { isNot: null } } });
+
+    const guest = await consenting();
+    await ctx.services.finalSpots.grantByAdmin(guest, admin.id);
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => c.chatId === Number(guest.telegramId) && String(c.args[0]).includes('Админ дал тебе место'))).toBe(true);
+    ctx.telegram.files.set('file-guest-photo', await makeUniqueJpeg(4242));
+    await ctx.services.finalSpots.attachPhoto(guest, media('guest-photo'));
+
+    const joined = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } });
+    expect(joined.photoEId).not.toBeNull();
+    expect(joined).toMatchObject({ status: 'PENDING', votesA: 7, votesB: 2 });
+    expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).finalSize).toBe(5);
+    expect(ctx.telegram.callsOf('deleteMessage').length).toBeGreaterThan(0);
+    // The new post has 5 entries and the old votes.
+    await postPendingDuels(ctx);
+    const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } });
+    expect(live.status).toBe('ACTIVE');
+    expect(ctx.telegram.callsOf('refundStarPayment')).toHaveLength(0);
+  });
+
+  it('a given place without a photo is cancelled when the final starts; one with a photo joins it', async () => {
+    await battleInRound2();
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { admin: { isNot: null } } });
+    const withPhoto = await consenting();
+    const withoutPhoto = await consenting();
+    await ctx.services.finalSpots.grantByAdmin(withPhoto, admin.id);
+    await ctx.services.finalSpots.grantByAdmin(withoutPhoto, admin.id);
+    await expect(ctx.services.finalSpots.grantByAdmin(withPhoto, admin.id)).rejects.toMatchObject({ params: { reason: 'ALREADY_BOUGHT' } });
+    const spot = await ctx.services.finalSpots.attachPhoto(withPhoto, media('given-1'));
+
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.updateMany({ where: { status: 'ACTIVE' }, data: { votesA: 1 } });
+    await expireDuels(ctx);
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 3 } });
+    expect([final.photoAId, final.photoBId, final.photoCId]).toContain(spot.photoId);
+    expect(await ctx.prisma.finalSpot.findFirstOrThrow({ where: { userId: withoutPhoto.id } })).toMatchObject({ refundedAt: expect.any(Date) });
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => c.chatId === Number(withoutPhoto.telegramId) && String(c.args[0]).includes('место в финале отменено'))).toBe(true);
+  });
 });
+

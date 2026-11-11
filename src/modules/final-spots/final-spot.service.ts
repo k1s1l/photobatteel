@@ -116,6 +116,13 @@ export class FinalSpotService {
     private readonly settings: SettingsService,
   ) {}
 
+  private battles: { joinRunningFinal(spotId: number): Promise<boolean> } | null = null;
+
+  /** The tournament engine, to put a late place into a final that is already running. */
+  attachBattles(battles: { joinRunningFinal(spotId: number): Promise<boolean> }): void {
+    this.battles = battles;
+  }
+
   private async rules(): Promise<FinalSpotOptions> {
     return spotRules(await this.settings.get());
   }
@@ -243,19 +250,59 @@ export class FinalSpotService {
       });
       await this.activity.log({ action: 'PHOTO_CONFIRMED', userId: user.id, entityType: 'Photo', entityId: photo.id, details: { finalSpot: spot.id } }, tx);
       return tx.finalSpot.update({ where: { id: spot.id }, data: { photoId: photo.id } });
+    }).then(async (saved) => {
+      // The final may already be running (a place given by an admin): join it now.
+      await this.battles?.joinRunningFinal(saved.id);
+      return saved;
     });
+  }
+
+  /**
+   * Admin gives somebody a place in the final for free (e.g. paid by card). Works
+   * before and during the final, while the final post has room (6 entries).
+   */
+  async grantByAdmin(target: User, adminUserId: number): Promise<{ battle: Battle; spot: FinalSpot }> {
+    if (target.isBlocked) throw new DomainError('USER_BLOCKED');
+    const battle = await this.prisma.battle.findFirst({ where: { status: 'RUNNING' }, orderBy: { id: 'desc' } });
+    if (!battle || battle.currentRound === 0) throw new DomainError('FINAL_SPOT_UNAVAILABLE', { reason: 'NO_BATTLE', fromRound: 0 });
+    if (await this.prisma.photo.count({ where: { battleId: battle.id, userId: target.id, status: 'IN_BATTLE' } })) {
+      throw new DomainError('FINAL_SPOT_UNAVAILABLE', { reason: 'STILL_PLAYING', fromRound: 0 });
+    }
+    const existing = await this.prisma.finalSpot.findUnique({ where: { battleId_userId: { battleId: battle.id, userId: target.id } } });
+    if (existing && !existing.refundedAt) throw new DomainError('FINAL_SPOT_UNAVAILABLE', { reason: 'ALREADY_BOUGHT', fromRound: 0 });
+
+    const currentEntries = await roundEntries(this.prisma, battle.id, battle.currentRound);
+    const finalStarted = isFinalRound(battle, currentEntries);
+    const waiting = await this.prisma.finalSpot.count({ where: { battleId: battle.id, refundedAt: null, usedAt: null } });
+    const finalists = finalStarted ? currentEntries : Math.max(2, battle.finalSize);
+    if (finalists + waiting >= MAX_FINAL_SIZE) throw new DomainError('FINAL_SPOT_UNAVAILABLE', { reason: 'SOLD_OUT', fromRound: 0 });
+
+    const spot = await this.prisma.$transaction(async (tx) => {
+      if (existing) await tx.finalSpot.delete({ where: { id: existing.id } });
+      const created = await tx.finalSpot.create({ data: { battleId: battle.id, userId: target.id, grantedById: adminUserId } });
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: adminUserId, entityType: 'FinalSpot', entityId: created.id, details: { grantedTo: target.id } }, tx);
+      return created;
+    });
+    await this.notifications.notifyUser(target, (l) => l.finalSpot.granted);
+    return { battle, spot };
   }
 
   /** Returns the Stars of places that will not be used (no photo before the final, or the battle ended). */
   async refundUnused(spotIds: number[]): Promise<void> {
     for (const spotId of spotIds) {
       const spot = await this.prisma.finalSpot.findUnique({ where: { id: spotId }, include: { payment: true, user: true } });
-      if (!spot || spot.refundedAt || spot.usedAt || !spot.payment.telegramChargeId) continue;
+      if (!spot || spot.refundedAt || spot.usedAt) continue;
       const marked = await this.prisma.finalSpot.updateMany({ where: { id: spotId, refundedAt: null, usedAt: null }, data: { refundedAt: new Date() } });
       if (marked.count === 0) continue;
       if (spot.photoId) await this.prisma.photo.updateMany({ where: { id: spot.photoId, status: 'ACCEPTED' }, data: { status: 'CANCELLED' } });
-      await this.refundPayment(spot.paymentId, Number(spot.user.telegramId), spot.payment.telegramChargeId);
-      await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.refunded(spot.payment.amount));
+      // A place given by an admin has nothing to refund; it is just cancelled.
+      if (!spot.payment?.telegramChargeId || spot.paymentId === null) {
+        await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.cancelled);
+        continue;
+      }
+      const { payment } = spot;
+      await this.refundPayment(spot.paymentId, Number(spot.user.telegramId), payment.telegramChargeId!);
+      await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.refunded(payment.amount));
     }
   }
 

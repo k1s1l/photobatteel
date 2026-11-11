@@ -11,7 +11,7 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
-import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, SIDES, sideNumber, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
+import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, PHOTO_ID_FIELD, SIDES, sideNumber, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import { isFinalRound, takenSpots, type FinalSpotService } from '../final-spots/final-spot.service.js';
 import type { NotificationService } from '../notifications/notification.service.js';
@@ -828,6 +828,39 @@ export class BattleService {
       }
     }
     await this.notifications.notifyUser(photo.user, (l) => l.battle.byeDm(round));
+  }
+
+  /**
+   * A place given while the final is already running: the entry joins the final
+   * post in the next free slot (up to 6). A post already sent to admins or
+   * published is prepared again; votes given so far are kept.
+   */
+  async joinRunningFinal(spotId: number): Promise<boolean> {
+    const spot = await this.prisma.finalSpot.findUnique({ where: { id: spotId }, include: { battle: true, photo: true } });
+    if (!spot?.photo || spot.usedAt || spot.refundedAt || spot.battle.status !== 'RUNNING' || spot.photo.status !== 'ACCEPTED') return false;
+    const battle = spot.battle;
+    const duels = await this.prisma.duel.findMany({ where: { battleId: battle.id, round: battle.currentRound } });
+    const final = duels.length === 1 ? duels[0]! : null;
+    if (!final || !isFinalRound(battle, entryCount(final)) || final.status === 'FINISHED') return false;
+    const free = SIDES.find((side) => final[PHOTO_ID_FIELD[side]] === null);
+    if (!free) return false;
+
+    const joined = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.finalSpot.updateMany({ where: { id: spot.id, usedAt: null, refundedAt: null }, data: { usedAt: new Date() } });
+      if (claimed.count === 0) return false;
+      const updated = await tx.duel.updateMany({ where: { id: final.id, [PHOTO_ID_FIELD[free]]: null, status: final.status }, data: { [PHOTO_ID_FIELD[free]]: spot.photoId } });
+      if (updated.count === 0) throw new DomainError('INVALID_STATE');
+      await tx.photo.update({ where: { id: spot.photoId! }, data: { status: 'IN_BATTLE' } });
+      const size = entryCount(final) + 1;
+      if (size > battle.finalSize) await tx.battle.update({ where: { id: battle.id }, data: { finalSize: size } });
+      return true;
+    });
+    if (!joined) return false;
+    const size = entryCount(final) + 1;
+    await this.notifications.notifyAdmins((l) => l.admin.finalJoined(size));
+    // Admins get the new final post (now with the extra entry) to publish again.
+    if (final.status === 'READY' || final.status === 'ACTIVE') await this.republish(final.id, null);
+    return true;
   }
 
   /** Bought places whose photo is ready join the final; places without a photo are refunded. */

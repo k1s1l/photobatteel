@@ -8,7 +8,7 @@ import { answer, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
 import { handleBattleWizardText, handleRoundEndText, registerBattleHandlers } from './battles.js';
 import { handleTemplateMessage, registerDesignHandlers } from './design.js';
-import { handleFinalSpotPriceInput, registerFinalSpotAdminHandlers } from './final-spots.js';
+import { handleFinalSpotGrantInput, handleFinalSpotPriceInput, registerFinalSpotAdminHandlers } from './final-spots.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
@@ -71,6 +71,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (state.kind !== 'admin_input') return next();
   if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
   if (state.action === 'final_spot_price') return handleFinalSpotPriceInput(ctx, text);
+  if (state.action === 'final_spot_grant') return handleFinalSpotGrantInput(ctx, text);
   if (state.action === 'package_price') {
     if (state.packageId) await handlePackagePriceInput(ctx, state.packageId, text);
     else setState(ctx, undefined);
