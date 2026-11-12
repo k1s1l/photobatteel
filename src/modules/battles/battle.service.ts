@@ -209,7 +209,8 @@ export class BattleService {
       // Posts of the old pairs that are already in the channel are removed.
       await this.deleteMessages(rebuild.flatMap((duel) => [...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]));
       const entries = await this.roundEntries(battleId, battle.currentRound);
-      await this.notifications.notifyAdmins((l) => l.admin.finalRebuilt(entries));
+      const auto = (await this.settings.get()).autoPublish;
+      await this.notifications.notifyAdmins((l) => l.admin.finalRebuilt(entries, auto));
       await this.prepareAnnouncement(await this.roundAnnouncement(updated, battle.currentRound, entries));
       await this.scheduler.triggerTick();
     }
@@ -413,7 +414,8 @@ export class BattleService {
   async prepareDuel(duelId: number, stage: number): Promise<PrepareOutcome> {
     const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { ...ALL_PHOTOS, battle: true } });
     if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || entryCount(duel) < 2 || duel.battle.status !== 'RUNNING') return 'skipped';
-    const adminChats = await this.notifications.adminChatIds();
+    const auto = (await this.settings.get()).autoPublish;
+    const adminChats = auto ? [this.channel.id] : await this.notifications.adminChatIds();
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
     const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage, finalSize: duel.battle.finalSize };
@@ -421,19 +423,25 @@ export class BattleService {
     const expectedEnd = duelEnd(duel.battle, duel.round, stage, stageInfo.entriesInRound, new Date());
     const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
 
-    await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
-    let preparedFileUniqueId: string | null;
+    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
+    let prepared: { uniqueId: string | null; messageIds: number[] };
     try {
-      preparedFileUniqueId = await this.sendPrepared(duel as DuelWithPhotos, caption, adminChats);
+      prepared = await this.sendPrepared(duel as DuelWithPhotos, caption, adminChats);
     } catch (error) {
       if (classifyTelegramError(error).kind === 'permanent') await this.alertAdmins(classifyTelegramError(error).description, duel.id);
       throw error;
     }
     const updated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'PENDING', stage },
-      data: { status: 'READY', preparedFileUniqueId, readyAt: new Date(), remindedAt: null },
+      data: { status: 'READY', preparedFileUniqueId: prepared.uniqueId, readyAt: new Date(), remindedAt: null },
     });
-    return updated.count ? 'prepared' : 'skipped';
+    if (!updated.count) return 'skipped';
+    // Auto mode: the post is already in the channel — the pair goes live right away.
+    if (auto && prepared.messageIds.length > 0) {
+      const ready = await this.prisma.duel.findUniqueOrThrow({ where: { id: duel.id }, include: { ...ALL_PHOTOS, battle: true } });
+      await this.activate(ready, prepared.messageIds[0]!, prepared.messageIds.slice(1));
+    }
+    return 'prepared';
   }
 
   /**
@@ -441,7 +449,7 @@ export class BattleService {
    * re-sent by file id so every copy has the same file_unique_id); videos → album.
    * Returns the collage's file_unique_id (null for albums, which are recognised by the entries' files).
    */
-  private async sendPrepared(duel: DuelWithPhotos, caption: string, adminChats: number[]): Promise<string | null> {
+  private async sendPrepared(duel: DuelWithPhotos, caption: string, adminChats: number[]): Promise<{ uniqueId: string | null; messageIds: number[] }> {
     const photos = photosOf(duel).map((entry) => entry.photo);
     const isCollage = photos.every((photo) => photo.mediaType === 'PHOTO');
     const images: Buffer[] = [];
@@ -449,6 +457,7 @@ export class BattleService {
     const collage = isCollage ? await buildDuelCollage(...images) : null;
     let html = caption;
     let collageRef: { fileId: string; uniqueId: string } | null = null;
+    let messageIds: number[] = [];
 
     for (const chatId of adminChats) {
       const send = async (text: string) => {
@@ -456,9 +465,10 @@ export class BattleService {
           const sent = await this.telegram.sendPhoto(chatId, collageRef?.fileId ?? collage, { caption: text, parseMode: 'HTML' });
           const largest = sent.photo?.at(-1);
           if (!collageRef && largest) collageRef = { fileId: largest.file_id, uniqueId: largest.file_unique_id };
+          messageIds = [sent.message_id];
           return;
         }
-        await this.telegram.sendMediaGroup(
+        messageIds = await this.telegram.sendMediaGroup(
           chatId,
           photos.map((photo, index) => ({ type: photo.mediaType === 'VIDEO' ? ('video' as const) : ('photo' as const), fileId: photo.fileId, ...(index === 0 ? { caption: text } : {}) })),
         );
@@ -474,7 +484,7 @@ export class BattleService {
         await send(html);
       }
     }
-    return collage ? (collageRef as { uniqueId: string } | null)?.uniqueId ?? null : null;
+    return { uniqueId: collage ? ((collageRef as { uniqueId: string } | null)?.uniqueId ?? null) : null, messageIds };
   }
 
   /**
@@ -493,7 +503,17 @@ export class BattleService {
 
     const duel = await this.prisma.duel.findFirst({ where: byFiles('READY'), include: { ...ALL_PHOTOS, battle: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
     if (!duel || entryCount(duel) < 2) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+    const activated = await this.activate(duel, post.messageId, []);
+    return activated || this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+  }
 
+  /**
+   * The duel's post is in the channel: the bot replies under it with the vote
+   * buttons and the voting timer starts. False when another post won the race.
+   */
+  private async activate(duel: DuelWithPhotos, postMessageId: number, extraMessageIds: number[]): Promise<boolean> {
+    const auto = (await this.settings.get()).autoPublish;
+    const post = { messageId: postMessageId };
     const settings = await this.settings.get();
     const stage = duel.stage;
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
@@ -519,18 +539,18 @@ export class BattleService {
     }
     const activated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'READY', stage },
-      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId], stackedButtons: stacked },
+      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId, ...extraMessageIds], stackedButtons: stacked },
     });
     if (activated.count === 0) {
       // Another item of the same album won the race: keep only its buttons.
       await this.deleteMessages([buttons.message_id]);
-      return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+      return false;
     }
     await this.scheduler.scheduleTickAt(endsAt, `duel-${duel.id}-${stage}`);
 
     const link = channelPostLink(this.channel, post.messageId);
     const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
-    await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: stageValues(l, stageInfo).stage as string, ends }));
+    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: stageValues(l, stageInfo).stage as string, ends }));
     if (stage === 0) {
       for (const { photo } of photosOf(duel)) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
@@ -717,8 +737,9 @@ export class BattleService {
     const { winnerPhoto } = finished;
     // The winner post is prepared for the admins, who publish it in the channel.
     const caption = await this.render('winner', { battle: finished.title, votes: winnerPhoto.votesCount });
-    await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
-    for (const chatId of await this.notifications.adminChatIds()) {
+    const targets = await this.postTargets();
+    if (!targets.auto) await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
+    for (const chatId of targets.chats) {
       try {
         if (winnerPhoto.mediaType === 'VIDEO') await this.telegram.sendMediaGroup(chatId, [{ type: 'video', fileId: winnerPhoto.fileId, caption }]);
         else await this.telegram.sendPhoto(chatId, winnerPhoto.fileId, { caption, parseMode: 'HTML' });
@@ -834,8 +855,9 @@ export class BattleService {
     const entries = await this.roundEntries(battle.id, round);
     const caption = await this.render('bye', { battle: battle.title, round, roundName: roundName(this.locale, round, entries, battle.finalSize) });
     const photo = bye.photoA;
-    await this.notifications.notifyAdmins((l) => l.admin.byeReady(round));
-    for (const chatId of await this.notifications.adminChatIds()) {
+    const targets = await this.postTargets();
+    if (!targets.auto) await this.notifications.notifyAdmins((l) => l.admin.byeReady(round));
+    for (const chatId of targets.chats) {
       const send = (text: string) =>
         photo.mediaType === 'VIDEO'
           ? this.telegram.sendMediaGroup(chatId, [{ type: 'video', fileId: photo.fileId, caption: text }])
@@ -881,7 +903,8 @@ export class BattleService {
     });
     if (!joined) return false;
     const size = entryCount(final) + 1;
-    await this.notifications.notifyAdmins((l) => l.admin.finalJoined(size));
+    const auto = (await this.settings.get()).autoPublish;
+    await this.notifications.notifyAdmins((l) => l.admin.finalJoined(size, auto));
     // Admins get the new final post (now with the extra entry) to publish again.
     if (final.status === 'READY' || final.status === 'ACTIVE') await this.republish(final.id, null);
     return true;
@@ -936,8 +959,34 @@ export class BattleService {
 
   /** Channel announcements are prepared for the admins too: a short note, then the ready text to forward. */
   private async prepareAnnouncement(html: string): Promise<void> {
+    if ((await this.settings.get()).autoPublish) {
+      await this.publishText(html);
+      return;
+    }
     await this.notifications.notifyAdmins((l) => l.admin.announcementReady);
     await this.notifications.notifyAdmins(() => html, { parseMode: 'HTML', disablePreview: true });
+  }
+
+  /** Auto mode: a text post goes straight to the channel (regular emoji if premium ones are refused). */
+  private async publishText(html: string): Promise<void> {
+    const options = { parseMode: 'HTML' as const, disablePreview: true };
+    try {
+      await this.telegram.sendMessage(this.channel.id, html, options);
+    } catch (error) {
+      const classified = classifyTelegramError(error);
+      if (classified.kind !== 'permanent' || !html.includes('<tg-emoji')) {
+        this.logger.error({ err: error }, 'Failed to publish an announcement');
+        return;
+      }
+      await this.emojiRejected('duel', classified.description);
+      await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(html), options).catch((err: unknown) => this.logger.error({ err }, 'Failed to publish an announcement'));
+    }
+  }
+
+  /** Where ready posts go: the channel itself in auto mode, otherwise the admins' chats. */
+  private async postTargets(): Promise<{ auto: boolean; chats: number[] }> {
+    const auto = (await this.settings.get()).autoPublish;
+    return { auto, chats: auto ? [this.channel.id] : await this.notifications.adminChatIds() };
   }
 
   private lastEmojiAlert = 0;

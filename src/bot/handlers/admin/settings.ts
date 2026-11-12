@@ -6,16 +6,17 @@ import { button, inline } from '../../keyboards.js';
 import { PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
 
-const TOGGLES = { mod: 'moderationEnabled', subs: 'subscribersOnly' } as const;
+const TOGGLES = { mod: 'moderationEnabled', subs: 'subscribersOnly', auto: 'autoPublish' } as const;
 type ToggleKey = keyof typeof TOGGLES;
 
 async function showSettings(ctx: BotContext): Promise<void> {
   const s = await ctx.deps.services.settings.get();
   const b = ctx.locale.admin.settingsButtons;
-  await respond(ctx, ctx.locale.admin.settingsTitle({ moderation: s.moderationEnabled, subscribersOnly: s.subscribersOnly, maxPerBattle: s.maxPhotosPerBattle }), {
+  await respond(ctx, ctx.locale.admin.settingsTitle({ moderation: s.moderationEnabled, subscribersOnly: s.subscribersOnly, maxPerBattle: s.maxPhotosPerBattle, autoPublish: s.autoPublish }), {
     keyboard: inline([
       [button(b.moderation, 'a:set:t:mod'), button(b.subscribersOnly, 'a:set:t:subs')],
       [button(b.maxPerBattle, 'a:set:lim')],
+      [button(s.autoPublish ? b.publishManual : b.publishAuto, 'a:set:t:auto')],
       [button(ctx.locale.admin.buttons.panel, PANEL)],
     ]),
   });

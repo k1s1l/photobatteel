@@ -320,6 +320,8 @@ model BotSettings {
   id                 Int      @id @default(1)
   moderationEnabled  Boolean  @default(false)
   subscribersOnly    Boolean  @default(true) // only channel subscribers may vote
+  /// The bot publishes duel posts, announcements and the winner in the channel itself (no forwarding by admins)
+  autoPublish        Boolean  @default(false)
   paidVotesEnabled   Boolean  @default(false)
   maxPhotosPerBattle Int      @default(1)    // 0 = unlimited
   /// Post designs made by an admin in Telegram (HTML, may contain <tg-emoji>); null = default text

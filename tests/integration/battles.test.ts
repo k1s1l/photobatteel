@@ -441,6 +441,50 @@ describe('group final', () => {
   });
 });
 
+describe('auto publishing', () => {
+  it('publishes announcements, pairs and the winner in the channel itself — nothing to forward', async () => {
+    await createAdmin(ctx);
+    await ctx.services.settings.update({ autoPublish: true }, null);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    // Round announcement straight to the channel.
+    expect(toChannel('sendMessage').some((c) => String(c.args[0]).includes('Полуфинал'))).toBe(true);
+
+    await preparePendingDuels(ctx);
+    const duels = await ctx.prisma.duel.findMany({ where: { round: 1 }, orderBy: { position: 'asc' } });
+    expect(duels.every((d) => d.status === 'ACTIVE' && d.messageId !== null && d.mediaMessageIds.length === 1)).toBe(true);
+    expect(toChannel('sendPhoto')).toHaveLength(2);
+    expect(toAdmin('sendPhoto')).toHaveLength(0);
+    // The buttons reply under the bot's own post.
+    expect((toChannel('sendMessage').filter((c) => (c.args[1] as { replyToMessageId?: number }).replyToMessageId !== undefined))).toHaveLength(2);
+
+    for (const duel of duels) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    await preparePendingDuels(ctx);
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 2 } });
+    expect(final.status).toBe('ACTIVE');
+    await setVotes(final.id, 0, 2);
+    await expireDuels(ctx);
+    expect(await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: final.photoBId });
+    // The winner post went to the channel, not to the admins.
+    expect(toChannel('sendPhoto')).toHaveLength(4);
+    expect(adminTexts().some((t) => t.includes('Пост для канала'))).toBe(false);
+  });
+
+  it('publishes a video pair as an album with buttons under it', async () => {
+    await ctx.services.settings.update({ autoPublish: true }, null);
+    const battle = await openBattle(ctx);
+    await entries(2, 'VIDEO');
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    expect(duel.status).toBe('ACTIVE');
+    expect(duel.mediaMessageIds).toHaveLength(2);
+    expect(toChannel('sendMediaGroup')).toHaveLength(1);
+  });
+});
+
 describe('templates, final duration and reminders', () => {
   it('uses the admin designs for the announcement, round, buttons and winner posts', async () => {
     const admin = await createAdmin(ctx);

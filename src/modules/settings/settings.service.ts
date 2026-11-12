@@ -7,6 +7,7 @@ export type SettingsPatch = Partial<
     BotSettings,
     | 'moderationEnabled'
     | 'subscribersOnly'
+    | 'autoPublish'
     | 'paidVotesEnabled'
     | 'maxPhotosPerBattle'
     | 'duelTemplate'

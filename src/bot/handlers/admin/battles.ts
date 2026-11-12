@@ -266,7 +266,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     if (done === undefined) return answer(ctx, ctx.locale.common.busy);
     if (!done) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
     await answer(ctx);
-    await respond(ctx, ctx.locale.admin.republishDone, { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    await respond(ctx, ctx.locale.admin.republishDone((await ctx.deps.services.settings.get()).autoPublish), { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
   });
 
   admin.action(/^a:bt:cancel:(\d+)$/, async (ctx) => {
