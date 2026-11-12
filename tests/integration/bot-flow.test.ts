@@ -478,7 +478,7 @@ describe('bot: jar payment', () => {
     const message = api.filter((c) => c.method === 'sendMessage').at(-1)!;
     const payment = await ctx.prisma.payment.findFirstOrThrow({ where: { method: 'TRANSFER' } });
     expect(String(message.payload.text)).toContain(`<b><code>${payment.code}</code></b>`);
-    expect(String(message.payload.text)).toContain('Открыть банку');
+    expect(String(message.payload.text)).toContain('«💳 Оплата»');
     const rows = (message.payload.reply_markup as { inline_keyboard: Record<string, unknown>[][] }).inline_keyboard;
     expect(rows[0]![0]).toMatchObject({ url: 'https://send.monobank.ua/jar/AbC123' });
     expect(rows[1]![0]).toMatchObject({ copy_text: { text: payment.code } });

@@ -350,7 +350,7 @@ export const ru = {
     refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
     transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean; link: boolean }) =>
       '<b>💳 Оплата голосов</b>\n\n' +
-      (p.link ? '<b>1.</b> Нажми «💳 Открыть банку» ниже\n' : `<b>1.</b> Переведи на: ${p.details}\n`) +
+      (p.link ? '<b>1.</b> Нажми «💳 Оплата» ниже\n' : `<b>1.</b> Переведи на: ${p.details}\n`) +
       `<b>2.</b> Сумма: <b>${p.amount}</b>\n` +
       '<b>3.</b> В поле <b>«Комментарий»</b> вставь код:\n\n' +
       `👉 <b><code>${p.code}</code></b> 👈\n\n` +
@@ -358,7 +358,7 @@ export const ru = {
       'Нажми «📋 Скопировать код» — и просто вставь его.\n\n' +
       `<b>4.</b> После оплаты нажми «✅ Я оплатил». На оплату — ${p.minutes} мин.` +
       (p.automatic ? '\nГолоса начислятся автоматически.' : ''),
-    transferOpenJar: '💳 Открыть банку',
+    transferOpenJar: '💳 Оплата',
     transferCopyCode: '📋 Скопировать код',
     transferPaidButton: '✅ Я оплатил',
     transferCancelButton: '❌ Отменить',

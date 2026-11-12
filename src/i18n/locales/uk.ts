@@ -330,7 +330,7 @@ export const uk: Locale = {
     refunded: (votes) => `↩️ Оплату повернено. Списано голосів: ${votes}.`,
     transferInstructions: (p) =>
       '<b>💳 Оплата голосів</b>\n\n' +
-      (p.link ? '<b>1.</b> Натисни «💳 Відкрити банку» нижче\n' : `<b>1.</b> Переказуй на: ${p.details}\n`) +
+      (p.link ? '<b>1.</b> Натисни «💳 Оплата» нижче\n' : `<b>1.</b> Переказуй на: ${p.details}\n`) +
       `<b>2.</b> Сума: <b>${p.amount}</b>\n` +
       '<b>3.</b> У поле <b>«Коментар»</b> встав код:\n\n' +
       `👉 <b><code>${p.code}</code></b> 👈\n\n` +
@@ -338,7 +338,7 @@ export const uk: Locale = {
       'Натисни «📋 Скопіювати код» — і просто встав його.\n\n' +
       `<b>4.</b> Після оплати натисни «✅ Я оплатив». На оплату — ${p.minutes} хв.` +
       (p.automatic ? '\nГолоси нарахуються автоматично.' : ''),
-    transferOpenJar: '💳 Відкрити банку',
+    transferOpenJar: '💳 Оплата',
     transferCopyCode: '📋 Скопіювати код',
     transferPaidButton: '✅ Я оплатив',
     transferCancelButton: '❌ Скасувати',
