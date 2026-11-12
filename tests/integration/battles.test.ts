@@ -441,6 +441,36 @@ describe('group final', () => {
   });
 });
 
+describe('finish now', () => {
+  it('finishes a stuck final at once by current votes: unpublished, tied or waiting for a payment', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx); // the final post was never forwarded: READY
+    const final = await ctx.prisma.duel.findFirstOrThrow();
+    await ctx.prisma.duel.update({ where: { id: final.id }, data: { votesA: 3, votesB: 3 } });
+    const result = await ctx.services.battles.finishRoundNow(battle.id, admin.id);
+    expect(result.wasFinal).toBe(true);
+    const done = await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } });
+    expect(done.status).toBe('FINISHED');
+    expect(done.winnerPhotoId).not.toBeNull();
+    await expect(ctx.services.battles.finishRoundNow(battle.id, admin.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  it('closes a normal round now and starts the next one', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const result = await ctx.services.battles.finishRoundNow(battle.id, admin.id);
+    expect(result.wasFinal).toBe(false);
+    expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).currentRound).toBe(2);
+    expect(await ctx.prisma.duel.count({ where: { round: 1, status: { not: 'FINISHED' } } })).toBe(0);
+  });
+});
+
 describe('auto publishing', () => {
   it('publishes announcements, pairs and the winner in the channel itself — nothing to forward', async () => {
     await createAdmin(ctx);

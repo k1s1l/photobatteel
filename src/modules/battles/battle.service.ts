@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import type { Battle, Duel, DuelSide, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
+import type { Battle, Duel, DuelSide, DuelStatus, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
 import type { Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
 import { isNarrowText, stripCustomEmoji } from '../../lib/entities-html.js';
@@ -631,15 +631,17 @@ export class BattleService {
    * final). A tie for the first place is re-voted; after the last tiebreak the
    * earlier of the tied entries wins. Entries withdrawn meanwhile cannot win.
    */
-  async closeDuel(duelId: number, stage: number): Promise<void> {
+  async closeDuel(duelId: number, stage: number, options: { force?: boolean } = {}): Promise<void> {
+    // Forced by an admin: also pairs not published yet, and no tiebreak — a tie goes to the earlier entry.
+    const open: DuelStatus[] = options.force ? ['PENDING', 'READY', 'ACTIVE'] : ['ACTIVE'];
     const outcome = await this.prisma.$transaction(async (tx) => {
       const duel = await tx.duel.findUnique({ where: { id: duelId }, include: ALL_PHOTOS });
-      if (!duel || duel.status !== 'ACTIVE' || duel.stage !== stage || entryCount(duel) < 2) return null;
+      if (!duel || !open.includes(duel.status) || duel.stage !== stage || entryCount(duel) < 2) return null;
       const contenders = photosOf(duel).filter(({ photo }) => photo.status === 'IN_BATTLE');
       const pool = contenders.length > 0 ? contenders : photosOf(duel);
       const top = Math.max(...pool.map(({ side }) => votesOf(duel, side)));
       const leaders = pool.filter(({ side }) => votesOf(duel, side) === top);
-      if (leaders.length > 1 && duel.stage < this.options.maxTiebreaks) {
+      if (leaders.length > 1 && duel.stage < this.options.maxTiebreaks && !options.force) {
         const updated = await tx.duel.updateMany({
           where: { id: duelId, status: 'ACTIVE', stage },
           data: { status: 'PENDING', stage: stage + 1, ...ZERO_VOTES, endsAt: null },
@@ -651,7 +653,7 @@ export class BattleService {
         .map((entry) => entry.photo)
         .filter((photo) => photo.id !== winner.id);
       const finished = await tx.duel.updateMany({
-        where: { id: duelId, status: 'ACTIVE', stage },
+        where: { id: duelId, status: { in: open }, stage },
         data: { status: 'FINISHED', winnerPhotoId: winner.id, finishedAt: new Date() },
       });
       if (finished.count === 0) return null;
@@ -675,6 +677,22 @@ export class BattleService {
       const loserUser = await this.prisma.user.findUnique({ where: { id: loser.userId } });
       if (loserUser) await this.notifications.notifyUser(loserUser, (l) => l.battle.duelLost({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
     }
+  }
+
+  /**
+   * Admin "finish now": every open pair of the current round is decided by the
+   * votes it has right now (no tiebreaks, no waiting for payments). In the final
+   * this finishes the battle; otherwise the next round starts.
+   */
+  async finishRoundNow(battleId: number, actorUserId: number | null): Promise<{ battle: Battle; wasFinal: boolean }> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING' || battle.currentRound === 0) throw new DomainError('INVALID_STATE');
+    const wasFinal = isFinalRound(battle, await this.roundEntries(battleId, battle.currentRound));
+    const open = await this.prisma.duel.findMany({ where: { battleId, round: battle.currentRound, status: { not: 'FINISHED' } } });
+    for (const duel of open) await this.closeDuel(duel.id, duel.stage, { force: true });
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finishedRound: battle.currentRound, wasFinal } });
+    await this.advance(battleId);
+    return { battle: await this.prisma.battle.findUniqueOrThrow({ where: { id: battleId } }), wasFinal };
   }
 
   /** When every duel of the current round is finished: next round, or the final result. */

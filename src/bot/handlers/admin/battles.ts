@@ -44,6 +44,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   const rows = [];
   if (current?.status === 'RUNNING' && current.currentRound > 0) {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
+    rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
@@ -236,6 +237,33 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await respond(ctx, ctx.locale.admin.startTimeAsk({ current: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl), example: startExample(ctx) }), {
       keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
       forceNew: true,
+    });
+  });
+
+  admin.action(/^a:bt:fin:(\d+)$/, async (ctx) => {
+    const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
+    await answer(ctx);
+    if (battle?.status !== 'RUNNING') return;
+    await respond(ctx, ctx.locale.admin.finishNowConfirm(battle.currentRound), {
+      keyboard: inline([[button(ctx.locale.common.yes, `a:bt:finy:${battle.id}`), button(ctx.locale.common.no, 'a:bt')]]),
+    });
+  });
+
+  admin.action(/^a:bt:finy:(\d+)$/, async (ctx) => {
+    const battleId = matchInt(ctx);
+    const done = await ctx.deps.locks.withLock(`battle:${battleId}`, 60_000, async () => {
+      try {
+        return await ctx.deps.services.battles.finishRoundNow(battleId, adminUserId(ctx));
+      } catch (error) {
+        if (isDomainError(error) && error.code === 'INVALID_STATE') return null;
+        throw error;
+      }
+    });
+    if (done === undefined) return answer(ctx, ctx.locale.common.busy);
+    if (done === null) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
+    await answer(ctx);
+    await respond(ctx, done.battle.status === 'FINISHED' ? ctx.locale.admin.finishNowDoneBattle : ctx.locale.admin.finishNowDoneRound, {
+      keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]),
     });
   });
 
