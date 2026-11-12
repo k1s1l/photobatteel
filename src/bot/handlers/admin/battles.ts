@@ -5,7 +5,8 @@ import { isDomainError } from '../../../lib/errors.js';
 import { parseStartTime } from '../../../lib/time.js';
 import type { BotContext } from '../../context.js';
 import { getState, setState } from '../../context.js';
-import { answer, matchInt, respond } from '../../helpers.js';
+import { answer, matchInt, matchString, respond } from '../../helpers.js';
+import { sideFromLetter, sideNumber, voteList } from '../../../modules/duels/sides.js';
 import { button, inline } from '../../keyboards.js';
 import { battleStatusLabel } from '../profile.js';
 import { backToPanel, PANEL } from './keyboards.js';
@@ -45,6 +46,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   if (current?.status === 'RUNNING' && current.currentRound > 0) {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
+    rows.push([button(a.votesButton, `a:bt:votes:${current.id}`)]);
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
@@ -107,6 +109,51 @@ export async function handleStartTimeText(ctx: BotContext, battleId: number, tex
   }
   setState(ctx, undefined);
   await moveStart(ctx, battleId, at);
+}
+
+const VOTE_STEPS = [-5, -1, 1, 5, 10] as const;
+
+/** One pair: votes of every entry and buttons to add or remove votes. */
+async function showDuelVotes(ctx: BotContext, duelId: number): Promise<void> {
+  const duel = await ctx.deps.services.battles.getDuel(duelId);
+  const a = ctx.locale.admin;
+  if (!duel || duel.status === 'FINISHED') {
+    await respond(ctx, ctx.locale.common.alreadyProcessed, { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    return;
+  }
+  const entries = voteList(duel);
+  const rows = entries.flatMap(({ side }) => [
+    VOTE_STEPS.map((step) => button(`${sideNumber(side)}: ${step > 0 ? '+' : ''}${step}`, `a:bt:va:${duel.id}:${side.toLowerCase()}:${step}`)),
+    [button(a.votesCustom(sideNumber(side)), `a:bt:vi:${duel.id}:${side.toLowerCase()}`)],
+  ]);
+  await respond(ctx, a.votesScreen({ duel: duel.position, lines: entries.map(({ side, votes }) => a.votesLine(sideNumber(side), votes)).join('\n') }), {
+    keyboard: inline([...rows, [button(ctx.locale.common.back, `a:bt:votes:${duel.battleId}`)]]),
+  });
+}
+
+async function applyVotes(ctx: BotContext, duelId: number, letter: string, delta: number): Promise<boolean> {
+  const side = sideFromLetter(letter);
+  if (!side) return false;
+  try {
+    await ctx.deps.services.battles.adjustVotes(duelId, side, delta, adminUserId(ctx));
+    return true;
+  } catch (error) {
+    if ((isDomainError(error) && error.code === 'INVALID_STATE') || error instanceof RangeError) return false;
+    throw error;
+  }
+}
+
+/** Text answer to "how many votes": e.g. 20 or -3. */
+export async function handleVotesInput(ctx: BotContext, duelId: number, letter: string, text: string): Promise<void> {
+  const delta = Number(text.trim().replace('+', ''));
+  if (!Number.isInteger(delta) || delta === 0) {
+    await ctx.reply(ctx.locale.admin.votesInvalid, { reply_markup: inline([[button(ctx.locale.common.cancel, `a:bt:v:${duelId}`)]]) });
+    return;
+  }
+  setState(ctx, undefined);
+  const ok = await applyVotes(ctx, duelId, letter, delta);
+  if (!ok) await ctx.reply(ctx.locale.common.alreadyProcessed);
+  await showDuelVotes(ctx, duelId);
 }
 
 /** Text steps of the battle wizard; called by the admin input router. */
@@ -236,6 +283,40 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     setState(ctx, { kind: 'battle_start_change', battleId: battle.id });
     await respond(ctx, ctx.locale.admin.startTimeAsk({ current: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl), example: startExample(ctx) }), {
       keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
+      forceNew: true,
+    });
+  });
+
+  admin.action(/^a:bt:votes:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const duels = await ctx.deps.services.battles.openDuels(matchInt(ctx));
+    const a = ctx.locale.admin;
+    const rows = [];
+    for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.votesPair(duel.position), `a:bt:v:${duel.id}`)));
+    await respond(ctx, duels.length > 0 ? a.votesChoosePair : a.votesNoPairs, { keyboard: inline([...rows, [button(ctx.locale.common.back, 'a:bt')]]) });
+  });
+
+  admin.action(/^a:bt:v:(\d+)$/, async (ctx) => {
+    setState(ctx, undefined);
+    await answer(ctx);
+    await showDuelVotes(ctx, matchInt(ctx));
+  });
+
+  admin.action(/^a:bt:va:(\d+):([a-f]):(-?\d+)$/, async (ctx) => {
+    const duelId = matchInt(ctx, 1);
+    const delta = Number(matchString(ctx, 3));
+    const ok = (VOTE_STEPS as readonly number[]).includes(delta) && (await applyVotes(ctx, duelId, matchString(ctx, 2), delta));
+    await answer(ctx, ok ? ctx.locale.admin.votesSaved : ctx.locale.common.alreadyProcessed, !ok);
+    await showDuelVotes(ctx, duelId);
+  });
+
+  admin.action(/^a:bt:vi:(\d+):([a-f])$/, async (ctx) => {
+    await answer(ctx);
+    const duelId = matchInt(ctx, 1);
+    const letter = matchString(ctx, 2);
+    setState(ctx, { kind: 'admin_votes', duelId, side: letter });
+    await respond(ctx, ctx.locale.admin.votesAsk(sideNumber(sideFromLetter(letter)!)), {
+      keyboard: inline([[button(ctx.locale.common.cancel, `a:bt:v:${duelId}`)]]),
       forceNew: true,
     });
   });

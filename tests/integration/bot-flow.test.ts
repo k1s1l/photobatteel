@@ -421,6 +421,31 @@ describe('bot: more time to collect photos', () => {
   });
 });
 
+describe('bot: admin corrects votes', () => {
+  it('adds and removes votes of an entry in an open pair', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 2; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+
+    await press(ADMIN_TG_ID, `a:bt:votes:${battle.id}`);
+    expect(texts('editMessageText').at(-1)).toContain('Выбери пару');
+    await press(ADMIN_TG_ID, `a:bt:v:${duel.id}`);
+    await press(ADMIN_TG_ID, `a:bt:va:${duel.id}:b:5`);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(5);
+    await press(ADMIN_TG_ID, `a:bt:vi:${duel.id}:b`);
+    await sendText(ADMIN_TG_ID, '-2');
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesB).toBe(3);
+    // Never below zero.
+    await press(ADMIN_TG_ID, `a:bt:vi:${duel.id}:a`);
+    await sendText(ADMIN_TG_ID, '-10');
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).votesA).toBe(0);
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: duel.photoBId! } })).votesCount).toBe(3);
+    expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

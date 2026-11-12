@@ -11,7 +11,7 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
-import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, PHOTO_ID_FIELD, SIDES, sideNumber, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
+import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, PHOTO_ID_FIELD, SIDES, sideNumber, VOTE_FIELD, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import { isFinalRound, takenSpots, type FinalSpotService } from '../final-spots/final-spot.service.js';
 import type { NotificationService } from '../notifications/notification.service.js';
@@ -575,6 +575,41 @@ export class BattleService {
       return { battle: updated, changed: changed.count };
     });
     await this.scheduler.scheduleTickAt(at, `round-end-${battleId}-${battle.currentRound}-${at.getTime()}`);
+    return result;
+  }
+
+  /** Open pairs of the current round (for the admin's vote corrections). */
+  async openDuels(battleId: number): Promise<Duel[]> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING') return [];
+    return this.prisma.duel.findMany({
+      where: { battleId, round: battle.currentRound, status: { not: 'FINISHED' }, photoBId: { not: null } },
+      orderBy: { position: 'asc' },
+    });
+  }
+
+  /**
+   * Admin correction: adds (or with a negative number removes) votes for one
+   * entry of an open pair, e.g. a payment that came outside the bot. Never below zero.
+   * Returns the votes the entry has now.
+   */
+  async adjustVotes(duelId: number, side: DuelSide, delta: number, actorUserId: number | null): Promise<number> {
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 100_000) throw new RangeError('Invalid vote change');
+    const result = await this.prisma.$transaction(async (tx) => {
+      const duel = await tx.duel.findUnique({ where: { id: duelId } });
+      const photoId = duel?.[PHOTO_ID_FIELD[side]];
+      if (!duel || duel.status === 'FINISHED' || !photoId) throw new DomainError('INVALID_STATE');
+      const current = votesOf(duel, side);
+      const applied = Math.max(delta, -current);
+      if (applied !== 0) {
+        await tx.duel.update({ where: { id: duelId }, data: { [VOTE_FIELD[side]]: { increment: applied } } });
+        const photo = await tx.photo.update({ where: { id: photoId }, data: { votesCount: { increment: applied } } });
+        await tx.user.update({ where: { id: photo.userId }, data: { votesReceived: { increment: applied } } });
+        await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Duel', entityId: duelId, details: { side, votes: applied } }, tx);
+      }
+      return current + applied;
+    });
+    await this.scheduler.scheduleVoteRefresh(duelId);
     return result;
   }
 

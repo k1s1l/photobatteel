@@ -536,6 +536,17 @@ export const uk: Locale = {
       'Якщо це фінал — батл одразу завершиться і вийде пост переможця. Якщо ні — почнеться наступний раунд.',
     finishNowDoneBattle: '🏆 Батл завершено — переможця визначено, пост переможця готовий.',
     finishNowDoneRound: '✅ Раунд завершено, починається наступний.',
+    votesButton: '🗳 Змінити голоси',
+    votesChoosePair: '<b>🗳 Змінити голоси</b>\n\nОбери пару поточного раунду:',
+    votesNoPairs: 'Зараз немає відкритих пар.',
+    votesPair: (n: number) => `Пара ${n}`,
+    votesScreen: (p: { duel: number; lines: string }) =>
+      `<b>🗳 Пара ${p.duel} — голоси</b>\n\n${p.lines}\n\nДодай або зніми голоси кнопками нижче (наприклад, якщо оплата прийшла повз бота). Кнопки в каналі оновляться самі.`,
+    votesLine: (side: number, votes: number) => `Робота ${side}: <b>${votes}</b>`,
+    votesCustom: (side: number) => `✏️ Робота ${side}: своє число`,
+    votesAsk: (side: number) => `Скільки голосів змінити в роботи ${side}? Надішли число: <code>20</code> — додати, <code>-3</code> — зняти.`,
+    votesInvalid: 'Потрібне ціле число, наприклад 20 або -3.',
+    votesSaved: '✅ Голоси змінено',
     roundEndButton: '⏰ Змінити кінець раунду',
     roundEndAsk: (p: { round: number; current: string | null; example: string }) =>
       `<b>⏰ Кінець раунду ${p.round}</b>\n\n` +

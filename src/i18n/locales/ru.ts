@@ -595,6 +595,17 @@ export const ru = {
       'Если это финал — батл сразу закончится и выйдет пост победителя. Если нет — начнётся следующий раунд.',
     finishNowDoneBattle: '🏆 Батл завершён — победитель определён, пост победителя готов.',
     finishNowDoneRound: '✅ Раунд завершён, начинается следующий.',
+    votesButton: '🗳 Изменить голоса',
+    votesChoosePair: '<b>🗳 Изменить голоса</b>\n\nВыбери пару текущего раунда:',
+    votesNoPairs: 'Сейчас нет открытых пар.',
+    votesPair: (n: number) => `Пара ${n}`,
+    votesScreen: (p: { duel: number; lines: string }) =>
+      `<b>🗳 Пара ${p.duel} — голоса</b>\n\n${p.lines}\n\nДобавь или сними голоса кнопками ниже (например, если оплата пришла мимо бота). Кнопки в канале обновятся сами.`,
+    votesLine: (side: number, votes: number) => `Работа ${side}: <b>${votes}</b>`,
+    votesCustom: (side: number) => `✏️ Работа ${side}: своё число`,
+    votesAsk: (side: number) => `Сколько голосов изменить у работы ${side}? Пришли число: <code>20</code> — добавить, <code>-3</code> — снять.`,
+    votesInvalid: 'Нужно целое число, например 20 или -3.',
+    votesSaved: '✅ Голоса изменены',
     roundEndButton: '⏰ Изменить конец раунда',
     roundEndAsk: (p: { round: number; current: string | null; example: string }) =>
       `<b>⏰ Конец раунда ${p.round}</b>\n\n` +
