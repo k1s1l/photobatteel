@@ -207,6 +207,30 @@ describe('transfer orders', () => {
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('PAID');
   });
 
+  it('"check the bank" shows what Monobank returned, credits matching orders and reports errors', async () => {
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    bank.items = [
+      { id: 'd1', time: Math.floor(Date.now() / 1000), amount: 1000, currencyCode: 980, description: 'Від: Ігор', comment: 'без коду' },
+      { id: 'd2', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! },
+    ];
+    const result = await ctx.services.payments.diagnoseBank();
+    expect(result).toMatchObject({ kind: 'ok', total: 2, credited: 1, open: 1 });
+    expect(result.kind === 'ok' && result.incoming.map((i) => i.text)).toEqual(['Від: Ігор · без коду', `Від: Олена · ${order.payment.code}`]);
+    expect(await ctx.services.payments.diagnoseBank()).toMatchObject({ kind: 'wait' });
+
+    bank.statement = async () => {
+      throw new Error('Monobank API responded with HTTP 403');
+    };
+    expect(await ctx.services.payments.diagnoseBank(new Date(Date.now() + 61_000))).toMatchObject({ kind: 'error', message: 'Monobank API responded with HTTP 403' });
+  });
+
+  it('"check the bank" says what is missing in the setup', async () => {
+    await enableTransfers(false);
+    expect(await ctx.services.payments.diagnoseBank()).toMatchObject({ kind: 'no_account' });
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);

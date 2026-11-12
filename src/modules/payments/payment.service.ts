@@ -8,7 +8,7 @@ import type { ActivityService } from '../activity/activity.service.js';
 import type { JobScheduler, TelegramGateway } from '../contracts.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
-import { BankRateLimitError, currencyNumericCode, type BankClient } from './monobank.js';
+import { BankRateLimitError, type BankStatementItem, currencyNumericCode, type BankClient } from './monobank.js';
 
 export const STARS_CURRENCY = 'XTR';
 const PAYLOAD_PREFIX = 'order:';
@@ -73,6 +73,13 @@ const LATE_TRANSFER_MS = 24 * 60 * 60_000;
 function lateTransfers(now: Date = new Date()): Prisma.PaymentWhereInput {
   return { method: 'TRANSFER', status: 'CANCELLED', confirmedById: null, createdAt: { gte: new Date(now.getTime() - LATE_TRANSFER_MS) } };
 }
+
+export type BankDiagnosis =
+  | { kind: 'no_token' }
+  | { kind: 'no_account' }
+  | { kind: 'wait'; seconds: number }
+  | { kind: 'error'; message: string }
+  | { kind: 'ok'; total: number; incoming: { time: Date; amount: number; text: string }[]; credited: number; open: number };
 
 export interface CompletedPayment {
   payment: Payment;
@@ -522,10 +529,55 @@ export class PaymentService {
     let items;
     try {
       items = await this.bank.statement(settings.monobankAccountId, from, now);
+      this.bankCheck = { at: now, error: null, items: items.length };
     } catch (error) {
-      if (!(error instanceof BankRateLimitError)) this.logger.warn({ err: error }, 'Monobank statement request failed');
+      if (!(error instanceof BankRateLimitError)) {
+        this.logger.warn({ err: error }, 'Monobank statement request failed');
+        this.bankCheck = { at: now, error: error instanceof Error ? error.message : String(error), items: 0 };
+      }
       return 0;
     }
+    return this.matchBankItems(items, open);
+  }
+
+  /** The last automatic bank check: when, and what went wrong if anything. */
+  bankCheck: { at: Date; error: string | null; items: number } | null = null;
+
+  /**
+   * Admin "check the bank now": reads the last day of the selected jar/card,
+   * credits matching orders and shows what the bank returned.
+   */
+  async diagnoseBank(now: Date = new Date()): Promise<BankDiagnosis> {
+    const settings = await this.settings.get();
+    if (!this.bank) return { kind: 'no_token' };
+    if (!settings.monobankAccountId) return { kind: 'no_account' };
+    const wait = 60_000 - (now.getTime() - this.lastBankPoll);
+    if (wait > 0) return { kind: 'wait', seconds: Math.ceil(wait / 1000) };
+    this.lastBankPoll = now.getTime();
+    let items;
+    try {
+      items = await this.bank.statement(settings.monobankAccountId, new Date(now.getTime() - 24 * 60 * 60_000), now);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.bankCheck = { at: now, error: message, items: 0 };
+      return { kind: 'error', message };
+    }
+    this.bankCheck = { at: now, error: null, items: items.length };
+    const open = await this.prisma.payment.findMany({
+      where: { code: { not: null }, OR: [{ method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers(now)] },
+      include: { user: true },
+    });
+    const openCount = open.length;
+    const credited = openCount > 0 ? await this.matchBankItems(items, open) : 0;
+    const incoming = items
+      .filter((item) => item.amount > 0)
+      .slice(0, 5)
+      .map((item) => ({ time: new Date(item.time * 1000), amount: item.amount, text: [item.description, item.comment].filter(Boolean).join(' · ') }));
+    return { kind: 'ok', total: items.length, incoming, credited, open: openCount };
+  }
+
+  /** Credits open orders whose code is in an incoming transfer of at least their amount. */
+  private async matchBankItems(items: BankStatementItem[], open: (Payment & { user: User })[]): Promise<number> {
     const currency = currencyNumericCode(this.options.cardCurrency);
     let credited = 0;
     for (const item of items) {

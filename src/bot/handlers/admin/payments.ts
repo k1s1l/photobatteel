@@ -43,9 +43,38 @@ async function showPayments(ctx: BotContext): Promise<void> {
     [button(current.transferEnabled ? a.transferToggleOff : a.transferToggleOn, 'a:pay:tr:toggle')],
     [button(a.transferDetailsButton, 'a:pay:tr:details'), button(a.monobankButton, 'a:pay:mono')],
     [button(a.transfersButton, 'a:pay:trl'), button(a.paymentsList, 'a:pay:list:0')],
+    [button(a.bankCheckButton, 'a:pay:bank')],
     [button(a.buttons.panel, PANEL)],
   ];
   await respond(ctx, text + transfer, { keyboard: inline(rows) });
+}
+
+/** "🔍 Check the bank": asks Monobank now and shows what came back. */
+async function showBankDiagnosis(ctx: BotContext): Promise<void> {
+  const a = ctx.locale.admin.bankCheck;
+  const result = await ctx.deps.services.payments.diagnoseBank();
+  let text: string;
+  switch (result.kind) {
+    case 'no_token':
+      text = a.noToken;
+      break;
+    case 'no_account':
+      text = a.noAccount;
+      break;
+    case 'wait':
+      text = a.wait(result.seconds);
+      break;
+    case 'error':
+      text = a.error(escapeHtml(result.message));
+      break;
+    default: {
+      const lines = result.incoming.map((item) =>
+        a.item({ time: formatDateTime(item.time, ctx.deps.env.TIMEZONE, ctx.locale.intl), amount: money(ctx, item.amount), text: escapeHtml(item.text || '—') }),
+      );
+      text = a.ok({ total: result.total, credited: result.credited, open: result.open, lines: lines.join('\n') });
+    }
+  }
+  await respond(ctx, text, { keyboard: inline([[button(a.again, 'a:pay:bank')], [button(ctx.locale.common.back, 'a:pay')]]) });
 }
 
 async function showPackage(ctx: BotContext, id: number): Promise<void> {
@@ -191,6 +220,15 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
       keyboard: inline([[button(ctx.locale.admin.transfersButton, 'a:pay:trl'), button(ctx.locale.admin.buttons.payments, 'a:pay')]]),
     });
   });
+
+  admin.action('a:pay:bank', async (ctx) => {
+
+    await answer(ctx);
+
+    await showBankDiagnosis(ctx);
+
+  });
+
 
   admin.action('a:pay', async (ctx) => {
     setState(ctx, undefined);
