@@ -446,6 +446,30 @@ describe('bot: admin corrects votes', () => {
   });
 });
 
+describe('bot: managing admins', () => {
+  it('the owner adds an admin by id and removes them; other admins cannot manage admins', async () => {
+    await sendText(ADMIN_TG_ID, '/start');
+    await press(ADMIN_TG_ID, 'a:adm');
+    expect(texts('editMessageText').at(-1)).toContain('Админы');
+    await press(ADMIN_TG_ID, 'a:adm:add');
+    await sendText(ADMIN_TG_ID, '5076629083');
+    expect(texts('sendMessage').at(-1)).toContain('Админ добавлен');
+    expect(await ctx.services.admins.isAdmin(5076629083)).toBe(true);
+
+    // The new admin opens the bot: the panel works, admin management does not.
+    await sendText(5076629083, '/start');
+    await sendText(5076629083, '/admin');
+    expect(texts('sendMessage').at(-1)).not.toContain('Недостаточно прав');
+    await press(5076629083, 'a:adm');
+    expect(answers().at(-1)).toContain('только владелец');
+
+    const added = await ctx.prisma.admin.findFirstOrThrow({ where: { telegramId: 5076629083n } });
+    expect(added.userId).not.toBeNull();
+    await press(ADMIN_TG_ID, `a:adm:rmy:${added.id}`);
+    expect(await ctx.services.admins.isAdmin(5076629083)).toBe(false);
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

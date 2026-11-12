@@ -1,4 +1,4 @@
-import type { PrismaClient } from '../../generated/prisma/client.js';
+import type { Admin, PrismaClient, User } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import type { Logger } from '../../lib/logger.js';
 import type { ActivityService } from '../activity/activity.service.js';
@@ -52,6 +52,41 @@ export class AdminService {
     if (await this.isAdmin(telegramId)) return;
     await this.activity.log({ action: 'ADMIN_ACCESS_DENIED', telegramId });
     throw new DomainError('FORBIDDEN');
+  }
+
+  /** Owners (from ADMIN_IDS) manage the other admins. */
+  async isOwner(telegramId: number): Promise<boolean> {
+    const admin = await this.prisma.admin.findUnique({ where: { telegramId: BigInt(telegramId) } });
+    return admin?.isActive === true && admin.role === 'OWNER';
+  }
+
+  /** Active admins with their profiles (when they have talked to the bot). */
+  async list(): Promise<(Admin & { user: User | null })[]> {
+    return this.prisma.admin.findMany({ where: { isActive: true }, include: { user: true }, orderBy: [{ role: 'desc' }, { id: 'asc' }] });
+  }
+
+  /** Gives admin rights by Telegram id; the person may not have opened the bot yet. */
+  async add(telegramId: number, actorUserId: number | null): Promise<Admin> {
+    if (!Number.isSafeInteger(telegramId) || telegramId <= 0) throw new DomainError('NOT_FOUND');
+    const id = BigInt(telegramId);
+    const user = await this.prisma.user.findUnique({ where: { telegramId: id }, select: { id: true } });
+    const existing = await this.prisma.admin.findUnique({ where: { telegramId: id } });
+    const admin = existing
+      ? await this.prisma.admin.update({ where: { id: existing.id }, data: { isActive: true, ...(user ? { userId: user.id } : {}) } })
+      : await this.prisma.admin.create({ data: { telegramId: id, role: 'ADMIN', isActive: true, userId: user?.id ?? null } });
+    this.cache = undefined;
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Admin', entityId: admin.id, details: { added: telegramId } });
+    return admin;
+  }
+
+  /** Takes admin rights away. Owners from ADMIN_IDS can only be removed in Railway. */
+  async remove(adminId: number, actorUserId: number | null): Promise<boolean> {
+    const admin = await this.prisma.admin.findUnique({ where: { id: adminId } });
+    if (!admin?.isActive || admin.role === 'OWNER') return false;
+    await this.prisma.admin.update({ where: { id: adminId }, data: { isActive: false } });
+    this.cache = undefined;
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Admin', entityId: adminId, details: { removed: admin.telegramId.toString() } });
+    return true;
   }
 
   async listAdminTelegramIds(): Promise<number[]> {

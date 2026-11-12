@@ -7,6 +7,7 @@ import { getState, setState } from '../../context.js';
 import { answer, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
 import { handleBattleWizardText, handleRoundEndText, handleStartTimeText, handleVotesInput, registerBattleHandlers } from './battles.js';
+import { handleAddAdminInput, registerAdminManagementHandlers } from './admins.js';
 import { handleTemplateMessage, registerDesignHandlers } from './design.js';
 import { handleFinalSpotGrantInput, handleFinalSpotPriceInput, handleSpotPhotoByAdmin, registerFinalSpotAdminHandlers } from './final-spots.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
@@ -75,6 +76,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
   if (state.action === 'final_spot_price') return handleFinalSpotPriceInput(ctx, text);
   if (state.action === 'final_spot_grant') return handleFinalSpotGrantInput(ctx, text);
+  if (state.action === 'admin_add') return handleAddAdminInput(ctx, text);
   if (state.action === 'package_price') {
     if (state.packageId) await handlePackagePriceInput(ctx, state.packageId, text);
     else setState(ctx, undefined);
@@ -133,6 +135,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>): void {
   registerPaymentAdminHandlers(admin);
   registerDesignHandlers(admin);
   registerFinalSpotAdminHandlers(admin);
+  registerAdminManagementHandlers(admin);
 
   const prompts = {
     delete: (ctx: BotContext) => ctx.locale.admin.askPhotoIdDelete,
