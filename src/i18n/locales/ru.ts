@@ -348,14 +348,18 @@ export const ru = {
       '• Если голосование закончилось до оплаты, голоса зачисляются на баланс.\n' +
       '• Возврат возможен, если голоса не были начислены: /paysupport.',
     refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
-    transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean }) =>
-      '<b>💳 Оплата переводом на карту</b>\n\n' +
-      `Сумма: <b>${p.amount}</b>\n` +
-      `Куда: ${p.details}\n` +
-      `Комментарий к переводу: <code>${p.code}</code>\n\n` +
-      '⚠️ Обязательно укажи код в комментарии и переведи <b>точную сумму</b> — по ним мы находим твой платёж.\n' +
-      `На оплату — ${p.minutes} мин. После перевода нажми «✅ Я оплатил».` +
+    transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean; link: boolean }) =>
+      '<b>💳 Оплата голосов</b>\n\n' +
+      (p.link ? '<b>1.</b> Нажми «💳 Открыть банку» ниже\n' : `<b>1.</b> Переведи на: ${p.details}\n`) +
+      `<b>2.</b> Сумма: <b>${p.amount}</b>\n` +
+      '<b>3.</b> В поле <b>«Комментарий»</b> вставь код:\n\n' +
+      `👉 <b><code>${p.code}</code></b> 👈\n\n` +
+      '‼️ <b>БЕЗ ЭТОГО КОДА В КОММЕНТАРИИ ГОЛОСА НЕ ЗАСЧИТАЮТСЯ</b>\n' +
+      'Нажми «📋 Скопировать код» — и просто вставь его.\n\n' +
+      `<b>4.</b> После оплаты нажми «✅ Я оплатил». На оплату — ${p.minutes} мин.` +
       (p.automatic ? '\nГолоса начислятся автоматически.' : ''),
+    transferOpenJar: '💳 Открыть банку',
+    transferCopyCode: '📋 Скопировать код',
     transferPaidButton: '✅ Я оплатил',
     transferCancelButton: '❌ Отменить',
     transferClaimedAuto: '⏳ Проверяю оплату — обычно это 1–2 минуты. Как только она подтвердится, голоса начислятся, я напишу.',

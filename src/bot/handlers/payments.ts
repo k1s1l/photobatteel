@@ -1,3 +1,4 @@
+import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { answerFinalSpotCheckout, completeFinalSpot, isFinalSpotPayload } from './final-spots.js';
 import type { Telegraf } from 'telegraf';
 import { entriesOf, entryCount, PHOTO_ID_FIELD, sideFromLetter, sideNumber } from '../../modules/duels/sides.js';
@@ -118,22 +119,29 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
     const { payments } = ctx.deps.services;
     const order = await payments.createTransfer(currentUser(ctx), matchInt(ctx, 1), matchInt(ctx, 2) || null);
     await answer(ctx);
+    const l = ctx.locale.payments;
+    const code = order.payment.code ?? '';
+    // A jar link (send.monobank.ua/jar/…) becomes a button; a card number stays in the text.
+    const link = /https?:\/\/\S+/.exec(order.details)?.[0] ?? null;
+    // "Copy" buttons are part of the Bot API but not of Telegraf's types yet.
+    const keyboard = {
+      inline_keyboard: [
+        ...(link ? [[{ text: l.transferOpenJar, url: link }]] : []),
+        [{ text: l.transferCopyCode, copy_text: { text: code } }],
+        [{ text: l.transferPaidButton, callback_data: `pay:tc:${order.payment.id}` }],
+        [{ text: l.transferCancelButton, callback_data: `pay:tx:${order.payment.id}` }],
+      ],
+    } as unknown as InlineKeyboardMarkup;
     await ctx.reply(
-      ctx.locale.payments.transferInstructions({
+      l.transferInstructions({
         amount: formatCardPrice(order.payment.amount, order.payment.currency),
-        code: order.payment.code ?? '',
+        code,
         details: escapeHtml(order.details),
         minutes: payments.options.transferTtlMinutes,
         automatic: order.automatic,
+        link: link !== null,
       }),
-      {
-        parse_mode: 'HTML',
-        link_preview_options: { is_disabled: true },
-        reply_markup: inline([
-          [button(ctx.locale.payments.transferPaidButton, `pay:tc:${order.payment.id}`)],
-          [button(ctx.locale.payments.transferCancelButton, `pay:tx:${order.payment.id}`)],
-        ]),
-      },
+      { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: keyboard },
     );
   });
 

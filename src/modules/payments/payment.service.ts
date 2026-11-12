@@ -502,7 +502,7 @@ export class PaymentService {
 
   /**
    * Checks the Monobank statement for incoming transfers carrying an open
-   * order's code and the exact amount, and credits them. Monobank allows one
+   * order's code and at least the order's amount, and credits them. Monobank allows one
    * statement request per minute, so calls closer than that are skipped.
    */
   async pollBank(now: Date = new Date()): Promise<number> {
@@ -530,7 +530,8 @@ export class PaymentService {
     for (const item of items) {
       if (item.amount <= 0 || (currency !== undefined && item.currencyCode !== currency)) continue;
       const text = normalizeCode(`${item.description ?? ''} ${item.comment ?? ''}`);
-      const payment = open.find((candidate) => candidate.amount === item.amount && text.includes(normalizeCode(candidate.code!)));
+      // The code identifies the order; paying a bit more than the pack price is fine too.
+      const payment = open.find((candidate) => item.amount >= candidate.amount && text.includes(normalizeCode(candidate.code!)));
       if (!payment) continue;
       if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) continue;
       try {

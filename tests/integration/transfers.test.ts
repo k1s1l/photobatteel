@@ -199,6 +199,15 @@ describe('transfer orders', () => {
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('FINISHED');
   });
 
+  it('accepts a transfer with the code that is bigger than the pack price', async () => {
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    bank.items = [{ id: 'overpaid', time: 1, amount: order.payment.amount + 1000, currencyCode: 980, description: 'Від: Олег', comment: order.payment.code! }];
+    expect(await ctx.services.payments.pollBank()).toBe(1);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('PAID');
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);

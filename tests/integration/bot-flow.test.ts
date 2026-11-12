@@ -467,6 +467,24 @@ describe('bot: card transfer', () => {
   });
 });
 
+describe('bot: jar payment', () => {
+  it('shows a jar button, a copy-code button and the code in bold', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'https://send.monobank.ua/jar/AbC123' }, null);
+    const services = ctx.services as unknown as { payments: { options: { cardEnabled: boolean } } };
+    services.payments.options.cardEnabled = false;
+    await sendText(81, '/start');
+    const [pack] = await ctx.services.payments.listPackages(true);
+    await press(81, `pay:t:${pack!.id}:0`);
+    const message = api.filter((c) => c.method === 'sendMessage').at(-1)!;
+    const payment = await ctx.prisma.payment.findFirstOrThrow({ where: { method: 'TRANSFER' } });
+    expect(String(message.payload.text)).toContain(`<b><code>${payment.code}</code></b>`);
+    expect(String(message.payload.text)).toContain('Открыть банку');
+    const rows = (message.payload.reply_markup as { inline_keyboard: Record<string, unknown>[][] }).inline_keyboard;
+    expect(rows[0]![0]).toMatchObject({ url: 'https://send.monobank.ua/jar/AbC123' });
+    expect(rows[1]![0]).toMatchObject({ copy_text: { text: payment.code } });
+  });
+});
+
 describe('bot: admin', () => {
   it('denies admin buttons and commands to regular users', async () => {
     await press(40, 'a:stats');
