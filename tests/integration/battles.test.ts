@@ -347,7 +347,7 @@ describe('group final', () => {
     const buttons = toChannel('sendMessage').at(-1)!;
     expect(String(buttons.args[0])).toBe('ФІНАЛ НА ТРЬОХ Финал');
     const keyboard = (buttons.args[1] as { replyMarkup: { inline_keyboard: { callback_data: string }[][] } }).replyMarkup.inline_keyboard;
-    expect(keyboard.flat().map((b) => b.callback_data)).toEqual([`d:${final.id}:0:a`, `d:${final.id}:0:b`, `d:${final.id}:0:c`]);
+    expect(keyboard.flat().map((b) => b.callback_data)).toEqual([`d:${final.id}:0:a`, `d:${final.id}:0:b`, `d:${final.id}:0:c`, 'dt']);
     const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } });
     expect(live.endsAt!.getTime() - live.postedAt!.getTime()).toBe(60 * 60_000);
 
@@ -386,8 +386,8 @@ describe('group final', () => {
     const buttons = toChannel('sendMessage').at(-1)!;
     expect(String(buttons.args[0])).toBe('ФІНАЛ ШІСТЬОХ — голосуй за найкращу роботу');
     const keyboard = (buttons.args[1] as { replyMarkup: { inline_keyboard: { callback_data: string }[][] } }).replyMarkup.inline_keyboard;
-    expect(keyboard.map((row) => row.length)).toEqual([2, 2, 2]);
-    expect(keyboard.flat().at(-1)!.callback_data).toBe(`d:${final.id}:0:f`);
+    expect(keyboard.map((row) => row.length)).toEqual([2, 2, 2, 1]);
+    expect(keyboard.flat().at(-2)!.callback_data).toBe(`d:${final.id}:0:f`);
 
     await ctx.services.duelVotes.vote(final.id, 0, 'F', await createUser(ctx));
     await expireDuels(ctx);
@@ -610,7 +610,7 @@ describe('templates, final duration and reminders', () => {
     await startBattle(ctx, battle.id);
     await postPendingDuels(ctx);
     const markup = (toChannel('sendMessage')[0]!.args[1] as { replyMarkup: { inline_keyboard: unknown[][] } }).replyMarkup.inline_keyboard;
-    expect(markup.map((row) => row.length)).toEqual([1, 1]);
+    expect(markup.map((row) => row.length)).toEqual([1, 1, 1]);
     expect((await ctx.prisma.duel.findFirstOrThrow()).stackedButtons).toBe(true);
   });
 

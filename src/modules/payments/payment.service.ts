@@ -145,7 +145,11 @@ export class PaymentService {
 
   private async scheduleOvertime(): Promise<void> {
     const due = this.pendingOvertime.splice(0);
-    for (const item of due) await this.scheduler.scheduleTickAt(item.endsAt, `duel-${item.duelId}-${item.stage}-ot-${item.endsAt.getTime()}`);
+    for (const item of due) {
+      await this.scheduler.scheduleTickAt(item.endsAt, `duel-${item.duelId}-${item.stage}-ot-${item.endsAt.getTime()}`);
+      // The new end time shows under the vote buttons.
+      await this.scheduler.scheduleVoteRefresh(item.duelId);
+    }
   }
 
   private lastBankPoll = 0;

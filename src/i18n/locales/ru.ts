@@ -264,6 +264,8 @@ export const ru = {
     stage: (p: { roundName: string; duel: number; final: boolean; tiebreak: boolean }) =>
       `${p.tiebreak ? '⚡ Переголосование! ' : ''}${p.final ? p.roundName : `${p.roundName} · Пара ${p.duel}`}`,
     voteButton: (p: { side: number; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
+    endsAtButton: (time: string) => `⏱ Голосование до ${time}`,
+    timeHint: 'Голосование продлевается на 5 минут, если в последние минуты кто-то закидывает голоса.',
     paidButton: '⭐ +1 голос',
     closedButton: '🏁 Голосование завершено',
     tieButton: '⚡ Ничья — переголосование ниже',

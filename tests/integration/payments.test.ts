@@ -138,6 +138,14 @@ describe('paying near the end', () => {
     const [pack] = await ctx.services.payments.listPackages(true);
     await ctx.services.payments.createInvoice(await createUser(ctx), pack!.id, 'STARS', duel.photoAId);
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).endsAt!.getTime()).toBeGreaterThan(Date.now() + 4 * 60_000);
+    // The new end time is shown under the vote buttons.
+    expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
+    await ctx.services.battles.refreshButtons(duel.id);
+    const markup = ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)!.args[1] as { inline_keyboard: { text: string; callback_data: string }[][] };
+    const time = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
+      (await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).endsAt!,
+    );
+    expect(markup.inline_keyboard.flat().at(-1)).toMatchObject({ text: `⏱ Голосование до ${time}`, callback_data: 'dt' });
   });
 });
 

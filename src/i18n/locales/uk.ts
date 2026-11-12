@@ -245,6 +245,8 @@ export const uk: Locale = {
     },
     stage: (p) => `${p.tiebreak ? '⚡ Переголосування! ' : ''}${p.final ? p.roundName : `${p.roundName} · Пара ${p.duel}`}`,
     voteButton: (p) => `Підтримати ${p.side} · ${p.votes}`,
+    endsAtButton: (time: string) => `⏱ Голосування до ${time}`,
+    timeHint: 'Голосування продовжується на 5 хвилин, якщо в останні хвилини хтось закидає голоси.',
     paidButton: '⭐ +1 голос',
     closedButton: '🏁 Голосування завершено',
     tieButton: '⚡ Нічия — переголосування нижче',

@@ -524,7 +524,7 @@ export class BattleService {
     const stacked = isNarrowText(buttonsText);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt) }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -575,6 +575,9 @@ export class BattleService {
       return { battle: updated, changed: changed.count };
     });
     await this.scheduler.scheduleTickAt(at, `round-end-${battleId}-${battle.currentRound}-${at.getTime()}`);
+    for (const duel of await this.prisma.duel.findMany({ where: { battleId, round: battle.currentRound, status: 'ACTIVE' }, select: { id: true } })) {
+      await this.scheduler.scheduleVoteRefresh(duel.id);
+    }
     return result;
   }
 
@@ -831,7 +834,12 @@ export class BattleService {
     if (!duel?.messageId || duel.status !== 'ACTIVE') return;
     const settings = await this.settings.get();
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, activeDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons }, settings.paidVotesEnabled));
+      const keyboard = activeDuelKeyboard(
+        this.locale,
+        { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons, ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}) },
+        settings.paidVotesEnabled,
+      );
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, keyboard);
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') throw error;
     }
@@ -989,6 +997,7 @@ export class BattleService {
     const held = await this.prisma.duel.updateMany({ where: { id: duel.id, status: 'ACTIVE', stage: duel.stage }, data: { endsAt } });
     if (held.count === 0) return false;
     await this.scheduler.scheduleTickAt(endsAt, `hold-${duel.id}-${endsAt.getTime()}`);
+    await this.scheduler.scheduleVoteRefresh(duel.id); // the new end time shows under the buttons
     if (pending.status === 'CLAIMED' && !this.heldPayments.has(pending.id)) {
       this.heldPayments.add(pending.id);
       const entriesInRound = await this.roundEntries(duel.battleId, duel.round);

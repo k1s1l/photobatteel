@@ -1,8 +1,8 @@
 import type { MiddlewareFn } from 'telegraf';
-import { DUEL_CLOSED, DUEL_PAID_PREFIX, DUEL_VOTE_PREFIX } from '../../modules/duels/duel-post.js';
+import { DUEL_CLOSED, DUEL_PAID_PREFIX, DUEL_TIME, DUEL_VOTE_PREFIX } from '../../modules/duels/duel-post.js';
 import type { BotContext } from '../context.js';
 
-const CHANNEL_CALLBACKS = [DUEL_VOTE_PREFIX, DUEL_PAID_PREFIX, DUEL_CLOSED];
+const CHANNEL_CALLBACKS = [DUEL_VOTE_PREFIX, DUEL_PAID_PREFIX, DUEL_CLOSED, DUEL_TIME];
 
 /**
  * The bot talks to people only in private chats. Exceptions: the vote buttons

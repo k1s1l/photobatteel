@@ -1,6 +1,6 @@
 import type { Telegraf } from 'telegraf';
 import { isDomainError } from '../../lib/errors.js';
-import { DUEL_CLOSED } from '../../modules/duels/duel-post.js';
+import { DUEL_CLOSED, DUEL_TIME } from '../../modules/duels/duel-post.js';
 import { sideFromLetter, sideNumber } from '../../modules/duels/sides.js';
 import { currentUser, type BotContext } from '../context.js';
 import { answer, matchInt, matchString, stripHtml } from '../helpers.js';
@@ -40,4 +40,5 @@ export function registerVoteHandlers(bot: Telegraf<BotContext>): void {
   });
 
   bot.action(DUEL_CLOSED, (ctx) => answer(ctx, ctx.locale.duel.closed));
+  bot.action(DUEL_TIME, (ctx) => answer(ctx, ctx.locale.duel.timeHint));
 }
