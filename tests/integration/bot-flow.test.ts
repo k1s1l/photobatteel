@@ -399,6 +399,28 @@ describe('bot: admin gives a place in the final', () => {
   });
 });
 
+describe('bot: more time to collect photos', () => {
+  it('moves the start by +1 h or to a typed time and keeps accepting photos', async () => {
+    const battle = await openBattle(ctx);
+    const before = battle.startsAt.getTime();
+    await press(ADMIN_TG_ID, 'a:bt');
+    expect(JSON.stringify(api.filter((c) => c.method === 'editMessageText' || c.method === 'sendMessage').at(-1)!.payload.reply_markup)).toContain(`a:bt:ext:${battle.id}:60`);
+    await press(ADMIN_TG_ID, `a:bt:ext:${battle.id}:60`);
+    const moved = await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } });
+    expect(moved.startsAt.getTime()).toBe(before + 60 * 60_000);
+    expect(texts('sendMessage').some((t) => t.includes('Старт перенесён'))).toBe(true);
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => String(c.args[0]).includes('Приём фото продлён'))).toBe(true);
+
+    // The tick at the old start time does not start the battle.
+    await ctx.services.battles.tick(new Date(before + 1000));
+    expect((await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).status).toBe('SCHEDULED');
+
+    await press(ADMIN_TG_ID, `a:bt:st:${battle.id}`);
+    await sendText(ADMIN_TG_ID, '23:57');
+    expect(texts('sendMessage').at(-1)).toContain('Старт перенесён');
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

@@ -266,6 +266,24 @@ export class BattleService {
     return battle;
   }
 
+  /**
+   * Moves the start of a scheduled battle (e.g. more time to collect photos).
+   * Admins get a ready post about the new time for the channel.
+   */
+  async reschedule(battleId: number, startsAt: Date, actorUserId: number | null, now: Date = new Date()): Promise<Battle> {
+    if (startsAt <= now) throw new RangeError('Battle must start in the future');
+    const updated = await this.prisma.battle.updateMany({ where: { id: battleId, status: 'SCHEDULED' }, data: { startsAt } });
+    if (updated.count === 0) throw new DomainError('INVALID_STATE');
+    const battle = await this.prisma.battle.findUniqueOrThrow({ where: { id: battleId } });
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { startsAt: startsAt.toISOString() } });
+    // The tick at the old time finds nothing to start; this one starts the battle on time.
+    await this.scheduler.scheduleTickAt(startsAt, `battle-${battle.id}-${startsAt.getTime()}`);
+    await this.prepareAnnouncement(
+      this.locale.battle.startMoved({ title: escapeHtml(battle.title), start: formatDateTime(startsAt, this.options.timeZone, this.locale.intl), bot: `@${this.bot.username}` }),
+    );
+    return battle;
+  }
+
   async cancel(battleId: number, adminUserId: number): Promise<Battle> {
     const duels = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.battle.updateMany({

@@ -227,6 +227,8 @@ export const ru = {
     statusFinished: '🏁 Завершён',
     statusCancelled: '❌ Отменён',
     defaultTitle: (n: number) => `Фотобатл #${n}`,
+    startMoved: (p: { title: string; start: string; bot: string }) =>
+      `⏳ <b>Приём фото продлён!</b>\n\nБатл «${p.title}» стартует ${p.start}. Ещё успеваешь — кидай свою работу в бота ${p.bot} 📸`,
     announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
     winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
     byeDm: (round: number) => `➡️ Твоя работа проходит в следующий раунд без голосования (раунд ${round}: нечётное число работ, а твою прислали последней). Удачи дальше! 🔥`,
@@ -577,6 +579,11 @@ export const ru = {
       `Работ: ${p.entries}` +
       (p.round > 0 ? ` · Раунд ${p.round}${p.progress ? ` (${p.progress})` : ''}` : ''),
     battleCreate: '➕ Запланировать батл',
+    extendButton: (m: number) => `⏳ +${m % 60 === 0 ? `${m / 60} ч` : `${m} мин`}`,
+    startTimeButton: '🕐 Указать время старта',
+    startTimeAsk: (p: { current: string; example: string }) =>
+      `<b>🕐 Новое время старта</b>\n\nСейчас батл стартует: <b>${p.current}</b>.\nНапиши новое время, например <code>15:00</code> или <code>${p.example}</code>. До старта бот продолжит принимать фото.`,
+    startMoved: (start: string) => `✅ Старт перенесён на <b>${start}</b> — приём фото продлён. Пост для канала пришёл выше, перешли его.`,
     roundEndButton: '⏰ Изменить конец раунда',
     roundEndAsk: (p: { round: number; current: string | null; example: string }) =>
       `<b>⏰ Конец раунда ${p.round}</b>\n\n` +

@@ -13,6 +13,8 @@ import { adminUserId } from './shared.js';
 
 const ROUND_MINUTES = [15, 30, 60, 120, 180, 360, 720, 1440] as const;
 const FINAL_SIZES = [2, 3, 4, 5, 6] as const;
+/** "+30 min / +1 h / +2 h" for collecting photos longer. */
+const EXTEND_MINUTES = [30, 60, 120] as const;
 const RECENT_BATTLES = 5;
 
 async function showBattles(ctx: BotContext): Promise<void> {
@@ -45,6 +47,10 @@ async function showBattles(ctx: BotContext): Promise<void> {
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
+  if (current?.status === 'SCHEDULED') {
+    rows.push(EXTEND_MINUTES.map((m) => button(a.extendButton(m), `a:bt:ext:${current.id}:${m}`)));
+    rows.push([button(a.startTimeButton, `a:bt:st:${current.id}`)]);
+  }
   if (current) rows.push([button(a.finalSizeButton(current.finalSize), `a:bt:fs:${current.id}`)]);
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
@@ -76,6 +82,30 @@ export async function handleRoundEndText(ctx: BotContext, battleId: number, text
     if (!isDomainError(error)) throw error;
     await ctx.reply(ctx.locale.common.alreadyProcessed, { reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
   }
+}
+
+async function moveStart(ctx: BotContext, battleId: number, startsAt: Date): Promise<void> {
+  try {
+    const battle = await ctx.deps.services.battles.reschedule(battleId, startsAt, adminUserId(ctx));
+    await ctx.reply(ctx.locale.admin.startMoved(formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl)), {
+      parse_mode: 'HTML',
+      reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]),
+    });
+  } catch (error) {
+    if (!isDomainError(error) && !(error instanceof RangeError)) throw error;
+    await ctx.reply(ctx.locale.common.alreadyProcessed, { reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+  }
+}
+
+/** The admin typed a new start time for a scheduled battle. */
+export async function handleStartTimeText(ctx: BotContext, battleId: number, text: string): Promise<void> {
+  const at = parseStartTime(text, ctx.deps.env.TIMEZONE);
+  if (!at) {
+    await ctx.reply(ctx.locale.admin.battleStartInvalid, { parse_mode: 'HTML', reply_markup: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]) });
+    return;
+  }
+  setState(ctx, undefined);
+  await moveStart(ctx, battleId, at);
 }
 
 /** Text steps of the battle wizard; called by the admin input router. */
@@ -187,6 +217,26 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     }
     await answer(ctx, ctx.locale.admin.finalSizeSet(next));
     await showBattles(ctx);
+  });
+
+  // More time to collect photos: the start moves later by 30 min / 1 h / 2 h.
+  admin.action(/^a:bt:ext:(\d+):(\d+)$/, async (ctx) => {
+    const battle = await ctx.deps.services.battles.findById(matchInt(ctx, 1));
+    const minutes = matchInt(ctx, 2);
+    await answer(ctx);
+    if (battle?.status !== 'SCHEDULED' || !(EXTEND_MINUTES as readonly number[]).includes(minutes)) return;
+    await moveStart(ctx, battle.id, new Date(battle.startsAt.getTime() + minutes * 60_000));
+  });
+
+  admin.action(/^a:bt:st:(\d+)$/, async (ctx) => {
+    const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
+    await answer(ctx);
+    if (battle?.status !== 'SCHEDULED') return;
+    setState(ctx, { kind: 'battle_start_change', battleId: battle.id });
+    await respond(ctx, ctx.locale.admin.startTimeAsk({ current: formatDateTime(battle.startsAt, ctx.deps.env.TIMEZONE, ctx.locale.intl), example: startExample(ctx) }), {
+      keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
+      forceNew: true,
+    });
   });
 
   admin.action(/^a:bt:end:(\d+)$/, async (ctx) => {

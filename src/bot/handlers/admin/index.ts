@@ -6,7 +6,7 @@ import type { BotContext } from '../../context.js';
 import { getState, setState } from '../../context.js';
 import { answer, respond } from '../../helpers.js';
 import { button, inline } from '../../keyboards.js';
-import { handleBattleWizardText, handleRoundEndText, registerBattleHandlers } from './battles.js';
+import { handleBattleWizardText, handleRoundEndText, handleStartTimeText, registerBattleHandlers } from './battles.js';
 import { handleTemplateMessage, registerDesignHandlers } from './design.js';
 import { handleFinalSpotGrantInput, handleFinalSpotPriceInput, handleSpotPhotoByAdmin, registerFinalSpotAdminHandlers } from './final-spots.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
@@ -17,7 +17,7 @@ import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
 import { blockUser, registerUserHandlers, unblockUser } from './users.js';
 
-const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'admin_spot_photo', 'monobank_pick']);
+const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'battle_start_change', 'admin_spot_photo', 'monobank_pick']);
 const MENU_BUTTONS = new Set(
   (['submit', 'votes', 'battle', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
 );
@@ -69,6 +69,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (!text) return next();
   if (state.kind === 'battle_create') return handleBattleWizardText(ctx, text);
   if (state.kind === 'battle_round_end') return handleRoundEndText(ctx, state.battleId, text);
+  if (state.kind === 'battle_start_change') return handleStartTimeText(ctx, state.battleId, text);
   if (state.kind !== 'admin_input') return next();
   if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
   if (state.action === 'final_spot_price') return handleFinalSpotPriceInput(ctx, text);
