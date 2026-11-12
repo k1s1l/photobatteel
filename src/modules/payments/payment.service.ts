@@ -455,9 +455,10 @@ export class PaymentService {
     await this.holdForPayment(claimedOrder.targetPhotoId);
     const settings = await this.settings.get();
     const automatic = this.bankVerification(settings.monobankAccountId);
-    // Admins are asked right away; the bank check (when set up) may confirm it first.
-    await this.requestReview(paymentId);
+    // With the bank check the bot confirms by itself and asks the admins only when it
+    // finds nothing within a few minutes (see expireTransfers); without it, right away.
     if (automatic) await this.pollBank();
+    else await this.requestReview(paymentId);
     return { automatic };
   }
 
