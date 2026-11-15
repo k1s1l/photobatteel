@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Worker } from 'bullmq';
 import { Telegraf } from 'telegraf';
 import { parseEnv } from './config/env.js';
@@ -14,7 +14,9 @@ import { createPrisma } from './lib/prisma.js';
 import { createRedis } from './lib/redis.js';
 import { AppQueues } from './queue/queues.js';
 import { startWorkers } from './queue/workers.js';
-import { createServices } from './services.js';
+import { createServices, type Services } from './services.js';
+import type { Logger } from './lib/logger.js';
+import { monobankWebhookPath, type BankWebhookEvent } from './modules/payments/monobank.js';
 
 const QUEUE_PREFIX = 'photobattle';
 
@@ -73,6 +75,7 @@ async function main(): Promise<void> {
     createBot(bot, { services, locks: new LockService(redis), gateway, channel, logger, env }, redis);
     await registerCommands(bot);
     const allowedUpdates = ['message', 'callback_query', 'pre_checkout_query', 'channel_post'] as const;
+    const bankRoutes = monobankRoutes(services, env.BOT_TOKEN, logger);
 
     if (env.BOT_MODE === 'webhook') {
       const handler = await bot.createWebhook({
@@ -81,10 +84,10 @@ async function main(): Promise<void> {
         secret_token: env.WEBHOOK_SECRET as string,
         allowed_updates: [...allowedUpdates],
       });
-      server = startHttpServer({ port: env.PORT, prisma, redis, logger, webhook: { path: env.WEBHOOK_PATH, handler } });
+      server = startHttpServer({ port: env.PORT, prisma, redis, logger, webhook: { path: env.WEBHOOK_PATH, handler }, routes: bankRoutes });
       logger.info({ path: env.WEBHOOK_PATH }, 'Webhook registered');
     } else {
-      server = startHttpServer({ port: env.PORT, prisma, redis, logger });
+      server = startHttpServer({ port: env.PORT, prisma, redis, logger, routes: bankRoutes });
       polling = true;
       void bot.launch({ allowedUpdates: [...allowedUpdates], dropPendingUpdates: false }, () => logger.info('Long polling started')).catch(
         (error: unknown) => {
@@ -92,6 +95,16 @@ async function main(): Promise<void> {
           process.exit(1);
         },
       );
+    }
+    // Instant payment confirmations: Monobank posts every new transaction to the bot.
+    if (env.PUBLIC_URL && services.payments.bank) {
+      const url = `${env.PUBLIC_URL.replace(/\/+$/, '')}${monobankWebhookPath(env.BOT_TOKEN)}`;
+      setTimeout(() => {
+        services.payments.connectBankWebhook(url).then(
+          () => logger.info('Monobank webhook connected'),
+          (error: unknown) => logger.warn({ err: error }, 'Monobank webhook was not connected'),
+        );
+      }, 5_000).unref();
     }
   } else {
     server = startHttpServer({ port: env.PORT, prisma, redis, logger });
@@ -128,3 +141,29 @@ main().catch((error: unknown) => {
   console.error(`Fatal startup error:\n${maskSecrets(message)}`);
   process.exit(1);
 });
+
+/** GET (Monobank checks the URL) and POST (a new transaction) of the Monobank webhook. */
+function monobankRoutes(services: Services, botToken: string, logger: Logger) {
+  const path = monobankWebhookPath(botToken);
+  return [
+    { method: 'GET' as const, path, handler: (_req: IncomingMessage, res: ServerResponse) => void res.writeHead(200).end('ok') },
+    {
+      method: 'POST' as const,
+      path,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        let body = '';
+        for await (const chunk of req) {
+          body += String(chunk);
+          if (body.length > 64 * 1024) break;
+        }
+        // Always 200: Monobank stops sending after repeated errors.
+        res.writeHead(200).end('ok');
+        try {
+          await services.payments.handleBankWebhook(JSON.parse(body) as BankWebhookEvent);
+        } catch (error) {
+          logger.warn({ err: error }, 'Monobank webhook event failed');
+        }
+      },
+    },
+  ];
+}

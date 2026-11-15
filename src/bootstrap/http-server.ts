@@ -12,8 +12,10 @@ export function startHttpServer(options: {
   redis: Redis;
   logger: Logger;
   webhook?: { path: string; handler: WebhookHandler };
+  /** Extra endpoints (e.g. the Monobank webhook). */
+  routes?: { method: 'GET' | 'POST'; path: string; handler: WebhookHandler }[];
 }): Server {
-  const { prisma, redis, logger, webhook } = options;
+  const { prisma, redis, logger, webhook, routes = [] } = options;
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/')) {
@@ -32,6 +34,11 @@ export function startHttpServer(options: {
       const healthy = checks.database && checks.redis;
       res.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: healthy ? 'ok' : 'degraded', ...checks }));
+      return;
+    }
+    const route = routes.find((candidate) => candidate.method === req.method && candidate.path === url.pathname);
+    if (route) {
+      await route.handler(req, res);
       return;
     }
     if (webhook && req.method === 'POST' && url.pathname === webhook.path) {

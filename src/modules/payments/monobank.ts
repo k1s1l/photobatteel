@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /** Incoming/outgoing operation from a bank statement (amount in minor units, positive = incoming). */
 export interface BankStatementItem {
   id: string;
@@ -22,6 +23,14 @@ export interface BankAccount {
 export interface BankClient {
   listAccounts(): Promise<BankAccount[]>;
   statement(accountId: string, from: Date, to: Date): Promise<BankStatementItem[]>;
+  /** Asks Monobank to POST every new transaction to this URL (it first checks the URL with a GET). */
+  setWebhook?(url: string): Promise<void>;
+}
+
+/** Monobank's webhook payload for a new transaction. */
+export interface BankWebhookEvent {
+  type?: string;
+  data?: { account?: string; statementItem?: BankStatementItem };
 }
 
 export class BankRateLimitError extends Error {
@@ -32,6 +41,11 @@ export class BankRateLimitError extends Error {
 }
 
 const API = 'https://api.monobank.ua';
+
+/** Secret path of the Monobank webhook, derived from the bot token (nobody can guess it). */
+export function monobankWebhookPath(botToken: string): string {
+  return `/monobank/${createHash('sha256').update(`monobank:${botToken}`).digest('hex').slice(0, 32)}`;
+}
 const TIMEOUT_MS = 15_000;
 /** Monobank returns at most 31 days + 1 hour per statement request. */
 const MAX_PERIOD_MS = 31 * 24 * 60 * 60 * 1000;
@@ -81,6 +95,17 @@ export class MonobankClient implements BankClient {
     const start = Math.max(from.getTime(), to.getTime() - MAX_PERIOD_MS);
     const items = (await this.get(`/personal/statement/${encodeURIComponent(accountId)}/${Math.floor(start / 1000)}/${Math.floor(to.getTime() / 1000)}`)) as BankStatementItem[];
     return Array.isArray(items) ? items : [];
+  }
+
+  async setWebhook(url: string): Promise<void> {
+    const response = await this.fetchImpl(`${API}/personal/webhook`, {
+      method: 'POST',
+      headers: { 'X-Token': this.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ webHookUrl: url }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (response.status === 429) throw new BankRateLimitError();
+    if (!response.ok) throw new Error(`Monobank API responded with HTTP ${response.status}`);
   }
 
   private async get(path: string): Promise<unknown> {

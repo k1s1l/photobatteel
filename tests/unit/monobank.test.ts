@@ -53,3 +53,13 @@ describe('Monobank client', () => {
     await expect(limited.statement('jar1', to, to)).rejects.toBeInstanceOf(BankRateLimitError);
   });
 });
+
+describe('webhook path', () => {
+  it('is secret, stable and depends on the bot token', async () => {
+    const { monobankWebhookPath } = await import('../../src/modules/payments/monobank.js');
+    const a = monobankWebhookPath('123:abc');
+    expect(a).toMatch(/^\/monobank\/[0-9a-f]{32}$/);
+    expect(monobankWebhookPath('123:abc')).toBe(a);
+    expect(monobankWebhookPath('123:abd')).not.toBe(a);
+  });
+});

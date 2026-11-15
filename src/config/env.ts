@@ -44,6 +44,8 @@ const envSchema = z
     TELEGRAM_API_ROOT: z.string().url().optional(),
     BOT_MODE: z.enum(['polling', 'webhook']).default('polling'),
     WEBHOOK_DOMAIN: z.string().url().optional(),
+    /** Public address of this service (Railway domain), e.g. https://bot.up.railway.app — for Monobank's instant notifications. */
+    PUBLIC_URL: z.string().url().optional(),
     WEBHOOK_PATH: z.string().startsWith('/').default('/telegram/webhook'),
     WEBHOOK_SECRET: z
       .string()
@@ -102,7 +104,7 @@ export type Env = z.infer<typeof envSchema>;
  * Optional integrations. A wrong value here must not take the whole bot down:
  * the integration is switched off and a warning is printed instead.
  */
-const SOFT_OPTIONAL_KEYS = ['PAYMENT_PROVIDER_TOKEN', 'MONOBANK_TOKEN', 'TELEGRAM_API_ROOT'] as const;
+const SOFT_OPTIONAL_KEYS = ['PAYMENT_PROVIDER_TOKEN', 'MONOBANK_TOKEN', 'TELEGRAM_API_ROOT', 'PUBLIC_URL'] as const;
 
 export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const input: NodeJS.ProcessEnv = { ...source };

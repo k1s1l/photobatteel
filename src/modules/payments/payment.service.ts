@@ -8,7 +8,7 @@ import type { ActivityService } from '../activity/activity.service.js';
 import type { JobScheduler, TelegramGateway } from '../contracts.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
-import { BankRateLimitError, type BankStatementItem, currencyNumericCode, type BankClient } from './monobank.js';
+import { BankRateLimitError, type BankStatementItem, type BankWebhookEvent, currencyNumericCode, type BankClient } from './monobank.js';
 
 export const STARS_CURRENCY = 'XTR';
 const PAYLOAD_PREFIX = 'order:';
@@ -466,7 +466,8 @@ export class PaymentService {
     // With the bank check the bot confirms by itself and asks the admins only when it
     // finds nothing within a few minutes (see expireTransfers); without it, right away.
     if (automatic) await this.pollBank();
-    else await this.requestReview(paymentId);
+    // Without the bank check — or while Monobank answers with an error — the admins are asked at once.
+    if (!automatic || this.bankCheck?.error) await this.requestReview(paymentId);
     return { automatic };
   }
 
@@ -539,6 +540,33 @@ export class PaymentService {
       return 0;
     }
     return this.matchBankItems(items, open);
+  }
+
+  /**
+   * Monobank webhook: a new transaction on one of the owner's accounts. When it
+   * lands on the selected jar/card and carries an open order's code, the votes
+   * are credited at once (no waiting for the minute-by-minute check).
+   */
+  async handleBankWebhook(event: BankWebhookEvent): Promise<number> {
+    const item = event.data?.statementItem;
+    const settings = await this.settings.get();
+    if (event.type !== 'StatementItem' || !item || !settings.monobankAccountId || event.data?.account !== settings.monobankAccountId) return 0;
+    const now = new Date();
+    const open = await this.prisma.payment.findMany({
+      where: { code: { not: null }, OR: [{ method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers(now)] },
+      include: { user: true },
+    });
+    this.lastWebhookAt = now;
+    return open.length > 0 ? this.matchBankItems([item], open) : 0;
+  }
+
+  /** When Monobank last sent a transaction to the webhook (shown in "check the bank"). */
+  lastWebhookAt: Date | null = null;
+
+  /** Subscribes the bot to Monobank's instant notifications. */
+  async connectBankWebhook(url: string): Promise<void> {
+    if (!this.bank?.setWebhook) throw new DomainError('PAYMENTS_DISABLED');
+    await this.bank.setWebhook(url);
   }
 
   /** The last automatic bank check: when, and what went wrong if anything. */

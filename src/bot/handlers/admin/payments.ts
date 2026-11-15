@@ -2,6 +2,7 @@ import type { Composer } from 'telegraf';
 import type { VotePackage } from '../../../generated/prisma/client.js';
 import { displayName, escapeHtml, formatDateTime, truncate } from '../../../lib/format.js';
 import { isDomainError } from '../../../lib/errors.js';
+import { monobankWebhookPath } from '../../../modules/payments/monobank.js';
 import { formatCardPrice } from '../../../modules/payments/payment.service.js';
 import type { BotContext } from '../../context.js';
 import { getState, setState } from '../../context.js';
@@ -43,10 +44,28 @@ async function showPayments(ctx: BotContext): Promise<void> {
     [button(current.transferEnabled ? a.transferToggleOff : a.transferToggleOn, 'a:pay:tr:toggle')],
     [button(a.transferDetailsButton, 'a:pay:tr:details'), button(a.monobankButton, 'a:pay:mono')],
     [button(a.transfersButton, 'a:pay:trl'), button(a.paymentsList, 'a:pay:list:0')],
-    [button(a.bankCheckButton, 'a:pay:bank')],
+    [button(a.bankCheckButton, 'a:pay:bank'), button(a.bankWebhook.button, 'a:pay:hook')],
     [button(a.buttons.panel, PANEL)],
   ];
   await respond(ctx, text + transfer, { keyboard: inline(rows) });
+}
+
+/** "⚡ Instant confirmation": subscribes the bot to Monobank's notifications. */
+async function connectBankWebhook(ctx: BotContext): Promise<void> {
+  const a = ctx.locale.admin.bankWebhook;
+  const { env, services } = ctx.deps;
+  let text: string;
+  if (!services.payments.bank) text = ctx.locale.admin.bankCheck.noToken;
+  else if (!env.PUBLIC_URL) text = a.needUrl;
+  else {
+    try {
+      await services.payments.connectBankWebhook(`${env.PUBLIC_URL.replace(/\/+$/, '')}${monobankWebhookPath(env.BOT_TOKEN)}`);
+      text = a.connected;
+    } catch (error) {
+      text = a.failed(escapeHtml(error instanceof Error ? error.message : String(error)));
+    }
+  }
+  await respond(ctx, text, { keyboard: inline([[button(ctx.locale.common.back, 'a:pay')]]) });
 }
 
 /** "🔍 Check the bank": asks Monobank now and shows what came back. */
@@ -71,7 +90,11 @@ async function showBankDiagnosis(ctx: BotContext): Promise<void> {
       const lines = result.incoming.map((item) =>
         a.item({ time: formatDateTime(item.time, ctx.deps.env.TIMEZONE, ctx.locale.intl), amount: money(ctx, item.amount), text: escapeHtml(item.text || '—') }),
       );
-      text = a.ok({ total: result.total, credited: result.credited, open: result.open, lines: lines.join('\n') });
+      const hook = ctx.deps.services.payments.lastWebhookAt;
+      text =
+        a.ok({ total: result.total, credited: result.credited, open: result.open, lines: lines.join('\n') }) +
+        '\n\n' +
+        (hook ? ctx.locale.admin.bankWebhook.lastEvent(formatDateTime(hook, ctx.deps.env.TIMEZONE, ctx.locale.intl)) : ctx.locale.admin.bankWebhook.noEvents);
     }
   }
   await respond(ctx, text, { keyboard: inline([[button(a.again, 'a:pay:bank')], [button(ctx.locale.common.back, 'a:pay')]]) });
@@ -220,6 +243,15 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
       keyboard: inline([[button(ctx.locale.admin.transfersButton, 'a:pay:trl'), button(ctx.locale.admin.buttons.payments, 'a:pay')]]),
     });
   });
+
+  admin.action('a:pay:hook', async (ctx) => {
+
+    await answer(ctx);
+
+    await connectBankWebhook(ctx);
+
+  });
+
 
   admin.action('a:pay:bank', async (ctx) => {
 

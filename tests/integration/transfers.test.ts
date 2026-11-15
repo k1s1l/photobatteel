@@ -231,6 +231,32 @@ describe('transfer orders', () => {
     expect(await ctx.services.payments.diagnoseBank()).toMatchObject({ kind: 'no_account' });
   });
 
+  it('credits an order the moment Monobank sends the transaction to the webhook', async () => {
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    const item = { id: 'hook-1', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! };
+    // Another account of the owner: ignored.
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'card-1', statementItem: item } })).toBe(0);
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(1);
+    expect(await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).toMatchObject({ status: 'PAID', bankTransactionId: 'hook-1' });
+    expect(dmTo(buyer).some((t) => t.includes('Оплата прошла') || t.includes('+'))).toBe(true);
+    // The same transaction again changes nothing.
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(0);
+  });
+
+  it('asks the admins at once when the bank check is failing', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    bank.statement = async () => {
+      throw new Error('Monobank API responded with HTTP 403');
+    };
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const first = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    await ctx.services.payments.claimTransfer(first.payment.id, buyer);
+    expect(adminTexts().some((t) => t.includes(first.payment.code!))).toBe(true);
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
