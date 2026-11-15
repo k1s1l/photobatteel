@@ -35,11 +35,11 @@ describe('vote packages', () => {
     const admin = await createAdmin(ctx);
     await ctx.services.payments.ensureDefaultPackages();
     const packs = await ctx.services.payments.listPackages(true);
-    expect(packs.map((p) => p.votes)).toEqual([10, 20, 50]);
+    expect(packs.map((p) => p.votes)).toEqual([10, 20, 50, 100]);
     await ctx.services.payments.updatePackagePrice(packs[0]!.id, 30, 3500, admin.id);
     expect(await ctx.services.payments.getPackage(packs[0]!.id)).toMatchObject({ priceStars: 30, priceCard: 3500 });
     await ctx.services.payments.togglePackage(packs[0]!.id, admin.id);
-    expect(await ctx.services.payments.listPackages(true)).toHaveLength(2);
+    expect(await ctx.services.payments.listPackages(true)).toHaveLength(3);
     await expect(ctx.services.payments.updatePackagePrice(packs[1]!.id, 0, 100, admin.id)).rejects.toThrow(RangeError);
   });
 });

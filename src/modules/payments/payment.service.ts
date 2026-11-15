@@ -21,6 +21,7 @@ export const DEFAULT_PACKAGES = [
   { votes: 10, priceStars: 10, priceCard: 1000, sortOrder: 1 },
   { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2 },
   { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3 },
+  { votes: 100, priceStars: 100, priceCard: 10000, sortOrder: 4 },
 ] as const;
 
 /** Monobank jars accept transfers from 10 UAH, so a card price below that cannot be paid. */
