@@ -608,24 +608,35 @@ export class PaymentService {
   /** Credits open orders whose code is in an incoming transfer of at least their amount. */
   private async matchBankItems(items: BankStatementItem[], open: (Payment & { user: User })[]): Promise<number> {
     const currency = currencyNumericCode(this.options.cardCurrency);
+    const incoming = items.filter((item) => item.amount > 0 && (currency === undefined || item.currencyCode === currency));
+    const textOf = (item: BankStatementItem) => normalizeCode(`${item.description ?? ''} ${item.comment ?? ''}`);
     let credited = 0;
-    for (const item of items) {
-      if (item.amount <= 0 || (currency !== undefined && item.currencyCode !== currency)) continue;
-      const text = normalizeCode(`${item.description ?? ''} ${item.comment ?? ''}`);
-      // The code identifies the order; paying a bit more than the pack price is fine too.
-      const payment = open.find((candidate) => item.amount >= candidate.amount && text.includes(normalizeCode(candidate.code!)));
-      if (!payment) continue;
-      if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) continue;
-      try {
-        const completed = await this.credit(payment.id, { bankTransactionId: item.id });
-        if (completed.alreadyProcessed) continue;
-        credited += 1;
-        open.splice(open.indexOf(payment), 1);
-        await this.notifyPaid(payment.user, completed);
-        if (completed.payment.reviewRequestedAt) await this.notifications.notifyAdmins((l) => l.admin.transferAutoConfirmed(payment.code ?? ''));
-      } catch (error) {
-        // The same bank transaction cannot pay for two orders (unique bankTransactionId).
-        if ((error as { code?: string }).code !== 'P2002') throw error;
+    // First every transfer with a code (exact), then the rest by amount — so a stranger's
+    // transfer of the same amount cannot take the order of someone who entered the code.
+    for (const pass of ['code', 'amount'] as const) {
+      for (const item of incoming) {
+        const text = textOf(item);
+        const mentionsSomeCode = open.some((candidate) => text.includes(normalizeCode(candidate.code!)));
+        const payment =
+          pass === 'code'
+            ? // The code identifies the order; paying a bit more than the pack price is fine too.
+              open.find((candidate) => item.amount >= candidate.amount && text.includes(normalizeCode(candidate.code!)))
+            : mentionsSomeCode
+              ? undefined
+              : matchByAmount(item, open);
+        if (!payment) continue;
+        if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) continue;
+        try {
+          const completed = await this.credit(payment.id, { bankTransactionId: item.id });
+          if (completed.alreadyProcessed) continue;
+          credited += 1;
+          open.splice(open.indexOf(payment), 1);
+          await this.notifyPaid(payment.user, completed);
+          if (completed.payment.reviewRequestedAt) await this.notifications.notifyAdmins((l) => l.admin.transferAutoConfirmed(payment.code ?? ''));
+        } catch (error) {
+          // The same bank transaction cannot pay for two orders (unique bankTransactionId).
+          if ((error as { code?: string }).code !== 'P2002') throw error;
+        }
       }
     }
     return credited;
@@ -733,6 +744,29 @@ export class PaymentService {
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });
     return votesOf(updated, side);
   }
+}
+
+/** Without a code a transfer may still be matched by its exact amount, only when that is unambiguous. */
+const AMOUNT_MATCH_WINDOW_MS = 30 * 60_000;
+
+/**
+ * A transfer without a code: the open order of exactly this amount made in the
+ * last 30 minutes before it. With several such orders the one whose buyer
+ * already pressed "I paid" wins if it is the only one; otherwise nobody (admins decide).
+ */
+function matchByAmount<T extends Payment>(item: BankStatementItem, open: T[]): T | undefined {
+  const paidAt = item.time * 1000;
+  const candidates = open.filter(
+    (order) =>
+      order.method === 'TRANSFER' &&
+      (order.status === 'PENDING' || order.status === 'CLAIMED') &&
+      order.amount === item.amount &&
+      order.createdAt.getTime() <= paidAt + 60_000 &&
+      order.createdAt.getTime() >= paidAt - AMOUNT_MATCH_WINDOW_MS,
+  );
+  if (candidates.length === 1) return candidates[0];
+  const claimed = candidates.filter((order) => order.status === 'CLAIMED');
+  return claimed.length === 1 ? claimed[0] : undefined;
 }
 
 function generateCode(): string {

@@ -257,6 +257,31 @@ describe('transfer orders', () => {
     expect(adminTexts().some((t) => t.includes(first.payment.code!))).toBe(true);
   });
 
+  it('without a code credits the only open order of exactly that amount', async () => {
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    const item = { id: 'nocode-1', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: '' };
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(1);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('PAID');
+  });
+
+  it('without a code and two equal orders: the one who pressed "I paid" gets it, otherwise nobody', async () => {
+    await enableTransfers(false);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const other = await createUser(ctx);
+    const a = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    const b = await ctx.services.payments.createTransfer(other, pack!.id, null);
+    await ctx.services.settings.update({ monobankAccountId: 'jar1' }, null);
+    const item = (id: string) => ({ id, time: Math.floor(Date.now() / 1000), amount: pack!.priceCard, currencyCode: 980, description: 'Від: ?', comment: '' });
+    // Nobody pressed "I paid": ambiguous, nothing credited.
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item('amb-1') } })).toBe(0);
+    await ctx.prisma.payment.update({ where: { id: b.payment.id }, data: { status: 'CLAIMED', claimedAt: new Date() } });
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item('amb-2') } })).toBe(1);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: b.payment.id } })).status).toBe('PAID');
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: a.payment.id } })).status).toBe('PENDING');
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
