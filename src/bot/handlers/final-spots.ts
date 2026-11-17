@@ -13,7 +13,14 @@ export function isFinalSpotPayload(payload: string): boolean {
 
 /** "🎟 Buy a place in the final": explains the offer and sends the Stars invoice. */
 export function registerFinalSpotHandlers(bot: Telegraf<BotContext>): void {
-  const buy = async (ctx: BotContext) => {
+  bot.action('fs:buy', buyFinalSpot);
+  bot.command('final', buyFinalSpot);
+  bot.hears(allTranslations((l) => l.menu.finalSpot), buyFinalSpot);
+}
+
+/** Explains the offer and sends the Stars invoice for a place in the final (or says why not now). */
+export async function buyFinalSpot(ctx: BotContext): Promise<void> {
+  {
     const user = currentUser(ctx);
     let invoice;
     try {
@@ -37,10 +44,7 @@ export function registerFinalSpotHandlers(bot: Telegraf<BotContext>): void {
       currency: invoice.currency,
       prices: [{ label: l.invoiceLabel, amount: invoice.amount }],
     });
-  };
-  bot.action('fs:buy', buy);
-  bot.command('final', buy);
-  bot.hears(allTranslations((l) => l.menu.finalSpot), buy);
+  }
 }
 
 /** pre_checkout_query for a place in the final. */

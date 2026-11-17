@@ -478,6 +478,18 @@ describe('bot: final place from the main menu', () => {
     await sendText(500, '🎟 Купить место в финале');
     expect(texts('sendMessage').at(-1)).toContain('Сейчас нет идущего батла');
   });
+
+  it('a channel link t.me/<bot>?start=final opens the purchase', async () => {
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 6; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    await ctx.prisma.duel.updateMany({ where: { status: 'ACTIVE' }, data: { votesA: 1 } });
+    await expireDuels(ctx);
+    await consent(501);
+    await sendText(501, '/start final');
+    expect(api.some((c) => c.method === 'sendInvoice' && String(c.payload.payload).startsWith('spot:'))).toBe(true);
+  });
 });
 
 describe('bot: card transfer', () => {

@@ -5,7 +5,8 @@ import { getState, setState } from '../context.js';
 import { answer } from '../helpers.js';
 import { button, inline, mainMenu, NOOP } from '../keyboards.js';
 import { currentUser } from '../context.js';
-import { showDuelSides } from './payments.js';
+import { buyFinalSpot } from './final-spots.js';
+import { showDuelSides, showVotesMenu } from './payments.js';
 
 export async function showMainMenu(ctx: BotContext, text: string): Promise<void> {
   await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...mainMenu(ctx.locale, ctx.isAdmin) });
@@ -20,6 +21,9 @@ export function registerCommonHandlers(bot: Telegraf<BotContext>): void {
     // Deep link from the "⭐ +1" button under a duel: t.me/<bot>?start=duel_<id>
     const duel = /^duel_(\d{1,9})$/.exec(ctx.payload ?? '');
     if (duel?.[1]) await showDuelSides(ctx, Number(duel[1]));
+    // Links for channel posts: t.me/<bot>?start=final — buy a place in the final; ?start=votes — buy votes.
+    if (ctx.payload === 'final') await buyFinalSpot(ctx);
+    if (ctx.payload === 'votes') await showVotesMenu(ctx);
   });
 
   bot.command('menu', async (ctx) => {
