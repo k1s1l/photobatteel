@@ -15,6 +15,7 @@ import {
   type TestContext,
 } from '../helpers/context.js';
 import { telegramError } from '../helpers/fakes.js';
+import { makeJpeg } from '../helpers/images.js';
 
 let ctx: TestContext;
 beforeEach(async () => {
@@ -520,6 +521,61 @@ describe('both entries advance', () => {
     await postPendingDuels(ctx);
     const final = await ctx.prisma.duel.findFirstOrThrow();
     expect(await ctx.services.battles.advanceBoth(final.id, admin.id)).toBe(false);
+  });
+});
+
+describe('challenge photo', () => {
+  const media = (id: string) => ({ mediaType: 'PHOTO' as const, source: 'PHOTO' as const, fileId: `file-${id}`, fileUniqueId: id, contentHash: `hash-${id}`, mimeType: 'image/jpeg', width: 800, height: 800, fileSize: 1000 });
+
+  it('reaches its goal (free + paid votes) and joins the final; with too few votes it is out', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const author = await createUser(ctx);
+    ctx.telegram.files.set('file-ch-1', await makeJpeg());
+    const passing = await ctx.services.battles.createChallenge({ battleId: battle.id, ownerUserId: author.id, media: media('ch-1'), goal: 3, actorUserId: admin.id });
+    const failing = await ctx.services.battles.createChallenge({ battleId: battle.id, ownerUserId: admin.id, media: media('ch-2'), goal: 20, actorUserId: admin.id });
+    await postPendingDuels(ctx);
+    const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: passing.id } });
+    expect(live.status).toBe('ACTIVE');
+    const buttons = toChannel('sendMessage').find((c) => String(c.args[0]).includes('набираешь 3 голосов'))!;
+    expect(JSON.stringify(buttons.args[1])).toContain('Поддержать · 0 / 3');
+
+    // 2 free votes + 1 paid vote = 3.
+    await ctx.services.duelVotes.vote(passing.id, 0, 'A', await createUser(ctx));
+    await ctx.services.duelVotes.vote(passing.id, 0, 'A', await createUser(ctx));
+    const fan = await ctx.prisma.user.update({ where: { id: (await createUser(ctx)).id }, data: { voteBalance: 1 } });
+    await ctx.services.payments.spendVotes(fan, live.photoAId, 1);
+    await ctx.services.duelVotes.vote(failing.id, 0, 'A', await createUser(ctx));
+
+    // Time is up for everything: the challenges are decided, the semifinal pairs too.
+    for (const duel of await ctx.prisma.duel.findMany({ where: { round: 1 } })) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: passing.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: live.photoAId });
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: (await ctx.prisma.duel.findUniqueOrThrow({ where: { id: failing.id } })).photoAId } })).status).toBe('ELIMINATED');
+
+    // The final has the two winners and the challenge photo.
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 2 } });
+    expect([final.photoAId, final.photoBId, final.photoCId]).toContain(live.photoAId);
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => c.chatId === Number(author.telegramId) && String(c.args[0]).includes('проходит в финал'))).toBe(true);
+  });
+
+  it('joins a final that is already running when it reaches its goal', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    ctx.telegram.files.set('file-ch-3', await makeJpeg());
+    const challenge = await ctx.services.battles.createChallenge({ battleId: battle.id, ownerUserId: admin.id, media: media('ch-3'), goal: 1, actorUserId: admin.id });
+    await postPendingDuels(ctx);
+    await ctx.services.duelVotes.vote(challenge.id, 0, 'A', await createUser(ctx));
+    await ctx.prisma.duel.update({ where: { id: challenge.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+    await ctx.services.battles.tick();
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 1 } });
+    expect(final.photoCId).toBe((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: challenge.id } })).photoAId);
   });
 });
 

@@ -87,6 +87,25 @@ export function duelEnd(
   return new Date(now.getTime() + votingMinutes(battle, stage, entriesInRound) * 60_000);
 }
 
+/** A challenge photo votes as long as a regular pair (the admin's round end, if set and later, wins). */
+export function challengeEnd(battle: Pick<Battle, 'roundMinutes' | 'roundEndsAt'>, now: Date): Date {
+  if (battle.roundEndsAt && battle.roundEndsAt > now) return battle.roundEndsAt;
+  return new Date(now.getTime() + battle.roundMinutes * 60_000);
+}
+
+export type ChallengeMedia = {
+  mediaType: 'PHOTO' | 'VIDEO';
+  source: 'PHOTO' | 'DOCUMENT' | 'VIDEO';
+  fileId: string;
+  fileUniqueId: string;
+  contentHash: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  fileSize: number;
+  durationSec?: number | null;
+};
+
 /** Pairs entries in order; with an odd count the last entry gets a bye. */
 export function pairEntries(ids: readonly number[]): { a: number; b: number | null }[] {
   const pairs: { a: number; b: number | null }[] = [];
@@ -413,17 +432,20 @@ export class BattleService {
    */
   async prepareDuel(duelId: number, stage: number): Promise<PrepareOutcome> {
     const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { ...ALL_PHOTOS, battle: true } });
-    if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || entryCount(duel) < 2 || duel.battle.status !== 'RUNNING') return 'skipped';
+    if (!duel || duel.status !== 'PENDING' || duel.stage !== stage || (entryCount(duel) < 2 && duel.goal === null) || duel.battle.status !== 'RUNNING') return 'skipped';
     const auto = (await this.settings.get()).autoPublish;
     const adminChats = auto ? [this.channel.id] : await this.notifications.adminChatIds();
     if (adminChats.length === 0) throw new Error('No admins to publish duels: set ADMIN_IDS');
 
     const stageInfo = { round: duel.round, entriesInRound: await this.roundEntries(duel.battleId, duel.round), duel: duel.position, stage, finalSize: duel.battle.finalSize };
     // The pair is usually published right away; the end shown in the post is an estimate from now.
-    const expectedEnd = duelEnd(duel.battle, duel.round, stage, stageInfo.entriesInRound, new Date());
-    const caption = await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
+    const expectedEnd = duel.goal !== null ? challengeEnd(duel.battle, new Date()) : duelEnd(duel.battle, duel.round, stage, stageInfo.entriesInRound, new Date());
+    const caption =
+      duel.goal !== null
+        ? this.locale.duel.challengeCaption({ goal: duel.goal, end: this.time(expectedEnd) })
+        : await this.render('duel', { battle: duel.battle.title, ...stageValues(this.locale, stageInfo), end: this.time(expectedEnd) }, stageInfo);
 
-    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelReady(stageValues(l, stageInfo).stage as string));
+    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelReady(duel.goal !== null ? l.duel.challengeLabel(duel.goal) : (stageValues(l, stageInfo).stage as string)));
     let prepared: { uniqueId: string | null; messageIds: number[] };
     try {
       prepared = await this.sendPrepared(duel as DuelWithPhotos, caption, adminChats);
@@ -451,10 +473,12 @@ export class BattleService {
    */
   private async sendPrepared(duel: DuelWithPhotos, caption: string, adminChats: number[]): Promise<{ uniqueId: string | null; messageIds: number[] }> {
     const photos = photosOf(duel).map((entry) => entry.photo);
-    const isCollage = photos.every((photo) => photo.mediaType === 'PHOTO');
+    const isCollage = photos.length >= 2 && photos.every((photo) => photo.mediaType === 'PHOTO');
     const images: Buffer[] = [];
     if (isCollage) for (const photo of photos) images.push(await this.telegram.downloadFile(photo.fileId, MAX_MEDIA_BYTES));
-    const collage = isCollage ? await buildDuelCollage(...images) : null;
+    // A single photo (challenge) is posted as it is, like a collage: one photo message.
+    const single = photos.length === 1 && photos[0]!.mediaType === 'PHOTO' ? photos[0]! : null;
+    const collage = isCollage ? await buildDuelCollage(...images) : single ? single.fileId : null;
     let html = caption;
     let collageRef: { fileId: string; uniqueId: string } | null = null;
     let messageIds: number[] = [];
@@ -502,7 +526,7 @@ export class BattleService {
     });
 
     const duel = await this.prisma.duel.findFirst({ where: byFiles('READY'), include: { ...ALL_PHOTOS, battle: true }, orderBy: [{ round: 'asc' }, { position: 'asc' }] });
-    if (!duel || entryCount(duel) < 2) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
+    if (!duel || (entryCount(duel) < 2 && duel.goal === null)) return this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
     const activated = await this.activate(duel, post.messageId, []);
     return activated || this.attachAlbumItem(post.messageId, byFiles('ACTIVE'));
   }
@@ -519,12 +543,15 @@ export class BattleService {
     const entriesInRound = await this.roundEntries(duel.battleId, duel.round);
     const stageInfo = { round: duel.round, entriesInRound, duel: duel.position, stage, finalSize: duel.battle.finalSize };
     const now = new Date();
-    const endsAt = duelEnd(duel.battle, duel.round, stage, entriesInRound, now);
-    const buttonsText = await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
-    const stacked = isNarrowText(buttonsText);
+    const challenge = duel.goal !== null;
+    const endsAt = challenge ? challengeEnd(duel.battle, now) : duelEnd(duel.battle, duel.round, stage, entriesInRound, now);
+    const buttonsText = challenge
+      ? this.locale.duel.challengeCaption({ goal: duel.goal!, end: this.time(endsAt) })
+      : await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
+    const stacked = challenge || isNarrowText(buttonsText);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt) }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal }, settings.paidVotesEnabled),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -550,7 +577,7 @@ export class BattleService {
 
     const link = channelPostLink(this.channel, post.messageId);
     const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
-    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: stageValues(l, stageInfo).stage as string, ends }));
+    if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: challenge ? l.duel.challengeLabel(duel.goal!) : (stageValues(l, stageInfo).stage as string), ends }));
     if (stage === 0) {
       for (const { photo } of photosOf(duel)) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
@@ -734,6 +761,11 @@ export class BattleService {
    * earlier of the tied entries wins. Entries withdrawn meanwhile cannot win.
    */
   async closeDuel(duelId: number, stage: number, options: { force?: boolean } = {}): Promise<void> {
+    const challenge = await this.prisma.duel.findUnique({ where: { id: duelId }, select: { goal: true } });
+    if (challenge?.goal != null) {
+      await this.closeChallenge(duelId, options.force === true);
+      return;
+    }
     // Forced by an admin: also pairs not published yet, and no tiebreak — a tie goes to the earlier entry.
     const open: DuelStatus[] = options.force ? ['PENDING', 'READY', 'ACTIVE'] : ['ACTIVE'];
     const outcome = await this.prisma.$transaction(async (tx) => {
@@ -795,6 +827,48 @@ export class BattleService {
     await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Battle', entityId: battleId, details: { finishedRound: battle.currentRound, wasFinal } });
     await this.advance(battleId);
     return { battle: await this.prisma.battle.findUniqueOrThrow({ where: { id: battleId } }), wasFinal };
+  }
+
+  /**
+   * Admin: a single photo that goes to the final if it gets `goal` votes (free +
+   * paid) before its time is up. It is published as its own post with one vote
+   * button and "+1"; it does not belong to any round (round 0).
+   */
+  async createChallenge(input: { battleId: number; ownerUserId: number; media: ChallengeMedia; goal: number; actorUserId: number | null }): Promise<Duel> {
+    if (!Number.isInteger(input.goal) || input.goal < 1 || input.goal > 100_000) throw new RangeError('Invalid goal');
+    const battle = await this.prisma.battle.findUnique({ where: { id: input.battleId } });
+    if (battle?.status !== 'RUNNING') throw new DomainError('INVALID_STATE');
+    const duel = await this.prisma.$transaction(async (tx) => {
+      const photo = await tx.photo.create({
+        data: { ...input.media, durationSec: input.media.durationSec ?? null, userId: input.ownerUserId, battleId: battle.id, status: 'IN_BATTLE', confirmedAt: new Date() },
+      });
+      const last = await tx.duel.findFirst({ where: { battleId: battle.id, round: 0 }, orderBy: { position: 'desc' }, select: { position: true } });
+      const created = await tx.duel.create({ data: { battleId: battle.id, round: 0, position: (last?.position ?? 0) + 1, photoAId: photo.id, goal: input.goal } });
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: input.actorUserId, entityType: 'Duel', entityId: created.id, details: { challenge: input.goal } }, tx);
+      return created;
+    });
+    await this.scheduler.enqueueDuelPrepare(duel.id, 0);
+    return duel;
+  }
+
+  /** The challenge ends: enough votes → the photo goes to the final; otherwise it is out. */
+  private async closeChallenge(duelId: number, force: boolean): Promise<void> {
+    const open: DuelStatus[] = force ? ['PENDING', 'READY', 'ACTIVE'] : ['ACTIVE'];
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { photoA: { include: { user: true } }, battle: true } });
+    if (!duel || duel.goal === null || !open.includes(duel.status)) return;
+    const passed = duel.votesA >= duel.goal;
+    const finished = await this.prisma.duel.updateMany({
+      where: { id: duel.id, status: { in: open } },
+      data: { status: 'FINISHED', winnerPhotoId: passed ? duel.photoAId : null, finishedAt: new Date() },
+    });
+    if (finished.count === 0) return;
+    // A passed photo waits for the final (or joins it if it is already running).
+    await this.prisma.photo.update({ where: { id: duel.photoAId }, data: { status: passed ? 'ACCEPTED' : 'ELIMINATED' } });
+    await this.closeButtons(duel, passed ? 'A' : 'tie');
+    await this.notifications.notifyUser(duel.photoA.user, (l) => (passed ? l.battle.challengePassed(duel.goal!) : l.battle.challengeFailed({ votes: duel.votesA, goal: duel.goal! })));
+    await this.notifications.notifyAdmins((l) => l.admin.challengeResult({ passed, votes: duel.votesA, goal: duel.goal! }));
+    if (passed) await this.joinFinalWithPhoto(duel.battleId, duel.photoAId);
+    await this.scheduler.triggerTick();
   }
 
   /** When every duel of the current round is finished: next round, or the final result. */
@@ -901,7 +975,7 @@ export class BattleService {
     try {
       const keyboard = activeDuelKeyboard(
         this.locale,
-        { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons, ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}) },
+        { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons, goal: duel.goal, ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}) },
         settings.paidVotesEnabled,
       );
       await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, keyboard);
@@ -923,7 +997,7 @@ export class BattleService {
   private async closeButtons(duel: Duel, winner: DuelSide | 'tie'): Promise<void> {
     if (!duel.messageId) return;
     try {
-      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons }, winner));
+      await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, closedDuelKeyboard(this.locale, { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons, goal: duel.goal }, winner));
     } catch (error) {
       if (classifyTelegramError(error).kind !== 'not_modified') this.logger.warn({ err: error, duelId: duel.id }, 'Failed to close duel buttons');
     }
@@ -1010,7 +1084,13 @@ export class BattleService {
   async joinRunningFinal(spotId: number): Promise<boolean> {
     const spot = await this.prisma.finalSpot.findUnique({ where: { id: spotId }, include: { battle: true, photo: true } });
     if (!spot?.photo || spot.usedAt || spot.refundedAt || spot.battle.status !== 'RUNNING' || spot.photo.status !== 'ACCEPTED') return false;
-    const battle = spot.battle;
+    return this.joinFinalWithPhoto(spot.battleId, spot.photoId!, spot.id);
+  }
+
+  /** Puts an accepted photo (a bought/given place or a passed challenge) into the running final, if there is room. */
+  private async joinFinalWithPhoto(battleId: number, photoId: number, spotId?: number): Promise<boolean> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING' || battle.currentRound === 0) return false;
     const duels = await this.prisma.duel.findMany({ where: { battleId: battle.id, round: battle.currentRound } });
     const final = duels.length === 1 ? duels[0]! : null;
     if (!final || !isFinalRound(battle, entryCount(final)) || final.status === 'FINISHED') return false;
@@ -1018,11 +1098,15 @@ export class BattleService {
     if (!free) return false;
 
     const joined = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.finalSpot.updateMany({ where: { id: spot.id, usedAt: null, refundedAt: null }, data: { usedAt: new Date() } });
-      if (claimed.count === 0) return false;
-      const updated = await tx.duel.updateMany({ where: { id: final.id, [PHOTO_ID_FIELD[free]]: null, status: final.status }, data: { [PHOTO_ID_FIELD[free]]: spot.photoId } });
+      if (spotId !== undefined) {
+        const claimed = await tx.finalSpot.updateMany({ where: { id: spotId, usedAt: null, refundedAt: null }, data: { usedAt: new Date() } });
+        if (claimed.count === 0) return false;
+      }
+      const photo = await tx.photo.findUnique({ where: { id: photoId } });
+      if (photo?.status !== 'ACCEPTED') return false;
+      const updated = await tx.duel.updateMany({ where: { id: final.id, [PHOTO_ID_FIELD[free]]: null, status: final.status }, data: { [PHOTO_ID_FIELD[free]]: photoId } });
       if (updated.count === 0) throw new DomainError('INVALID_STATE');
-      await tx.photo.update({ where: { id: spot.photoId! }, data: { status: 'IN_BATTLE' } });
+      await tx.photo.update({ where: { id: photoId }, data: { status: 'IN_BATTLE' } });
       const size = entryCount(final) + 1;
       if (size > battle.finalSize) await tx.battle.update({ where: { id: battle.id }, data: { finalSize: size } });
       return true;
@@ -1081,7 +1165,11 @@ export class BattleService {
       await tx.finalSpot.updateMany({ where: { id: { in: ready.map((spot) => spot.id) } }, data: { usedAt: new Date() } });
       await tx.photo.updateMany({ where: { id: { in: ready.map((spot) => spot.photoId!) } }, data: { status: 'IN_BATTLE' } });
     }
-    return { photoIds: ready.map((spot) => spot.photoId!), refund: spots.filter((spot) => !ready.includes(spot)).map((spot) => spot.id) };
+    // Challenge photos that reached their goal join the final as well.
+    const passed = await tx.duel.findMany({ where: { battleId, round: 0, goal: { not: null }, winnerPhotoId: { not: null }, winnerPhoto: { status: 'ACCEPTED' } }, select: { winnerPhotoId: true } });
+    const challengeIds = passed.map((duel) => duel.winnerPhotoId!);
+    if (challengeIds.length > 0) await tx.photo.updateMany({ where: { id: { in: challengeIds } }, data: { status: 'IN_BATTLE' } });
+    return { photoIds: [...ready.map((spot) => spot.photoId!), ...challengeIds], refund: spots.filter((spot) => !ready.includes(spot)).map((spot) => spot.id) };
   }
 
   /** Channel announcements are prepared for the admins too: a short note, then the ready text to forward. */

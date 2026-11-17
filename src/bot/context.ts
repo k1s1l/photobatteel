@@ -20,6 +20,7 @@ export type ConversationState =
   | { kind: 'battle_round_end'; battleId: number }
   | { kind: 'battle_start_change'; battleId: number }
   | { kind: 'admin_votes'; duelId: number; side: string }
+  | { kind: 'admin_challenge'; battleId: number; goal: number }
   | { kind: 'admin_spot_photo'; spotId: number }
   | { kind: 'battle_create'; step: 'start' | 'round' | 'final' | 'size'; startsAt?: string; roundMinutes?: number; finalMinutes?: number };
 

@@ -32,6 +32,13 @@ export class TelegrafGateway implements TelegramGateway {
   }
 
   async sendMediaGroup(chatId: ChatId, items: AlbumItem[]): Promise<number[]> {
+    // Telegram albums need 2–10 items: a single video or photo is sent on its own.
+    if (items.length === 1) {
+      const [item] = items as [AlbumItem];
+      const extra = item.caption ? { caption: item.caption, parse_mode: 'HTML' as const } : {};
+      const sent = item.type === 'video' ? await this.telegram.sendVideo(chatId, item.fileId, extra) : await this.telegram.sendPhoto(chatId, item.fileId, extra);
+      return [sent.message_id];
+    }
     const media = items.map((item) => ({ type: item.type, media: item.fileId, ...(item.caption ? { caption: item.caption, parse_mode: 'HTML' } : {}) }));
     const messages = await this.telegram.sendMediaGroup(chatId, media as Parameters<Telegram['sendMediaGroup']>[1]);
     return messages.map((message) => message.message_id);

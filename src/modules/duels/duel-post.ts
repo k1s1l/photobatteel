@@ -18,6 +18,8 @@ export interface DuelKeyboardData {
   stacked?: boolean;
   /** "18:35" — shown under the buttons and updated when the pair is extended. */
   endsAt?: string;
+  /** A challenge photo: one button "Support · 5 / 20". */
+  goal?: number | null;
 }
 
 /** Two buttons per row ("1 · 2", then "3 · 4" in a group final), or one per row when stacked. */
@@ -32,7 +34,7 @@ function rowsOf(buttons: InlineKeyboardButton[], stacked = false): InlineKeyboar
 export function activeDuelKeyboard(locale: Locale, duel: DuelKeyboardData, paidVotes: boolean): InlineKeyboardMarkup {
   const rows = rowsOf(
     duel.votes.map(({ side, votes }) => ({
-      text: locale.duel.voteButton({ side: sideNumber(side), votes }),
+      text: duel.goal ? locale.duel.challengeButton({ votes, goal: duel.goal }) : locale.duel.voteButton({ side: sideNumber(side), votes }),
       callback_data: `${DUEL_VOTE_PREFIX}${duel.id}:${duel.stage}:${side.toLowerCase()}`,
     })),
     duel.stacked,
@@ -46,11 +48,13 @@ export function activeDuelKeyboard(locale: Locale, duel: DuelKeyboardData, paidV
 export function closedDuelKeyboard(locale: Locale, duel: DuelKeyboardData, winner: DuelSide | 'tie'): InlineKeyboardMarkup {
   const rows = rowsOf(
     duel.votes.map(({ side, votes }) => ({
-      text: `${winner === side ? '🏆 ' : ''}${locale.duel.voteButton({ side: sideNumber(side), votes })}`,
+      text: duel.goal
+        ? `${winner === side ? '✅ ' : '❌ '}${locale.duel.challengeButton({ votes, goal: duel.goal })}`
+        : `${winner === side ? '🏆 ' : ''}${locale.duel.voteButton({ side: sideNumber(side), votes })}`,
       callback_data: DUEL_CLOSED,
     })),
     duel.stacked,
   );
-  rows.push([{ text: winner === 'tie' ? locale.duel.tieButton : locale.duel.closedButton, callback_data: DUEL_CLOSED }]);
+  rows.push([{ text: winner === 'tie' && !duel.goal ? locale.duel.tieButton : locale.duel.closedButton, callback_data: DUEL_CLOSED }]);
   return { inline_keyboard: rows };
 }

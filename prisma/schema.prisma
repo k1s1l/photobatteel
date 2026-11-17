@@ -291,6 +291,8 @@ model Duel {
   winnerPhoto     Photo?     @relation("DuelWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
   /// An admin let the other entry of the pair advance too
   alsoAdvancesPhotoId Int?
+  /// A single photo that goes to the final if it gets this many votes (round 0)
+  goal            Int?
   finishedAt      DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt

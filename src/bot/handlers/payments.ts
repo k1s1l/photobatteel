@@ -1,3 +1,4 @@
+import type { Duel, DuelSide } from '../../generated/prisma/client.js';
 import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { answerFinalSpotCheckout, completeFinalSpot, isFinalSpotPayload } from './final-spots.js';
 import type { Telegraf } from 'telegraf';
@@ -48,14 +49,37 @@ export async function showVotesMenu(ctx: BotContext): Promise<void> {
 export async function showDuelSides(ctx: BotContext, duelId: number): Promise<void> {
   if (!(await salesEnabled(ctx))) return;
   const duel = await ctx.deps.services.battles.getDuel(duelId);
-  if (duel?.status !== 'ACTIVE' || entryCount(duel) < 2) {
+  if (duel?.status !== 'ACTIVE' || (entryCount(duel) < 2 && duel.goal === null)) {
     await ctx.reply(ctx.locale.errors.VOTING_CLOSED());
+    return;
+  }
+  // A challenge photo has one entry: straight to the packs for it.
+  if (duel.goal !== null) {
+    await showPacksForSide(ctx, duel, 'A');
     return;
   }
   const buttons = entriesOf(duel).map(({ side }) => button(ctx.locale.duel.side(sideNumber(side)), `pay:side:${duel.id}:${side.toLowerCase()}`));
   const rows = [];
   for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
   await ctx.reply(ctx.locale.duel.chooseSide({ round: duel.round, duel: duel.position }), { parse_mode: 'HTML', reply_markup: inline(rows) });
+}
+
+/** Packs (and balance votes) for one entry of an open pair or challenge. */
+async function showPacksForSide(ctx: BotContext, duel: Duel, letter: DuelSide): Promise<void> {
+  const photoId = duel[PHOTO_ID_FIELD[letter]];
+  if (duel.status !== 'ACTIVE' || photoId === null || (entryCount(duel) < 2 && duel.goal === null)) {
+    await ctx.reply(ctx.locale.errors.VOTING_CLOSED());
+    return;
+  }
+  const side = sideNumber(letter);
+  const balance = currentUser(ctx).voteBalance;
+  const rows = await packButtons(ctx, photoId)();
+  const spend = SPEND_STEPS.filter((amount) => amount <= balance).map((amount) => button(ctx.locale.payments.spendButton(amount), `pay:spend:${photoId}:${amount}`));
+  if (spend.length > 0) rows.unshift(spend);
+  await ctx.reply(ctx.locale.payments.menuForSide({ side, round: duel.round, duel: duel.position, balance }), {
+    parse_mode: 'HTML',
+    reply_markup: inline(rows),
+  });
 }
 
 export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
@@ -68,20 +92,11 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
     const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx, 1));
     await answer(ctx);
     const letter = sideFromLetter(matchString(ctx, 2));
-    const photoId = duel && letter ? duel[PHOTO_ID_FIELD[letter]] : null;
-    if (duel?.status !== 'ACTIVE' || !letter || photoId === null || entryCount(duel) < 2) {
+    if (!duel || !letter) {
       await ctx.reply(ctx.locale.errors.VOTING_CLOSED());
       return;
     }
-    const side = sideNumber(letter);
-    const balance = currentUser(ctx).voteBalance;
-    const rows = await packButtons(ctx, photoId)();
-    const spend = SPEND_STEPS.filter((amount) => amount <= balance).map((amount) => button(ctx.locale.payments.spendButton(amount), `pay:spend:${photoId}:${amount}`));
-    if (spend.length > 0) rows.unshift(spend);
-    await ctx.reply(ctx.locale.payments.menuForSide({ side, round: duel.round, duel: duel.position, balance }), {
-      parse_mode: 'HTML',
-      reply_markup: inline(rows),
-    });
+    await showPacksForSide(ctx, duel, letter);
   });
 
   bot.action(/^pay:spend:(\d+):(\d+)$/, async (ctx) => {

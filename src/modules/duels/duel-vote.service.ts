@@ -36,7 +36,7 @@ export class DuelVoteService {
     try {
       result = await this.prisma.$transaction(async (tx) => {
         const duel = await tx.duel.findUnique({ where: { id: duelId }, include: ALL_PHOTOS });
-        if (!duel || entryCount(duel) < 2 || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
+        if (!duel || (entryCount(duel) < 2 && duel.goal === null) || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
           throw new DomainError('VOTING_CLOSED');
         }
         const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF };

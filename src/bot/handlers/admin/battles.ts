@@ -1,10 +1,12 @@
+import type { Message } from 'telegraf/types';
+import { extractMedia, prepareDraft, type MediaMessage } from '../submission.js';
 import { MAX_FINAL_SIZE } from '../../../modules/duels/sides.js';
 import type { Composer } from 'telegraf';
 import { escapeHtml, formatDateTime } from '../../../lib/format.js';
 import { isDomainError } from '../../../lib/errors.js';
 import { parseStartTime } from '../../../lib/time.js';
 import type { BotContext } from '../../context.js';
-import { getState, setState } from '../../context.js';
+import { currentUser, getState, setState } from '../../context.js';
 import { answer, matchInt, matchString, respond } from '../../helpers.js';
 import { sideFromLetter, sideNumber, voteList } from '../../../modules/duels/sides.js';
 import { button, inline } from '../../keyboards.js';
@@ -46,7 +48,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   if (current?.status === 'RUNNING' && current.currentRound > 0) {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
-    rows.push([button(a.votesButton, `a:bt:votes:${current.id}`)]);
+    rows.push([button(a.votesButton, `a:bt:votes:${current.id}`), button(a.challengeButton, `a:bt:ch:${current.id}`)]);
     const closed = await battles.reopenable(current.id);
     for (let i = 0; i < closed.length; i += 2) rows.push(closed.slice(i, i + 2).map((duel) => button(a.reopenButton(duel.position), `a:bt:ro:${duel.id}`)));
     const duels = await battles.republishable(current.id, current.currentRound);
@@ -157,6 +159,35 @@ export async function handleVotesInput(ctx: BotContext, duelId: number, letter: 
   const ok = await applyVotes(ctx, duelId, letter, delta);
   if (!ok) await ctx.reply(ctx.locale.common.alreadyProcessed);
   await showDuelVotes(ctx, duelId);
+}
+
+const CHALLENGE_GOALS = [10, 20, 30, 50] as const;
+
+/** The admin's photo/video for a challenge ("goes on with N votes"); a @username in the caption names the author. */
+export async function handleChallengeMedia(ctx: BotContext, message: Message, battleId: number, goal: number): Promise<void> {
+  const media = 'photo' in message || 'video' in message || 'document' in message ? extractMedia(message as MediaMessage) : null;
+  if (!media) {
+    await ctx.reply(ctx.locale.admin.challengeNeedMedia, { reply_markup: inline([[button(ctx.locale.common.cancel, 'a:bt')]]) });
+    return;
+  }
+  const { input, upload } = await prepareDraft(ctx, media);
+  if (upload) {
+    const sent = await ctx.replyWithPhoto({ source: upload, filename: 'challenge.jpg' });
+    input.fileId = sent.photo.at(-1)?.file_id ?? input.fileId;
+  }
+  const caption = 'caption' in message ? (message.caption ?? '') : '';
+  const mention = /@\w{3,}/.exec(caption)?.[0];
+  const author = (mention ? await ctx.deps.services.users.findByQuery(mention) : null) ?? currentUser(ctx);
+  setState(ctx, undefined);
+  try {
+    await ctx.deps.services.battles.createChallenge({ battleId, ownerUserId: author.id, media: input, goal, actorUserId: adminUserId(ctx) });
+  } catch (error) {
+    if (!isDomainError(error) && !(error instanceof RangeError)) throw error;
+    await ctx.reply(ctx.locale.common.alreadyProcessed, { reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    return;
+  }
+  const auto = (await ctx.deps.services.settings.get()).autoPublish;
+  await ctx.reply(ctx.locale.admin.challengeCreated({ goal, auto }), { reply_markup: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
 }
 
 /** Text steps of the battle wizard; called by the admin input router. */
@@ -322,6 +353,22 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       keyboard: inline([[button(ctx.locale.common.cancel, `a:bt:v:${duelId}`)]]),
       forceNew: true,
     });
+  });
+
+  admin.action(/^a:bt:ch:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const battleId = matchInt(ctx);
+    await respond(ctx, ctx.locale.admin.challengeChooseGoal, {
+      keyboard: inline([CHALLENGE_GOALS.map((goal) => button(String(goal), `a:bt:chg:${battleId}:${goal}`)), [button(ctx.locale.common.cancel, 'a:bt')]]),
+    });
+  });
+
+  admin.action(/^a:bt:chg:(\d+):(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const goal = matchInt(ctx, 2);
+    if (!(CHALLENGE_GOALS as readonly number[]).includes(goal)) return;
+    setState(ctx, { kind: 'admin_challenge', battleId: matchInt(ctx, 1), goal });
+    await respond(ctx, ctx.locale.admin.challengeAskPhoto(goal), { keyboard: inline([[button(ctx.locale.common.cancel, 'a:bt')]]), forceNew: true });
   });
 
   admin.action(/^a:bt:ro:(\d+)$/, async (ctx) => {
