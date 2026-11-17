@@ -520,6 +520,10 @@ export const uk: Locale = {
     paymentMethods: { STARS: 'зірки', CARD: 'картка', TRANSFER: 'банка' } as Record<'STARS' | 'CARD' | 'TRANSFER', string>,
     paymentReceived: (p: { amount: string; method: string; who: string; votes: number; toEntry: boolean }) =>
       `💰 <b>Оплата ${p.amount}</b> (${p.method}) — ${p.who} — ${p.votes} голосів ${p.toEntry ? 'одразу в пару' : 'на баланс'}. Зараховано автоматично.`,
+    autoConfirmOff: '👤 Підтверджувати оплати лише вручну',
+    autoConfirmOn: '🤖 Увімкнути автопідтвердження оплат',
+    autoConfirmDisabled: 'Автопідтвердження вимкнено: кожна оплата на банку прийде тобі заявкою одразу після «Я оплатив».',
+    autoConfirmEnabled: 'Автопідтвердження увімкнено: бот сам зараховує оплати за випискою Monobank.',
     bankCheckButton: '🔍 Перевірити банку',
     bankCheck: {
       noToken: '🔍 Автоперевірку вимкнено: у Railway немає змінної <code>MONOBANK_TOKEN</code> (або токен вставлено з помилкою — тоді бот його не приймає).',

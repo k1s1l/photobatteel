@@ -36,7 +36,7 @@ async function showPayments(ctx: BotContext): Promise<void> {
     card24: money(ctx, stats.card24h),
     votesSold: stats.votesSold,
   });
-  const bank = !payments.bank ? 'off' : current.monobankAccountId ? 'on' : 'no-account';
+  const bank = !payments.bank || !current.bankAutoConfirm ? 'off' : current.monobankAccountId ? 'on' : 'no-account';
   const transfer = a.transferStatus({ enabled: current.transferEnabled, details: current.transferDetails ? escapeHtml(current.transferDetails) : null, bank });
   const rows = [
     [button(current.paidVotesEnabled ? a.paymentsToggleOff : a.paymentsToggleOn, 'a:pay:toggle')],
@@ -45,6 +45,7 @@ async function showPayments(ctx: BotContext): Promise<void> {
     [button(a.transferDetailsButton, 'a:pay:tr:details'), button(a.monobankButton, 'a:pay:mono')],
     [button(a.transfersButton, 'a:pay:trl'), button(a.paymentsList, 'a:pay:list:0')],
     [button(a.bankCheckButton, 'a:pay:bank'), button(a.bankWebhook.button, 'a:pay:hook')],
+    [button(current.bankAutoConfirm ? a.autoConfirmOff : a.autoConfirmOn, 'a:pay:auto')],
     [button(a.buttons.panel, PANEL)],
   ];
   await respond(ctx, text + transfer, { keyboard: inline(rows) });
@@ -251,6 +252,25 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
     await connectBankWebhook(ctx);
 
   });
+
+
+  admin.action('a:pay:auto', async (ctx) => {
+
+
+    const { bankAutoConfirm } = await ctx.deps.services.settings.get();
+
+
+    await ctx.deps.services.settings.update({ bankAutoConfirm: !bankAutoConfirm }, adminUserId(ctx));
+
+
+    await answer(ctx, bankAutoConfirm ? ctx.locale.admin.autoConfirmDisabled : ctx.locale.admin.autoConfirmEnabled, true);
+
+
+    await showPayments(ctx);
+
+
+  });
+
 
 
   admin.action('a:pay:bank', async (ctx) => {

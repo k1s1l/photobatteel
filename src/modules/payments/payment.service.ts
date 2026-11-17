@@ -446,7 +446,7 @@ export class PaymentService {
           },
         });
         await this.holdForPayment(targetPhotoId);
-        return { payment, details: settings.transferDetails, automatic: this.bankVerification(settings.monobankAccountId) };
+        return { payment, details: settings.transferDetails, automatic: this.bankVerification(settings) };
       } catch (error) {
         if (attempt >= 4 || (error as { code?: string }).code !== 'P2002') throw error;
       }
@@ -464,7 +464,7 @@ export class PaymentService {
     const claimedOrder = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
     await this.holdForPayment(claimedOrder.targetPhotoId);
     const settings = await this.settings.get();
-    const automatic = this.bankVerification(settings.monobankAccountId);
+    const automatic = this.bankVerification(settings);
     // With the bank check the bot confirms by itself and asks the admins only when it
     // finds nothing within a few minutes (see expireTransfers); without it, right away.
     if (automatic) {
@@ -528,7 +528,7 @@ export class PaymentService {
    */
   async pollBank(now: Date = new Date()): Promise<number> {
     const settings = await this.settings.get();
-    if (!this.bank || !settings.monobankAccountId) return 0;
+    if (!this.bankVerification(settings)) return 0;
     if (now.getTime() - this.lastBankPoll < 60_000) return 0;
 
     const open = await this.prisma.payment.findMany({
@@ -541,7 +541,7 @@ export class PaymentService {
     const from = new Date(Math.min(now.getTime() - 15 * 60_000, ...open.map((payment) => payment.createdAt.getTime() - 5 * 60_000)));
     let items;
     try {
-      items = await this.bank.statement(settings.monobankAccountId, from, now);
+      items = await this.bank!.statement(settings.monobankAccountId!, from, now);
       this.bankCheck = { at: now, error: null, items: items.length };
     } catch (error) {
       if (!(error instanceof BankRateLimitError)) {
@@ -567,7 +567,7 @@ export class PaymentService {
   async handleBankWebhook(event: BankWebhookEvent): Promise<number> {
     const item = event.data?.statementItem;
     const settings = await this.settings.get();
-    if (event.type !== 'StatementItem' || !item) return 0;
+    if (event.type !== 'StatementItem' || !item || !settings.bankAutoConfirm) return 0;
     const now = new Date();
     this.lastWebhookAt = now;
     const open = await this.prisma.payment.findMany({
@@ -720,7 +720,7 @@ export class PaymentService {
     }
 
     const settings = await this.settings.get();
-    if (this.bankVerification(settings.monobankAccountId)) {
+    if (this.bankVerification(settings)) {
       const unmatched = await this.prisma.payment.findMany({
         where: {
           method: 'TRANSFER',
@@ -747,8 +747,9 @@ export class PaymentService {
     }
   }
 
-  private bankVerification(accountId: string | null): boolean {
-    return !!this.bank && !!accountId;
+  /** The bot confirms jar transfers itself: Monobank connected, a jar selected and auto-confirmation on. */
+  private bankVerification(settings: { monobankAccountId: string | null; bankAutoConfirm: boolean }): boolean {
+    return !!this.bank && !!settings.monobankAccountId && settings.bankAutoConfirm;
   }
 
   /** Asks admins to check a transfer manually (once). */

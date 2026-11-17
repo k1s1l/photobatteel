@@ -340,6 +340,8 @@ model BotSettings {
   transferEnabled    Boolean  @default(false)
   transferDetails    String?  // shown to buyers: card number or jar link
   monobankAccountId  String?  // Monobank account or jar whose statement is checked
+  /// The bot credits jar transfers by itself (off: every transfer goes to the admins)
+  bankAutoConfirm    Boolean  @default(true)
   /// Places in the final sold for Stars: on/off, places per battle (1–2) and price
   finalSpotsEnabled  Boolean  @default(true)
   finalSpotCount     Int      @default(2)

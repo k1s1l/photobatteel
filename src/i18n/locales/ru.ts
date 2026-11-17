@@ -578,6 +578,10 @@ export const ru = {
     paymentMethods: { STARS: 'звёзды', CARD: 'карта', TRANSFER: 'банка' } as Record<'STARS' | 'CARD' | 'TRANSFER', string>,
     paymentReceived: (p: { amount: string; method: string; who: string; votes: number; toEntry: boolean }) =>
       `💰 <b>Оплата ${p.amount}</b> (${p.method}) — ${p.who} — ${p.votes} голосов ${p.toEntry ? 'сразу в пару' : 'на баланс'}. Засчитано автоматически.`,
+    autoConfirmOff: '👤 Подтверждать оплаты только вручную',
+    autoConfirmOn: '🤖 Включить автоподтверждение оплат',
+    autoConfirmDisabled: 'Автоподтверждение выключено: каждая оплата на банку придёт тебе заявкой сразу после «Я оплатил».',
+    autoConfirmEnabled: 'Автоподтверждение включено: бот сам засчитывает оплаты по выписке Monobank.',
     bankCheckButton: '🔍 Проверить банку',
     bankCheck: {
       noToken: '🔍 Автопроверка выключена: в Railway нет переменной <code>MONOBANK_TOKEN</code> (или токен вставлен с ошибкой — тогда бот его не принимает).',

@@ -19,6 +19,7 @@ export type SettingsPatch = Partial<
     | 'transferEnabled'
     | 'transferDetails'
     | 'monobankAccountId'
+    | 'bankAutoConfirm'
     | 'finalSpotsEnabled'
     | 'finalSpotCount'
     | 'finalSpotPrice'

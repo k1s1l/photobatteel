@@ -327,6 +327,20 @@ describe('transfer orders', () => {
     expect(adminTexts().filter((t) => t.includes('не понял, чей это перевод'))).toHaveLength(1);
   });
 
+  it('with auto-confirmation off every transfer goes to the admins and the bank is not used', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    await ctx.services.settings.update({ bankAutoConfirm: false }, null);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    expect(order.automatic).toBe(false);
+    const item = { id: 'off-1', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! };
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(0);
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
+    expect(adminTexts().some((t) => t.includes('Проверь перевод') && t.includes(order.payment.code!))).toBe(true);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('CLAIMED');
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
