@@ -475,8 +475,9 @@ export class PaymentService {
         this.bankCheck = { at: new Date(), error: error instanceof Error ? error.message : String(error), items: 0 };
       }
     }
-    // Without the bank check — or while Monobank answers with an error — the admins are asked at once.
-    if (!automatic || this.bankCheck?.error) await this.requestReview(paymentId);
+    // The admins are asked at once (unless the bank check has just found the transfer:
+    // then the order is already paid and they get the "payment credited" note instead).
+    await this.requestReview(paymentId);
     return { automatic };
   }
 

@@ -353,14 +353,9 @@ describe('transfer orders', () => {
     const claimed = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     await ctx.services.payments.claimTransfer(claimed.payment.id, buyer);
 
-    // With the bank check the admins are not bothered at once…
-    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
-    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 60_000) } });
-    await ctx.services.payments.expireTransfers();
-    expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
-    // …only when the bank shows nothing for 2 minutes — and only once.
+    // The admins are asked the moment the buyer presses "I paid" — and only once.
+    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
     await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 3 * 60_000) } });
-    await ctx.services.payments.expireTransfers();
     await ctx.services.payments.expireTransfers();
     expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
 
