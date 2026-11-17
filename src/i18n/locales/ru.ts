@@ -803,8 +803,11 @@ export const ru = {
     paymentsList: '🧾 Последние оплаты',
     paidTo: (d: { round: number; duel: number; side: number }) => (d.round === 0 ? ` → в фото на N голосов` : ` → в раунд ${d.round}, пара ${d.duel}, работа ${d.side}`),
     paidToBalance: ' → на баланс покупателя (пара уже была закрыта или голоса покупали без пары)',
-    findUserButton: '🔍 Найти по @нику или ID',
-    askUserFind: 'Пришли @ник или ID пользователя — открою его карточку (баланс, оплаты, работы).',
+    findUserButton: '🔍 Найти пользователя (ник, ID, имя)',
+    askUserFind: 'Пришли @ник, ссылку t.me/…, ID или имя — открою карточку (баланс, оплаты, работы).',
+    userNotFoundHint:
+      'Никого не нашёл. Можно искать по @нику, ссылке t.me/…, числовому ID или по имени (например, <code>Женя</code>). Человек должен хотя бы раз открыть бота или проголосовать в канале.',
+    usersFound: (n: number) => `Нашёл ${n} — выбери нужного:`,
     userPayments: '💳 Оплаты и баланс',
     userPaymentsTitle: (p: { name: string; balance: number }) => `<b>💳 ${p.name}</b>\nНа балансе сейчас: <b>${p.balance}</b> голосов`,
     userPaymentsTotals: (p: { stars: number; money: string }) => `Оплачено всего: <b>${p.stars} ⭐</b> и <b>${p.money}</b> (последние 15 оплат)`,

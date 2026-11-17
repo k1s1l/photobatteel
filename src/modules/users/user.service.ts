@@ -88,6 +88,29 @@ export class UserService {
     return this.prisma.user.findUnique({ where: { telegramId: BigInt(telegramId) } });
   }
 
+  /**
+   * Admin search: @username, a t.me link, a Telegram id, a #photo id — or part of
+   * a name or username ("Женя"). Up to 10 matches, exact ones first.
+   */
+  async search(query: string): Promise<User[]> {
+    const input = query.trim().replace(/^https?:\/\/t\.me\//i, '').replace(/^t\.me\//i, '').replace(/[\s.,!?]+$/, '');
+    const exact = await this.findByQuery(input);
+    if (exact) return [exact];
+    const text = input.replace(/^@/, '');
+    if (text.length < 2) return [];
+    return this.prisma.user.findMany({
+      where: {
+        OR: [
+          { username: { contains: text, mode: 'insensitive' } },
+          { firstName: { contains: text, mode: 'insensitive' } },
+          { lastName: { contains: text, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { lastActiveAt: 'desc' },
+      take: 10,
+    });
+  }
+
   /** Accepts a Telegram ID, @username or a photo ID (#0012) and returns its user. */
   async findByQuery(query: string): Promise<User | null> {
     const input = query.trim();

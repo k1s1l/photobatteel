@@ -1,7 +1,7 @@
 import { Composer, type Telegraf } from 'telegraf';
 import { allTranslations } from '../../../i18n/index.js';
 import { isDomainError } from '../../../lib/errors.js';
-import { formatPhotoId, parsePhotoId } from '../../../lib/format.js';
+import { displayName, formatPhotoId, parsePhotoId, truncate } from '../../../lib/format.js';
 import type { BotContext } from '../../context.js';
 import { getState, setState } from '../../context.js';
 import { answer, respond } from '../../helpers.js';
@@ -106,14 +106,33 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
     return;
   }
 
+  if (state.action === 'find') {
+    const found = await services.users.search(text);
+    if (found.length === 0) {
+      await ctx.reply(ctx.locale.admin.userNotFoundHint, { parse_mode: 'HTML', reply_markup: retry });
+      return;
+    }
+    setState(ctx, undefined);
+    if (found.length === 1) {
+      await showUserCard(ctx, found[0]!.id);
+      return;
+    }
+    await ctx.reply(ctx.locale.admin.usersFound(found.length), {
+      reply_markup: inline([
+        ...found.map((user) => [button(`${truncate(displayName(user), 30)}${user.username ? '' : ` · ${user.telegramId}`}`, `a:u:${user.id}`)]),
+        [button(ctx.locale.admin.buttons.panel, 'a:menu')],
+      ]),
+    });
+    return;
+  }
+
   const target = await services.users.findByQuery(text);
   if (!target) {
     await ctx.reply(ctx.locale.admin.userNotFound, { reply_markup: retry });
     return;
   }
   setState(ctx, undefined);
-  if (state.action === 'find') await showUserCard(ctx, target.id);
-  else if (state.action === 'block') await blockUser(ctx, target);
+  if (state.action === 'block') await blockUser(ctx, target);
   else await unblockUser(ctx, target);
 }
 
