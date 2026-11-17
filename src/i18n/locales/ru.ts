@@ -690,6 +690,15 @@ export const ru = {
     challengeCreated: (p: { goal: number; auto: boolean }) =>
       `✅ Готово: фото на ${p.goal} голосов создано. ` + (p.auto ? 'Бот сам выложит его в канал.' : 'Пост придёт сюда — перешли его в канал без автора, кнопки появятся.'),
     challengeNeedMedia: 'Нужно фото или видео. Пришли ещё раз.',
+    replaceFinalButton: '🔁 Заменить работу в финале',
+    replaceFinalWhich: '<b>🔁 Заменить работу в финале</b>\n\nКакую работу убрать из финала?',
+    replaceFinalEntry: (side: number, votes: number) => `Работа ${side} · ${votes}`,
+    replaceFinalWith: (side: number) => `Что поставить вместо работы ${side}? 🎯 — фото на N голосов (в скобках набранные голоса), 🎟 — купленное/выданное место.`,
+    replaceFinalCandidate: (label: string, votes: number) => `${label} фото${votes > 0 ? ` (${votes} голосов)` : ''}`,
+    replaceFinalNone: 'Нечем заменить: нет фото на N голосов и купленных мест с фото.',
+    replaceFinalDone: (auto = false): string =>
+      '✅ Работа заменена. Новая работа начинает с 0 голосов, у остальных голоса сохранены. ' +
+      (auto ? 'Бот сам выложит новый пост финала.' : 'Старый пост финала удалён — новый придёт сюда, перешли его в канал без автора.'),
     votesButton: '🗳 Изменить голоса',
     votesChoosePair: '<b>🗳 Изменить голоса</b>\n\nВыбери пару текущего раунда:',
     votesNoPairs: 'Сейчас нет открытых пар.',

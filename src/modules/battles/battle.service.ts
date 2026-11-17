@@ -673,6 +673,59 @@ export class BattleService {
     return true;
   }
 
+  /** The final being played now (one post with all finalists), if any. */
+  async currentFinal(battleId: number): Promise<Duel | null> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING' || battle.currentRound === 0) return null;
+    const duels = await this.prisma.duel.findMany({ where: { battleId, round: battle.currentRound } });
+    const final = duels.length === 1 ? duels[0]! : null;
+    return final && final.status !== 'FINISHED' && isFinalRound(battle, entryCount(final)) ? final : null;
+  }
+
+  /** Photos an admin may put into the final instead of another: challenge photos and given/bought places. */
+  async finalReplacements(battleId: number): Promise<{ photoId: number; label: string; votes: number }[]> {
+    const challenges = await this.prisma.duel.findMany({ where: { battleId, round: 0, goal: { not: null } }, orderBy: { position: 'asc' } });
+    const spots = await this.prisma.finalSpot.findMany({ where: { battleId, photoId: { not: null }, refundedAt: null } });
+    const final = await this.currentFinal(battleId);
+    const inFinal = new Set(final ? entriesOf(final).map((entry) => entry.photoId) : []);
+    return [
+      ...challenges.map((duel) => ({ photoId: duel.photoAId, label: `🎯 ${duel.position}`, votes: duel.votesA })),
+      ...spots.map((spot, index) => ({ photoId: spot.photoId!, label: `🎟 ${index + 1}`, votes: 0 })),
+    ].filter((candidate) => !inFinal.has(candidate.photoId));
+  }
+
+  /**
+   * Admin fix: puts `newPhotoId` into the final instead of the entry in `side`.
+   * That slot starts from zero votes; the others keep theirs. The final post is prepared again.
+   */
+  async replaceFinalEntry(duelId: number, side: DuelSide, newPhotoId: number, actorUserId: number | null): Promise<boolean> {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { battle: true } });
+    if (!duel || duel.status === 'FINISHED' || duel.battle.status !== 'RUNNING') return false;
+    const oldPhotoId = duel[PHOTO_ID_FIELD[side]];
+    const newPhoto = await this.prisma.photo.findUnique({ where: { id: newPhotoId } });
+    if (!oldPhotoId || newPhoto?.battleId !== duel.battleId || entriesOf(duel).some((entry) => entry.photoId === newPhotoId)) return false;
+    const done = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.duel.updateMany({
+        where: { id: duel.id, status: duel.status, [PHOTO_ID_FIELD[side]]: oldPhotoId },
+        data: { [PHOTO_ID_FIELD[side]]: newPhotoId, [VOTE_FIELD[side]]: 0 },
+      });
+      if (updated.count === 0) return false;
+      // Free votes given to the removed entry are dropped; people can vote again.
+      await tx.duelVote.deleteMany({ where: { duelId: duel.id, stage: duel.stage, side } });
+      await tx.photo.update({ where: { id: oldPhotoId }, data: { status: 'ELIMINATED' } });
+      await tx.photo.update({ where: { id: newPhotoId }, data: { status: 'IN_BATTLE' } });
+      // A challenge still voting for this photo is closed (it is in the final now).
+      await tx.duel.updateMany({ where: { battleId: duel.battleId, round: 0, photoAId: newPhotoId, status: { not: 'FINISHED' } }, data: { status: 'FINISHED', winnerPhotoId: newPhotoId, finishedAt: new Date() } });
+      await tx.finalSpot.updateMany({ where: { battleId: duel.battleId, photoId: newPhotoId, usedAt: null }, data: { usedAt: new Date() } });
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Duel', entityId: duel.id, details: { replaced: oldPhotoId, with: newPhotoId, side } }, tx);
+      return true;
+    });
+    if (!done) return false;
+    if (duel.status === 'READY' || duel.status === 'ACTIVE') await this.republish(duel.id, actorUserId);
+    else await this.scheduler.enqueueDuelPrepare(duel.id, duel.stage);
+    return true;
+  }
+
   /** Closed pairs of the current round that can still be reopened (the next round has not started). */
   async reopenable(battleId: number): Promise<Duel[]> {
     const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });

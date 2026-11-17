@@ -562,6 +562,29 @@ describe('challenge photo', () => {
     expect(ctx.telegram.callsOf('sendMessage').some((c) => c.chatId === Number(author.telegramId) && String(c.args[0]).includes('проходит в финал'))).toBe(true);
   });
 
+  it('lets the admin replace a wrong entry of the final with the challenge photo', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 4, createdById: null });
+    await entries(4);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const final = (await ctx.services.battles.currentFinal(battle.id))!;
+    await ctx.prisma.duel.update({ where: { id: final.id }, data: { votesA: 5, votesD: 3 } });
+    ctx.telegram.files.set('file-ch-9', await makeJpeg());
+    const challenge = await ctx.services.battles.createChallenge({ battleId: battle.id, ownerUserId: admin.id, media: media('ch-9'), goal: 20, actorUserId: admin.id });
+    const [candidate] = await ctx.services.battles.finalReplacements(battle.id);
+    const challengePhoto = (await ctx.prisma.duel.findUniqueOrThrow({ where: { id: challenge.id } })).photoAId;
+    expect(candidate!.photoId).toBe(challengePhoto);
+
+    expect(await ctx.services.battles.replaceFinalEntry(final.id, 'D', challengePhoto, admin.id)).toBe(true);
+    const fixed = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } });
+    expect(fixed).toMatchObject({ photoDId: challengePhoto, votesD: 0, votesA: 5, status: 'PENDING' });
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: final.photoDId! } })).status).toBe('ELIMINATED');
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: challenge.id } })).status).toBe('FINISHED');
+    await postPendingDuels(ctx);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: final.id } })).status).toBe('ACTIVE');
+  });
+
   it('joins a final that is already running when it reaches its goal', async () => {
     const admin = await createAdmin(ctx);
     const battle = await openBattle(ctx);

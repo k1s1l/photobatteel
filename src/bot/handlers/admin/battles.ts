@@ -49,6 +49,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
     rows.push([button(a.votesButton, `a:bt:votes:${current.id}`), button(a.challengeButton, `a:bt:ch:${current.id}`)]);
+    if (await battles.currentFinal(current.id)) rows.push([button(a.replaceFinalButton, `a:bt:rf:${current.id}`)]);
     const closed = await battles.reopenable(current.id);
     for (let i = 0; i < closed.length; i += 2) rows.push(closed.slice(i, i + 2).map((duel) => button(a.reopenButton(duel.position), `a:bt:ro:${duel.id}`)));
     const duels = await battles.republishable(current.id, current.currentRound);
@@ -369,6 +370,39 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     if (!(CHALLENGE_GOALS as readonly number[]).includes(goal)) return;
     setState(ctx, { kind: 'admin_challenge', battleId: matchInt(ctx, 1), goal });
     await respond(ctx, ctx.locale.admin.challengeAskPhoto(goal), { keyboard: inline([[button(ctx.locale.common.cancel, 'a:bt')]]), forceNew: true });
+  });
+
+  // Replace an entry of the final: 1) which entry goes out, 2) which photo comes in.
+  admin.action(/^a:bt:rf:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const final = await ctx.deps.services.battles.currentFinal(matchInt(ctx));
+    if (!final) return;
+    const buttons = voteList(final).map(({ side, votes }) => button(ctx.locale.admin.replaceFinalEntry(sideNumber(side), votes), `a:bt:rfo:${final.id}:${side.toLowerCase()}`));
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+    await respond(ctx, ctx.locale.admin.replaceFinalWhich, { keyboard: inline([...rows, [button(ctx.locale.common.back, 'a:bt')]]) });
+  });
+
+  admin.action(/^a:bt:rfo:(\d+):([a-f])$/, async (ctx) => {
+    await answer(ctx);
+    const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx, 1));
+    if (!duel) return;
+    const candidates = await ctx.deps.services.battles.finalReplacements(duel.battleId);
+    const letter = matchString(ctx, 2);
+    const rows = candidates.map((c) => [button(ctx.locale.admin.replaceFinalCandidate(c.label, c.votes), `a:bt:rfn:${duel.id}:${letter}:${c.photoId}`)]);
+    await respond(ctx, candidates.length > 0 ? ctx.locale.admin.replaceFinalWith(sideNumber(sideFromLetter(letter)!)) : ctx.locale.admin.replaceFinalNone, {
+      keyboard: inline([...rows, [button(ctx.locale.common.back, `a:bt:rf:${duel.battleId}`)]]),
+    });
+  });
+
+  admin.action(/^a:bt:rfn:(\d+):([a-f]):(\d+)$/, async (ctx) => {
+    const side = sideFromLetter(matchString(ctx, 2));
+    const done = side ? await ctx.deps.services.battles.replaceFinalEntry(matchInt(ctx, 1), side, matchInt(ctx, 3), adminUserId(ctx)) : false;
+    await answer(ctx, done ? undefined : ctx.locale.common.alreadyProcessed, !done);
+    if (done) {
+      const auto = (await ctx.deps.services.settings.get()).autoPublish;
+      await respond(ctx, ctx.locale.admin.replaceFinalDone(auto), { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    }
   });
 
   admin.action(/^a:bt:ro:(\d+)$/, async (ctx) => {

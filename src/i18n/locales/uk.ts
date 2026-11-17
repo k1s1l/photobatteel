@@ -631,6 +631,15 @@ export const uk: Locale = {
     challengeCreated: (p: { goal: number; auto: boolean }) =>
       `✅ Готово: фото на ${p.goal} голосів створено. ` + (p.auto ? 'Бот сам викладе його в канал.' : 'Пост прийде сюди — перешли його в канал без автора, кнопки з’являться.'),
     challengeNeedMedia: 'Потрібне фото або відео. Надішли ще раз.',
+    replaceFinalButton: '🔁 Замінити роботу у фіналі',
+    replaceFinalWhich: '<b>🔁 Замінити роботу у фіналі</b>\n\nЯку роботу прибрати з фіналу?',
+    replaceFinalEntry: (side: number, votes: number) => `Робота ${side} · ${votes}`,
+    replaceFinalWith: (side: number) => `Що поставити замість роботи ${side}? 🎯 — фото на N голосів (у дужках набрані голоси), 🎟 — куплене/видане місце.`,
+    replaceFinalCandidate: (label: string, votes: number) => `${label} фото${votes > 0 ? ` (${votes} голосів)` : ''}`,
+    replaceFinalNone: 'Нема чим замінити: немає фото на N голосів і куплених місць з фото.',
+    replaceFinalDone: (auto = false): string =>
+      '✅ Роботу замінено. Нова робота починає з 0 голосів, в інших голоси збережено. ' +
+      (auto ? 'Бот сам викладе новий пост фіналу.' : 'Старий пост фіналу видалено — новий прийде сюди, перешли його в канал без автора.'),
     votesButton: '🗳 Змінити голоси',
     votesChoosePair: '<b>🗳 Змінити голоси</b>\n\nОбери пару поточного раунду:',
     votesNoPairs: 'Зараз немає відкритих пар.',
