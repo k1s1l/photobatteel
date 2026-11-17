@@ -493,6 +493,25 @@ describe('both entries advance', () => {
     expect(players).toEqual(expect.arrayContaining([first!.photoAId, first!.photoBId]));
   });
 
+  it('reopens a pair closed by mistake: voting again with buttons, votes kept', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(6);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const pair = await ctx.prisma.duel.findFirstOrThrow({ where: { round: 1, position: 3 } });
+    await setVotes(pair.id, 5, 7);
+    await ctx.services.battles.advanceBoth(pair.id, admin.id);
+    expect((await ctx.services.battles.reopenable(battle.id)).map((d) => d.id)).toContain(pair.id);
+
+    expect(await ctx.services.battles.reopenDuel(pair.id, admin.id)).toBe(true);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: pair.id } })).toMatchObject({ status: 'PENDING', alsoAdvancesPhotoId: null, winnerPhotoId: null, votesA: 5, votesB: 7 });
+    await postPendingDuels(ctx);
+    const live = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: pair.id } });
+    expect(live.status).toBe('ACTIVE');
+    expect(live.messageId).not.toBeNull();
+  });
+
   it('is not possible in the final', async () => {
     const admin = await createAdmin(ctx);
     const battle = await openBattle(ctx);

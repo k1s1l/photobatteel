@@ -47,6 +47,8 @@ async function showBattles(ctx: BotContext): Promise<void> {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
     rows.push([button(a.votesButton, `a:bt:votes:${current.id}`)]);
+    const closed = await battles.reopenable(current.id);
+    for (let i = 0; i < closed.length; i += 2) rows.push(closed.slice(i, i + 2).map((duel) => button(a.reopenButton(duel.position), `a:bt:ro:${duel.id}`)));
     const duels = await battles.republishable(current.id, current.currentRound);
     for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(a.republishButton(duel.position), `a:bt:rp:${duel.id}`)));
   }
@@ -320,6 +322,24 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       keyboard: inline([[button(ctx.locale.common.cancel, `a:bt:v:${duelId}`)]]),
       forceNew: true,
     });
+  });
+
+  admin.action(/^a:bt:ro:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx));
+    if (!duel) return;
+    await respond(ctx, ctx.locale.admin.reopenConfirm(duel.position), {
+      keyboard: inline([[button(ctx.locale.common.yes, `a:bt:roy:${duel.id}`), button(ctx.locale.common.no, 'a:bt')]]),
+    });
+  });
+
+  admin.action(/^a:bt:roy:(\d+)$/, async (ctx) => {
+    const done = await ctx.deps.services.battles.reopenDuel(matchInt(ctx), adminUserId(ctx));
+    await answer(ctx, done ? undefined : ctx.locale.common.alreadyProcessed, !done);
+    if (done) {
+      const auto = (await ctx.deps.services.settings.get()).autoPublish;
+      await respond(ctx, ctx.locale.admin.reopenDone(auto), { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    }
   });
 
   admin.action(/^a:bt:both:(\d+)$/, async (ctx) => {

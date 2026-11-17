@@ -646,6 +646,40 @@ export class BattleService {
     return true;
   }
 
+  /** Closed pairs of the current round that can still be reopened (the next round has not started). */
+  async reopenable(battleId: number): Promise<Duel[]> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (battle?.status !== 'RUNNING' || battle.currentRound === 0) return [];
+    return this.prisma.duel.findMany({
+      where: { battleId, round: battle.currentRound, status: 'FINISHED', photoBId: { not: null } },
+      orderBy: { position: 'asc' },
+    });
+  }
+
+  /**
+   * Admin undo: a closed pair of the current round (e.g. "both advance" pressed on
+   * the wrong pair) goes back to voting. Its votes are kept; the post is prepared again.
+   */
+  async reopenDuel(duelId: number, actorUserId: number | null): Promise<boolean> {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { battle: true } });
+    if (!duel || duel.status !== 'FINISHED' || duel.battle.status !== 'RUNNING' || duel.round !== duel.battle.currentRound || !duel.photoBId) return false;
+    const reopened = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.duel.updateMany({
+        where: { id: duel.id, status: 'FINISHED', round: duel.battle.currentRound },
+        data: { status: 'PENDING', winnerPhotoId: null, alsoAdvancesPhotoId: null, finishedAt: null, endsAt: null, messageId: null, mediaMessageIds: [], postedAt: null, readyAt: null, remindedAt: null, preparedFileUniqueId: null },
+      });
+      if (updated.count === 0) return false;
+      // The entries play again (an eliminated one comes back).
+      await tx.photo.updateMany({ where: { id: { in: entriesOf(duel).map((entry) => entry.photoId) }, status: 'ELIMINATED' }, data: { status: 'IN_BATTLE' } });
+      await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Duel', entityId: duel.id, details: { reopened: true } }, tx);
+      return true;
+    });
+    if (!reopened) return false;
+    await this.deleteMessages([...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]);
+    await this.scheduler.enqueueDuelPrepare(duel.id, duel.stage);
+    return true;
+  }
+
   /** Pairs of the current round an admin may publish again (prepared or already in the channel). */
   async republishable(battleId: number, round: number): Promise<Duel[]> {
     return this.prisma.duel.findMany({
