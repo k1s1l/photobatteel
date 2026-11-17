@@ -338,7 +338,8 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
           amount: payment.method === 'STARS' ? `${payment.amount} ⭐` : money(ctx, payment.amount),
           status: a.paymentStatus[payment.status],
           date: payment.paidAt ? formatDateTime(payment.paidAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) : '—',
-        }),
+        }) +
+          (payment.finalSpotBattleId !== null ? '' : payment.destination ? a.paidTo(payment.destination) : payment.status === 'PAID' ? a.paidToBalance : ''),
       );
     }
     const rows = items.filter((p) => p.method === 'STARS' && p.status === 'PAID').map((p) => [button(a.refund(p.id), `a:pay:r:${p.id}`)]);

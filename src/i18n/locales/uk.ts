@@ -740,6 +740,8 @@ export const uk: Locale = {
     packagePriceInvalid: 'Формат: два числа через пробіл — зірки та сума карткою, наприклад <code>20 20</code>. Сума карткою — від 10 (менше Monobank не приймає).',
     packageSaved: '✅ Пакет оновлено.',
     paymentsList: '🧾 Останні оплати',
+    paidTo: (d: { round: number; duel: number; side: number }) => (d.round === 0 ? ` → у фото на N голосів` : ` → у раунд ${d.round}, пара ${d.duel}, робота ${d.side}`),
+    paidToBalance: ' → на баланс покупця (пару вже було закрито або голоси купували без пари)',
     paymentsListTitle: '<b>🧾 Останні оплати</b>',
     paymentsEmpty: 'Оплат поки немає.',
     paymentRow: (p) => `#${p.id} · ${p.date} · ${p.user} · ${p.votes} гол. · ${p.amount} · ${p.status}`,

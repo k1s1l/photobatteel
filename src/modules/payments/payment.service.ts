@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { inAnySlot, sideOf, VOTE_FIELD, VOTE_SELECT, votesOf } from '../duels/sides.js';
+import { inAnySlot, sideNumber, sideOf, VOTE_FIELD, VOTE_SELECT, votesOf } from '../duels/sides.js';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
 import { escapeHtml } from '../../lib/format.js';
@@ -386,7 +386,10 @@ export class PaymentService {
       this.prisma.payment.findMany({ where, include: { user: true }, orderBy: { paidAt: 'desc' }, skip: page * pageSize, take: pageSize }),
       this.prisma.payment.count({ where }),
     ]);
-    return { items, total };
+    // Where the votes went: into a pair (which round/pair) or to the buyer's balance.
+    const given = await this.prisma.paidVote.findMany({ where: { paymentId: { in: items.map((item) => item.id) } }, include: { duel: true } });
+    const destination = new Map(given.map((vote) => [vote.paymentId!, { round: vote.duel.round, duel: vote.duel.position, side: sideNumber(vote.side) }]));
+    return { items: items.map((item) => ({ ...item, destination: destination.get(item.id) ?? null })), total };
   }
 
   async stats(now: Date = new Date()): Promise<PaymentStats> {

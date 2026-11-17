@@ -800,6 +800,8 @@ export const ru = {
     packagePriceInvalid: 'Формат: два числа через пробел — звёзды и сумма картой, например <code>20 20</code>. Сумма картой — от 10 (меньше Monobank не принимает).',
     packageSaved: '✅ Пакет обновлён.',
     paymentsList: '🧾 Последние оплаты',
+    paidTo: (d: { round: number; duel: number; side: number }) => (d.round === 0 ? ` → в фото на N голосов` : ` → в раунд ${d.round}, пара ${d.duel}, работа ${d.side}`),
+    paidToBalance: ' → на баланс покупателя (пара уже была закрыта или голоса покупали без пары)',
     paymentsListTitle: '<b>🧾 Последние оплаты</b>',
     paymentsEmpty: 'Оплат пока нет.',
     paymentRow: (p: { id: number; user: string; votes: number; amount: string; status: string; date: string }) =>
