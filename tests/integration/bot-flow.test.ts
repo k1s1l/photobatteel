@@ -470,6 +470,16 @@ describe('bot: managing admins', () => {
   });
 });
 
+describe('bot: final place from the main menu', () => {
+  it('shows the button in the menu and explains when a place cannot be bought yet', async () => {
+    await sendText(500, '/start');
+    const menu = JSON.stringify(api.filter((c) => c.method === 'sendMessage').at(-1)!.payload.reply_markup);
+    expect(menu).toContain('🎟 Купить место в финале');
+    await sendText(500, '🎟 Купить место в финале');
+    expect(texts('sendMessage').at(-1)).toContain('Сейчас нет идущего батла');
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

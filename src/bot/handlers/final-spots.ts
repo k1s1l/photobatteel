@@ -1,4 +1,5 @@
 import type { Telegraf } from 'telegraf';
+import { allTranslations } from '../../i18n/index.js';
 import { isDomainError } from '../../lib/errors.js';
 import { escapeHtml } from '../../lib/format.js';
 import { parseFinalSpotPayload } from '../../modules/final-spots/final-spot.service.js';
@@ -39,6 +40,7 @@ export function registerFinalSpotHandlers(bot: Telegraf<BotContext>): void {
   };
   bot.action('fs:buy', buy);
   bot.command('final', buy);
+  bot.hears(allTranslations((l) => l.menu.finalSpot), buy);
 }
 
 /** pre_checkout_query for a place in the final. */

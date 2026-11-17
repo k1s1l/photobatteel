@@ -11,6 +11,7 @@ export function mainMenu(locale: Locale, isAdmin: boolean) {
   const rows = [
     [locale.menu.submit],
     [locale.menu.votes, locale.menu.battle],
+    [locale.menu.finalSpot],
     [locale.menu.rules, locale.menu.help],
   ];
   if (isAdmin) rows.push([locale.menu.admin]);

@@ -20,7 +20,7 @@ import { blockUser, registerUserHandlers, unblockUser } from './users.js';
 
 const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'battle_start_change', 'admin_votes', 'admin_challenge', 'admin_spot_photo', 'monobank_pick']);
 const MENU_BUTTONS = new Set(
-  (['submit', 'votes', 'battle', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
+  (['submit', 'votes', 'battle', 'finalSpot', 'rules', 'help'] as const).flatMap((key) => allTranslations((l) => l.menu[key])),
 );
 const ADMIN_BUTTONS = new Set(allTranslations((l) => l.menu.admin));
 
