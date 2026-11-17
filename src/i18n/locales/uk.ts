@@ -514,6 +514,12 @@ export const uk: Locale = {
     },
     bankCheckFailing: (message: string) =>
       `⚠️ Бот не може перевірити банку Monobank: <code>${message.replace(/[<>&]/g, '')}</code>\nОплати на банку зараз не зараховуються автоматично — заявки прийдуть тобі. Натисни 💳 Платежі → «🔍 Перевірити банку», щоб побачити, що виправити.`,
+    unmatchedTransfer: (p: { amount: string; text: string; orders: number }) =>
+      `💰 <b>На банку надійшло ${p.amount}</b>, але бот не зрозумів, чий це переказ.\n${p.text}\n\n` +
+      (p.orders > 0 ? 'Нещодавні замовлення — натисни потрібне, щоб зарахувати голоси:' : 'Нещодавніх замовлень немає — можливо, це донат або людина не відкривала оплату в боті. Якщо знаєш, хто це, нарахуй голоси через «🗳 Змінити голоси».'),
+    paymentMethods: { STARS: 'зірки', CARD: 'картка', TRANSFER: 'банка' } as Record<'STARS' | 'CARD' | 'TRANSFER', string>,
+    paymentReceived: (p: { amount: string; method: string; who: string; votes: number; toEntry: boolean }) =>
+      `💰 <b>Оплата ${p.amount}</b> (${p.method}) — ${p.who} — ${p.votes} голосів ${p.toEntry ? 'одразу в пару' : 'на баланс'}. Зараховано автоматично.`,
     bankCheckButton: '🔍 Перевірити банку',
     bankCheck: {
       noToken: '🔍 Автоперевірку вимкнено: у Railway немає змінної <code>MONOBANK_TOKEN</code> (або токен вставлено з помилкою — тоді бот його не приймає).',

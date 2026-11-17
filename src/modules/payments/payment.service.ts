@@ -300,6 +300,8 @@ export class PaymentService {
 
     await this.scheduleOvertime();
     if (result.duelId) await this.scheduler.scheduleVoteRefresh(result.duelId);
+    // Admins see every payment that went through by itself (one they confirmed themselves they already know about).
+    if (!result.alreadyProcessed && paidData.confirmedById === undefined) await this.announcePayment(result.payment, result.creditedTo === 'photo');
     const { duelId: _duelId, ...completed } = result;
     return completed;
   }
@@ -490,7 +492,8 @@ export class PaymentService {
   /** Admin decision on a transfer that the bank check could not match. */
   async reviewTransfer(paymentId: number, adminUserId: number, approve: boolean): Promise<TransferOutcome> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, include: { user: true } });
-    if (payment?.method !== 'TRANSFER' || (payment.status !== 'PENDING' && payment.status !== 'CLAIMED')) throw new DomainError('INVALID_STATE');
+    const late = payment?.status === 'CANCELLED' && payment.confirmedById === null && Date.now() - payment.createdAt.getTime() < 24 * 60 * 60_000;
+    if (payment?.method !== 'TRANSFER' || (payment.status !== 'PENDING' && payment.status !== 'CLAIMED' && !(approve && late))) throw new DomainError('INVALID_STATE');
     if (approve) {
       const completed = await this.credit(paymentId, { confirmedById: adminUserId });
       if (completed.alreadyProcessed) throw new DomainError('INVALID_STATE');
@@ -531,10 +534,10 @@ export class PaymentService {
       where: { code: { not: null }, OR: [{ method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers(now)] },
       include: { user: true },
     });
-    if (open.length === 0) return 0;
     this.lastBankPoll = now.getTime();
 
-    const from = new Date(Math.min(...open.map((payment) => payment.createdAt.getTime())) - 5 * 60_000);
+    // Without open orders the last minutes are still read: unmatched transfers are reported to admins.
+    const from = new Date(Math.min(now.getTime() - 15 * 60_000, ...open.map((payment) => payment.createdAt.getTime() - 5 * 60_000)));
     let items;
     try {
       items = await this.bank.statement(settings.monobankAccountId, from, now);
@@ -659,7 +662,46 @@ export class PaymentService {
         }
       }
     }
+    if (options.byAmount !== false) {
+      for (const item of incoming) await this.reportUnmatched(item);
+    }
     return credited;
+  }
+
+  /**
+   * A transfer on the selected jar that no order took: admins are told at once
+   * (once per transaction), with buttons for the recent orders it may belong to.
+   */
+  private async reportUnmatched(item: BankStatementItem): Promise<void> {
+    const paidAt = item.time * 1000;
+    if (Date.now() - paidAt > 2 * 60 * 60_000) return;
+    if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) return;
+    if (await this.prisma.activityLog.findFirst({ where: { entityType: 'BankTx', entityId: item.id }, select: { id: true } })) return;
+    await this.activity.log({ action: 'SETTINGS_UPDATED', entityType: 'BankTx', entityId: item.id, details: { amount: item.amount, unmatched: true } });
+    const candidates = await this.prisma.payment.findMany({
+      where: {
+        method: 'TRANSFER',
+        amount: { lte: item.amount },
+        createdAt: { gte: new Date(paidAt - 60 * 60_000), lte: new Date(paidAt + 60_000) },
+        OR: [{ status: { in: ['PENDING', 'CLAIMED'] } }, { status: 'CANCELLED', confirmedById: null }],
+      },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+      take: 4,
+    });
+    const amount = formatCardPrice(item.amount, this.options.cardCurrency);
+    const text = escapeHtml([item.description, item.comment].filter(Boolean).join(' · ') || '—');
+    await this.notifications.notifyAdmins((l) => l.admin.unmatchedTransfer({ amount, text, orders: candidates.length }), {
+      parseMode: 'HTML',
+      replyMarkup: {
+        inline_keyboard: candidates.map((order) => [
+          {
+            text: `✅ ${order.code} · ${order.user.username ? `@${order.user.username}` : order.user.firstName} · ${formatCardPrice(order.amount, order.currency)}`,
+            callback_data: `a:tr:ok:${order.id}`,
+          },
+        ]),
+      },
+    });
   }
 
   /**
@@ -731,6 +773,14 @@ export class PaymentService {
     });
   }
 
+  /** "💰 Payment: 20 ₴ (jar) — @user — 20 votes" for the admins. */
+  private async announcePayment(payment: Payment, toEntry: boolean): Promise<void> {
+    const buyer = await this.prisma.user.findUnique({ where: { id: payment.userId } });
+    const who = escapeHtml(buyer ? (buyer.username ? `@${buyer.username}` : buyer.firstName) : '—');
+    const amount = payment.method === 'STARS' ? `${payment.amount} ⭐` : formatCardPrice(payment.amount, payment.currency);
+    await this.notifications.notifyAdmins((l) => l.admin.paymentReceived({ amount, method: l.admin.paymentMethods[payment.method], who, votes: payment.votes, toEntry }));
+  }
+
   private async notifyPaid(user: User, completed: CompletedPayment): Promise<void> {
     const votes = completed.payment.votes;
     await this.notifications.notifyUser(user, (l) =>
@@ -779,7 +829,8 @@ function matchByAmount<T extends Payment>(item: BankStatementItem, open: T[]): T
   const candidates = open.filter(
     (order) =>
       order.method === 'TRANSFER' &&
-      (order.status === 'PENDING' || order.status === 'CLAIMED') &&
+      // Expired (not admin-rejected) orders count too: people often pay a few minutes late.
+      (order.status === 'PENDING' || order.status === 'CLAIMED' || (order.status === 'CANCELLED' && order.confirmedById === null)) &&
       order.amount === item.amount &&
       order.createdAt.getTime() <= paidAt + 60_000 &&
       order.createdAt.getTime() >= paidAt - AMOUNT_MATCH_WINDOW_MS,

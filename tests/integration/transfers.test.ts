@@ -107,14 +107,14 @@ describe('transfer orders', () => {
     expect(ctx.scheduler.voteRefreshes).toContain(duel.id);
   });
 
-  it('gives 5 minutes to pay and still accepts a transfer that arrives a bit later', async () => {
+  it('gives 15 minutes to pay and still accepts a transfer that arrives a bit later', async () => {
     await createAdmin(ctx);
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
-    expect(order.payment.expiresAt!.getTime() - order.payment.createdAt.getTime()).toBeLessThanOrEqual(5 * 60_000 + 1000);
+    expect(order.payment.expiresAt!.getTime() - order.payment.createdAt.getTime()).toBeLessThanOrEqual(15 * 60_000 + 1000);
 
-    await ctx.services.payments.expireTransfers(new Date(Date.now() + 6 * 60_000));
+    await ctx.services.payments.expireTransfers(new Date(Date.now() + 16 * 60_000));
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('CANCELLED');
 
     // The money arrives after the order expired: the bank check still finds it.
@@ -129,7 +129,7 @@ describe('transfer orders', () => {
     await enableTransfers(false);
     const [pack] = await ctx.services.payments.listPackages(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
-    await ctx.services.payments.expireTransfers(new Date(Date.now() + 6 * 60_000));
+    await ctx.services.payments.expireTransfers(new Date(Date.now() + 16 * 60_000));
     expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
     expect(adminTexts().some((t) => t.includes(order.payment.code!))).toBe(true);
 
@@ -297,6 +297,34 @@ describe('transfer orders', () => {
     await ctx.services.payments.pollBank(new Date(Date.now() + 61_000));
     expect(adminTexts().some((t) => t.includes('не может проверить банку') && t.includes('403'))).toBe(true);
     expect(second.payment.status).toBe('PENDING');
+  });
+
+  it('credits a late transfer without a code to the expired order of that amount and tells the admins about every payment', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    await ctx.services.payments.expireTransfers(new Date(Date.now() + 16 * 60_000));
+    const late = { id: 'late-nocode', time: Math.floor(Date.now() / 1000) + 60, amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: '' };
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: late } })).toBe(1);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('PAID');
+    expect(adminTexts().some((t) => t.includes('💰') && t.includes('Засчитано автоматически'))).toBe(true);
+  });
+
+  it('reports a transfer that no order took, with buttons for the recent orders', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    const [, pack20] = await ctx.services.payments.listPackages(true);
+    const a = await ctx.services.payments.createTransfer(buyer, pack20!.id, null);
+    await ctx.services.payments.createTransfer(await createUser(ctx), pack20!.id, null);
+    const stray = { id: 'stray-1', time: Math.floor(Date.now() / 1000), amount: pack20!.priceCard, currencyCode: 980, description: 'Від: ?', comment: '' };
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: stray } })).toBe(0);
+    const alert = ctx.telegram.callsOf('sendMessage').find((c) => c.chatId === ADMIN_TG_ID && String(c.args[0]).includes('не понял, чей это перевод'));
+    expect(alert).toBeDefined();
+    expect(JSON.stringify(alert!.args[1])).toContain(`a:tr:ok:${a.payment.id}`);
+    // Reported once per transaction.
+    await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: stray } });
+    expect(adminTexts().filter((t) => t.includes('не понял, чей это перевод'))).toHaveLength(1);
   });
 
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
