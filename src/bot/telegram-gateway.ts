@@ -1,3 +1,4 @@
+import type { InlineKeyboardMarkup } from 'telegraf/types';
 import type { Telegram } from 'telegraf';
 import { DomainError } from '../lib/errors.js';
 import type { AlbumItem, ChatId, SendOptions, SentMessage, TelegramGateway } from '../modules/contracts.js';
@@ -50,8 +51,8 @@ export class TelegrafGateway implements TelegramGateway {
     return member.status === 'restricted' && member.is_member;
   }
 
-  async copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number): Promise<void> {
-    await this.telegram.copyMessage(chatId, fromChatId, messageId);
+  async copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number, options: { replyMarkup?: InlineKeyboardMarkup } = {}): Promise<void> {
+    await this.telegram.copyMessage(chatId, fromChatId, messageId, options.replyMarkup ? { reply_markup: options.replyMarkup } : {});
   }
 
   async deleteMessage(chatId: ChatId, messageId: number): Promise<void> {

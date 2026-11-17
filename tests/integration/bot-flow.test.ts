@@ -8,6 +8,7 @@ import { parseEnv } from '../../src/config/env.js';
 import { LockService } from '../../src/lib/locks.js';
 import { ADMIN_TG_ID, CHANNEL, createEntry, createTestContext, createUser, expireDuels, openBattle, postPendingDuels, preparePendingDuels, startBattle, type TestContext } from '../helpers/context.js';
 import { TEST_REDIS_URL } from '../helpers/env.js';
+import { telegramError } from '../helpers/fakes.js';
 import { silentLogger } from '../helpers/fakes.js';
 import { makeJpeg, makeUniqueJpeg } from '../helpers/images.js';
 
@@ -489,6 +490,27 @@ describe('bot: final place from the main menu', () => {
     await consent(501);
     await sendText(501, '/start final');
     expect(api.some((c) => c.method === 'sendInvoice' && String(c.payload.payload).startsWith('spot:'))).toBe(true);
+  });
+});
+
+describe('bot: post with a "Buy" button', () => {
+  it('copies the admin\'s message to the channel with a button that opens the purchase', async () => {
+    await press(ADMIN_TG_ID, 'a:fs:ad');
+    await sendText(ADMIN_TG_ID, '🎟 Место в финале — 25 ⭐');
+    const copy = ctx.telegram.callsOf('copyMessage').at(-1)!;
+    expect(copy.chatId).toBe(CHANNEL.id);
+    expect(JSON.stringify(copy.args[2])).toContain('https://t.me/photobattle_bot?start=final');
+    expect(texts('sendMessage').at(-1)).toContain('опубликован');
+  });
+
+  it('when Telegram refuses the copy (premium emoji), posts it with regular emoji and the button', async () => {
+    ctx.telegram.failNext('copyMessage', telegramError(400, 'Bad Request: CUSTOM_EMOJI_NOT_ALLOWED'));
+    await press(ADMIN_TG_ID, 'a:fs:ad');
+    await sendText(ADMIN_TG_ID, '⭐ ФИНАЛ', { entities: [{ type: 'custom_emoji', offset: 0, length: 1, custom_emoji_id: '9' }] });
+    const post = ctx.telegram.callsOf('sendMessage').filter((c) => c.chatId === CHANNEL.id).at(-1)!;
+    expect(String(post.args[0])).toBe('⭐ ФИНАЛ');
+    expect(JSON.stringify(post.args[1])).toContain('start=final');
+    expect(texts('sendMessage').at(-1)).toContain('заменены обычными');
   });
 });
 

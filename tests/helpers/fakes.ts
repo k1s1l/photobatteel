@@ -69,8 +69,8 @@ export class FakeTelegram implements TelegramGateway {
     return items.map(() => this.nextMessageId++);
   }
 
-  async copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number): Promise<void> {
-    this.record('copyMessage', chatId, [fromChatId, messageId]);
+  async copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number, options: { replyMarkup?: unknown } = {}): Promise<void> {
+    this.record('copyMessage', chatId, [fromChatId, messageId, options]);
   }
 
   async deleteMessage(chatId: ChatId, messageId: number): Promise<void> {

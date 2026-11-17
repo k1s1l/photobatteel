@@ -29,7 +29,7 @@ export interface TelegramGateway {
   sendPhoto(chatId: ChatId, photo: string | Buffer, options?: SendOptions): Promise<SentMessage>;
   /** Sends an album; returns the message ids in order. */
   sendMediaGroup(chatId: ChatId, items: AlbumItem[]): Promise<number[]>;
-  copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number): Promise<void>;
+  copyMessage(chatId: ChatId, fromChatId: ChatId, messageId: number, options?: { replyMarkup?: InlineKeyboardMarkup }): Promise<void>;
   deleteMessage(chatId: ChatId, messageId: number): Promise<void>;
   editMessageReplyMarkup(chatId: ChatId, messageId: number, markup: InlineKeyboardMarkup | undefined): Promise<void>;
   /** True when the user is a member (or admin/owner) of the chat. */

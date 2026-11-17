@@ -1,6 +1,8 @@
 import type { Composer } from 'telegraf';
 import type { Message } from 'telegraf/types';
 import { isDomainError } from '../../../lib/errors.js';
+import { entitiesToHtml, stripCustomEmoji } from '../../../lib/entities-html.js';
+import { classifyTelegramError } from '../../../lib/telegram-errors.js';
 import { displayName, escapeHtml } from '../../../lib/format.js';
 import { MAX_SPOTS_PER_BATTLE, type SpotWithDetails } from '../../../modules/final-spots/final-spot.service.js';
 import type { BotContext } from '../../context.js';
@@ -37,6 +39,7 @@ export async function showFinalSpots(ctx: BotContext): Promise<void> {
   await respond(ctx, lines.join('\n'), {
     keyboard: inline([
       [button(s.grantButton, 'a:fs:grant')],
+      [button(s.adButton, 'a:fs:ad')],
       [button(rules.enabled ? s.disable : s.enable, 'a:fs:tog')],
       [button(s.countButton(rules.count), 'a:fs:cnt'), button(s.priceButton(rules.price), 'a:fs:price')],
       ...refundable.map((spot) => [button(s.refundButton(spots.indexOf(spot) + 1), `a:fs:rf:${spot.id}`)]),
@@ -107,7 +110,44 @@ export async function handleSpotPhotoByAdmin(ctx: BotContext, message: Message, 
   await ctx.reply(s.photoAdded, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
 }
 
+/**
+ * The admin's message goes to the channel with a "Buy a place in the final" button
+ * under it (a link that opens the purchase in the bot). Premium emoji cannot be
+ * posted by a bot in a channel, so if Telegram refuses them the post goes out with regular ones.
+ */
+export async function handleFinalSpotAd(ctx: BotContext, message: Message): Promise<void> {
+  const s = ctx.locale.admin.finalSpots;
+  setState(ctx, undefined);
+  const { channel, gateway } = ctx.deps;
+  const url = `https://t.me/${ctx.botInfo.username}?start=final`;
+  const replyMarkup = { inline_keyboard: [[{ text: ctx.locale.finalSpot.adButton, url }]] };
+  let stripped = false;
+  try {
+    await gateway.copyMessage(channel.id, ctx.chat!.id, message.message_id, { replyMarkup });
+  } catch (error) {
+    const text = 'text' in message ? message.text : 'caption' in message ? message.caption : undefined;
+    const entities = 'text' in message ? message.entities : 'caption_entities' in message ? message.caption_entities : undefined;
+    const html = text ? stripCustomEmoji(entitiesToHtml(text, entities ?? [])) : '';
+    try {
+      if ('photo' in message) await gateway.sendPhoto(channel.id, message.photo.at(-1)!.file_id, { caption: html, parseMode: 'HTML', replyMarkup });
+      else if (text) await gateway.sendMessage(channel.id, html, { parseMode: 'HTML', replyMarkup });
+      else throw error;
+      stripped = true;
+    } catch {
+      await ctx.reply(s.adFailed(escapeHtml(classifyTelegramError(error).description)), { parse_mode: 'HTML', reply_markup: inline([[button(s.back, 'a:fs')]]) });
+      return;
+    }
+  }
+  await ctx.reply(stripped ? s.adPostedStripped : s.adPosted, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
+}
+
 export function registerFinalSpotAdminHandlers(admin: Composer<BotContext>): void {
+  admin.action('a:fs:ad', async (ctx) => {
+    await answer(ctx);
+    setState(ctx, { kind: 'admin_final_ad' });
+    await respond(ctx, ctx.locale.admin.finalSpots.adAsk, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:fs')]]), forceNew: true });
+  });
+
   admin.action(/^a:fs:ph:(\d+)$/, async (ctx) => {
     await answer(ctx);
     setState(ctx, { kind: 'admin_spot_photo', spotId: matchInt(ctx) });
