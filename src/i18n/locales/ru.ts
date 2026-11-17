@@ -341,6 +341,7 @@ export const ru = {
     invoiceLabel: (votes: number) => `${votes} голосов`,
     paidToBalance: (p: { votes: number; balance: number }) => `✅ Оплата прошла! На баланс зачислено ${p.votes} гол. Сейчас на балансе: ${p.balance}.`,
     paidToPhoto: (votes: number) => `✅ Оплата прошла! Работа получила +${votes} гол.`,
+    giveNow: '👇 Сейчас идёт голосование — выбери пару, чтобы сразу отдать голоса (⚔️ — пара, 🏆 — финал, 🎯 — фото на N голосов):',
     paidPhotoGone: (p: { votes: number; balance: number }) =>
       `✅ Оплата прошла! Голосование в паре уже закончилось, поэтому ${p.votes} гол. зачислены на баланс (${p.balance}).`,
     checkoutExpired: 'Этот счёт устарел. Открой «⭐ Купить голоса» и создай новый.',
@@ -802,6 +803,12 @@ export const ru = {
     paymentsList: '🧾 Последние оплаты',
     paidTo: (d: { round: number; duel: number; side: number }) => (d.round === 0 ? ` → в фото на N голосов` : ` → в раунд ${d.round}, пара ${d.duel}, работа ${d.side}`),
     paidToBalance: ' → на баланс покупателя (пара уже была закрыта или голоса покупали без пары)',
+    userPayments: '💳 Оплаты и баланс',
+    userPaymentsTitle: (p: { name: string; balance: number }) => `<b>💳 ${p.name}</b>\nНа балансе сейчас: <b>${p.balance}</b> голосов`,
+    paidForFinalSpot: ' → место в финале',
+    balanceSpentTitle: '<b>Потрачено с баланса:</b>',
+    balanceSpentRow: (p: { amount: number; date: string; round: number; duel: number; side: number }) =>
+      `• ${p.date} — ${p.amount} гол. → ` + (p.round === 0 ? 'фото на N голосов' : `раунд ${p.round}, пара ${p.duel}, работа ${p.side}`),
     paymentsListTitle: '<b>🧾 Последние оплаты</b>',
     paymentsEmpty: 'Оплат пока нет.',
     paymentRow: (p: { id: number; user: string; votes: number; amount: string; status: string; date: string }) =>

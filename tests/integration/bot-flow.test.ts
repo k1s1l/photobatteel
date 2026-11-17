@@ -514,6 +514,39 @@ describe('bot: post with a "Buy" button', () => {
   });
 });
 
+describe('bot: votes bought to the balance', () => {
+  it('offers to give them right away and the admin sees the balance and history', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true }, null);
+    const battle = await openBattle(ctx);
+    for (let i = 0; i < 2; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+
+    await sendText(700, '/start');
+    const [pack] = await ctx.services.payments.listPackages(true);
+    await press(700, `pay:s:${pack!.id}:0`);
+    const invoice = api.filter((c) => c.method === 'sendInvoice').at(-1)!;
+    const payload = String(invoice.payload.payload);
+    await bot.handleUpdate({ update_id: updateId++, pre_checkout_query: { id: 'pcq-b', from: from(700), currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: payload } } as Update);
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: { message_id: messageId++, date: 0, chat: privateChat(700), from: from(700), successful_payment: { currency: 'XTR', total_amount: pack!.priceStars, invoice_payload: payload, telegram_payment_charge_id: 'bal-1', provider_payment_charge_id: '' } },
+    } as Update);
+    const reply = api.filter((c) => c.method === 'sendMessage').at(-1)!;
+    expect(String(reply.payload.text)).toContain('выбери пару');
+    expect(JSON.stringify(reply.payload.reply_markup)).toContain(`pay:pick:${duel.id}`);
+    await press(700, `pay:pick:${duel.id}`);
+    expect(texts('sendMessage').at(-1)).toContain('За какую работу');
+
+    const buyer = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: 700n } });
+    await press(ADMIN_TG_ID, `a:upay:${buyer.id}`);
+    const card = texts('editMessageText').at(-1) ?? texts('sendMessage').at(-1)!;
+    expect(card).toContain(`На балансе сейчас: <b>${pack!.votes}</b>`);
+    expect(card).toContain('на баланс покупателя');
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

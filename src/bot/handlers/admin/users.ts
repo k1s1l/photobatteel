@@ -1,3 +1,4 @@
+import { formatCardPrice } from '../../../modules/payments/payment.service.js';
 import type { Composer } from 'telegraf';
 import type { User } from '../../../generated/prisma/client.js';
 import { displayName, escapeHtml, formatDateTime, formatPhotoId, truncate } from '../../../lib/format.js';
@@ -34,7 +35,7 @@ async function showUserCard(ctx: BotContext, userId: number): Promise<void> {
   const a = ctx.locale.admin.actions;
   const rows = [
     isAdmin ? [] : [user.isBlocked ? button(a.unblock, `a:uu:${user.id}`) : button(a.block, `a:ub:${user.id}`)],
-    [button(ctx.locale.admin.userPhotos, `a:up:${user.id}:0`)],
+    [button(ctx.locale.admin.userPhotos, `a:up:${user.id}:0`), button(ctx.locale.admin.userPayments, `a:upay:${user.id}`)],
     [button(ctx.locale.common.back, 'a:users:0'), button(ctx.locale.admin.buttons.panel, PANEL)],
   ];
   await respond(ctx, text, { keyboard: inline(rows), forceNew: !!ctx.callbackQuery?.message && !('text' in ctx.callbackQuery.message) });
@@ -92,6 +93,37 @@ export function registerUserHandlers(admin: Composer<BotContext>): void {
   admin.action(/^a:u:(\d+)$/, async (ctx) => {
     await answer(ctx);
     await showUserCard(ctx, matchInt(ctx));
+  });
+
+  // A user's balance, payments (where the votes went) and balance votes they gave.
+  admin.action(/^a:upay:(\d+)$/, async (ctx) => {
+    const userId = matchInt(ctx);
+    await answer(ctx);
+    const user = await ctx.deps.services.users.findById(userId);
+    if (!user) return;
+    const { payments, spent } = await ctx.deps.services.payments.userHistory(userId);
+    const a = ctx.locale.admin;
+    const tz = ctx.deps.env.TIMEZONE;
+    const lines = [a.userPaymentsTitle({ name: escapeHtml(displayName(user)), balance: user.voteBalance }), ''];
+    if (payments.length === 0) lines.push(a.paymentsEmpty);
+    for (const payment of payments) {
+      lines.push(
+        a.paymentRow({
+          id: payment.id,
+          user: '',
+          votes: payment.votes,
+          amount: payment.method === 'STARS' ? `${payment.amount} ⭐` : formatCardPrice(payment.amount, payment.currency),
+          status: a.paymentStatus[payment.status],
+          date: formatDateTime(payment.paidAt ?? payment.createdAt, tz, ctx.locale.intl),
+        }).replace(' ·  · ', ' · ') +
+          (payment.finalSpotBattleId !== null ? a.paidForFinalSpot : payment.destination ? a.paidTo(payment.destination) : payment.status === 'PAID' ? a.paidToBalance : ''),
+      );
+    }
+    if (spent.length > 0) {
+      lines.push('', a.balanceSpentTitle);
+      for (const item of spent) lines.push(a.balanceSpentRow({ amount: item.amount, date: formatDateTime(item.at, tz, ctx.locale.intl), round: item.round, duel: item.duel, side: item.side }));
+    }
+    await respond(ctx, lines.join('\n'), { keyboard: inline([[button(ctx.locale.common.back, `a:u:${userId}`), button(a.buttons.panel, PANEL)]]) });
   });
 
   admin.action(/^a:ub:(\d+)$/, async (ctx) => {

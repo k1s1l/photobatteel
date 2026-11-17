@@ -1,3 +1,4 @@
+import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { randomInt } from 'node:crypto';
 import { inAnySlot, sideNumber, sideOf, VOTE_FIELD, VOTE_SELECT, votesOf } from '../duels/sides.js';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
@@ -788,13 +789,43 @@ export class PaymentService {
 
   private async notifyPaid(user: User, completed: CompletedPayment): Promise<void> {
     const votes = completed.payment.votes;
-    await this.notifications.notifyUser(user, (l) =>
-      completed.creditedTo === 'photo'
-        ? l.payments.paidToPhoto(votes)
-        : completed.targetUnavailable
-          ? l.payments.paidPhotoGone({ votes, balance: completed.balance })
-          : l.payments.paidToBalance({ votes, balance: completed.balance }),
+    // Votes on the balance while voting goes on: offer to give them right away.
+    const targets = completed.creditedTo === 'balance' ? await this.voteTargets() : [];
+    await this.notifications.notifyUser(
+      user,
+      (l) =>
+        (completed.creditedTo === 'photo'
+          ? l.payments.paidToPhoto(votes)
+          : completed.targetUnavailable
+            ? l.payments.paidPhotoGone({ votes, balance: completed.balance })
+            : l.payments.paidToBalance({ votes, balance: completed.balance })) + (targets.length > 0 ? `\n\n${l.payments.giveNow}` : ''),
+      { parseMode: 'HTML', ...(targets.length > 0 ? { replyMarkup: voteTargetsKeyboard(targets) } : {}) },
     );
+  }
+
+  /** Pairs (and challenge photos) open for voting right now: where balance votes can go. */
+  async voteTargets(): Promise<{ duelId: number; label: string }[]> {
+    const duels = await this.prisma.duel.findMany({
+      where: { status: 'ACTIVE', endsAt: { gt: new Date() }, battle: { status: 'RUNNING' } },
+      orderBy: [{ round: 'asc' }, { position: 'asc' }],
+      take: 12,
+    });
+    return duels.map((duel) => ({ duelId: duel.id, label: duel.goal !== null ? `🎯 ${duel.goal}` : duel.photoCId !== null ? '🏆' : `⚔️ ${duel.position}` }));
+  }
+
+  /** A user's payments and the balance votes they gave (admin view). */
+  async userHistory(userId: number) {
+    const payments = await this.prisma.payment.findMany({
+      where: { userId, status: { in: ['PAID', 'REFUNDED', 'CLAIMED', 'PENDING'] } },
+      orderBy: { id: 'desc' },
+      take: 15,
+    });
+    const given = await this.prisma.paidVote.findMany({ where: { userId }, include: { duel: true }, orderBy: { id: 'desc' }, take: 30 });
+    const destination = new Map(given.filter((v) => v.paymentId !== null).map((v) => [v.paymentId!, { round: v.duel.round, duel: v.duel.position, side: sideNumber(v.side) }]));
+    return {
+      payments: payments.map((payment) => ({ ...payment, destination: destination.get(payment.id) ?? null })),
+      spent: given.filter((v) => v.paymentId === null).map((v) => ({ amount: v.amount, at: v.createdAt, round: v.duel.round, duel: v.duel.position, side: sideNumber(v.side) })),
+    };
   }
 
   /** Adds paid votes to the entry's side of its current duel stage. Returns that side's new count. */
@@ -819,6 +850,14 @@ export class PaymentService {
     await tx.paidVote.create({ data: { photoId: photo.id, duelId: duel.id, stage: duel.stage, side, userId: buyerId, amount, paymentId } });
     return votesOf(updated, side);
   }
+}
+
+/** Buttons "⚔️ 1  ⚔️ 2 … 🏆" that open a pair to give balance votes (handled as pay:pick). */
+export function voteTargetsKeyboard(targets: { duelId: number; label: string }[]): InlineKeyboardMarkup {
+  const buttons = targets.map((target) => ({ text: target.label, callback_data: `pay:pick:${target.duelId}` }));
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 4) rows.push(buttons.slice(i, i + 4));
+  return { inline_keyboard: rows };
 }
 
 /** Without a code a transfer may still be matched by its exact amount, only when that is unambiguous. */

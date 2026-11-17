@@ -3,6 +3,7 @@ import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { answerFinalSpotCheckout, completeFinalSpot, isFinalSpotPayload } from './final-spots.js';
 import type { Telegraf } from 'telegraf';
 import { entriesOf, entryCount, PHOTO_ID_FIELD, sideFromLetter, sideNumber } from '../../modules/duels/sides.js';
+import { voteTargetsKeyboard } from '../../modules/payments/payment.service.js';
 import { message } from 'telegraf/filters';
 import { allTranslations } from '../../i18n/index.js';
 import { isDomainError } from '../../lib/errors.js';
@@ -190,6 +191,12 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
     await ctx.reply(ctx.locale.payments.transferCancelled);
   });
 
+  // "Give your balance votes now": a pair chosen after buying votes to the balance.
+  bot.action(/^pay:pick:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    await showDuelSides(ctx, matchInt(ctx));
+  });
+
   bot.on('pre_checkout_query', async (ctx) => {
     const query = ctx.preCheckoutQuery;
     if (isFinalSpotPayload(query.invoice_payload)) return answerFinalSpotCheckout(ctx);
@@ -224,6 +231,12 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
     const votes = result.payment.votes;
     if (result.creditedTo === 'photo') await ctx.reply(l.paidToPhoto(votes));
     else if (result.targetUnavailable) await ctx.reply(l.paidPhotoGone({ votes, balance: result.balance }));
-    else await ctx.reply(l.paidToBalance({ votes, balance: result.balance }));
+    else {
+      const targets = await ctx.deps.services.payments.voteTargets();
+      await ctx.reply(l.paidToBalance({ votes, balance: result.balance }) + (targets.length > 0 ? `\n\n${l.giveNow}` : ''), {
+        parse_mode: 'HTML',
+        ...(targets.length > 0 ? { reply_markup: voteTargetsKeyboard(targets) } : {}),
+      });
+    }
   });
 }
