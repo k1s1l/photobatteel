@@ -55,10 +55,21 @@ export function startWorkers(services: Services, options: WorkerOptions, logger:
   const maintenance = new Worker(
     QUEUE_NAMES.maintenance,
     async () => {
-      await services.battles.tick();
-      await services.payments.expireTransfers();
-      const transfersCredited = await services.payments.pollBank();
-      return { expiredDrafts: await services.photos.expireDrafts(options.draftTtlHours), transfersCredited };
+      // Each step is independent: an error in the battle must never stop payments
+      // from being checked (or admins from being asked about them), and vice versa.
+      const step = async <T>(name: string, run: () => Promise<T>): Promise<T | null> => {
+        try {
+          return await run();
+        } catch (err) {
+          logger.error({ err, step: name }, 'Maintenance step failed');
+          return null;
+        }
+      };
+      await step('battles', () => services.battles.tick());
+      await step('transfers', () => services.payments.expireTransfers());
+      const transfersCredited = await step('bank', () => services.payments.pollBank());
+      const expiredDrafts = await step('drafts', () => services.photos.expireDrafts(options.draftTtlHours));
+      return { expiredDrafts, transfersCredited };
     },
     { ...base, concurrency: 1 },
   );

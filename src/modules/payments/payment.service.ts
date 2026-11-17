@@ -465,7 +465,14 @@ export class PaymentService {
     const automatic = this.bankVerification(settings.monobankAccountId);
     // With the bank check the bot confirms by itself and asks the admins only when it
     // finds nothing within a few minutes (see expireTransfers); without it, right away.
-    if (automatic) await this.pollBank();
+    if (automatic) {
+      try {
+        await this.pollBank();
+      } catch (error) {
+        this.logger.warn({ err: error }, 'Bank check on "I paid" failed');
+        this.bankCheck = { at: new Date(), error: error instanceof Error ? error.message : String(error), items: 0 };
+      }
+    }
     // Without the bank check — or while Monobank answers with an error — the admins are asked at once.
     if (!automatic || this.bankCheck?.error) await this.requestReview(paymentId);
     return { automatic };
@@ -535,7 +542,13 @@ export class PaymentService {
     } catch (error) {
       if (!(error instanceof BankRateLimitError)) {
         this.logger.warn({ err: error }, 'Monobank statement request failed');
-        this.bankCheck = { at: now, error: error instanceof Error ? error.message : String(error), items: 0 };
+        const message = error instanceof Error ? error.message : String(error);
+        this.bankCheck = { at: now, error: message, items: 0 };
+        // Admins learn at once (at most hourly) that payments are not checked automatically.
+        if (now.getTime() - this.lastBankAlert > 60 * 60_000) {
+          this.lastBankAlert = now.getTime();
+          await this.notifications.notifyAdmins((l) => l.admin.bankCheckFailing(message));
+        }
       }
       return 0;
     }
@@ -550,15 +563,21 @@ export class PaymentService {
   async handleBankWebhook(event: BankWebhookEvent): Promise<number> {
     const item = event.data?.statementItem;
     const settings = await this.settings.get();
-    if (event.type !== 'StatementItem' || !item || !settings.monobankAccountId || event.data?.account !== settings.monobankAccountId) return 0;
+    if (event.type !== 'StatementItem' || !item) return 0;
     const now = new Date();
+    this.lastWebhookAt = now;
     const open = await this.prisma.payment.findMany({
       where: { code: { not: null }, OR: [{ method: 'TRANSFER', status: { in: ['PENDING', 'CLAIMED'] } }, lateTransfers(now)] },
       include: { user: true },
     });
-    this.lastWebhookAt = now;
-    return open.length > 0 ? this.matchBankItems([item], open) : 0;
+    if (open.length === 0) return 0;
+    // A transfer with an order's code is that order's, whichever of the owner's accounts
+    // Monobank reports; matching by amount alone is only safe on the selected jar.
+    const onSelected = !!settings.monobankAccountId && event.data?.account === settings.monobankAccountId;
+    return this.matchBankItems([item], open, { byAmount: onSelected });
   }
+
+  private lastBankAlert = 0;
 
   /** When Monobank last sent a transaction to the webhook (shown in "check the bank"). */
   lastWebhookAt: Date | null = null;
@@ -606,14 +625,15 @@ export class PaymentService {
   }
 
   /** Credits open orders whose code is in an incoming transfer of at least their amount. */
-  private async matchBankItems(items: BankStatementItem[], open: (Payment & { user: User })[]): Promise<number> {
+  private async matchBankItems(items: BankStatementItem[], open: (Payment & { user: User })[], options: { byAmount?: boolean } = {}): Promise<number> {
     const currency = currencyNumericCode(this.options.cardCurrency);
     const incoming = items.filter((item) => item.amount > 0 && (currency === undefined || item.currencyCode === currency));
     const textOf = (item: BankStatementItem) => normalizeCode(`${item.description ?? ''} ${item.comment ?? ''}`);
     let credited = 0;
     // First every transfer with a code (exact), then the rest by amount — so a stranger's
     // transfer of the same amount cannot take the order of someone who entered the code.
-    for (const pass of ['code', 'amount'] as const) {
+    const passes = options.byAmount === false ? (['code'] as const) : (['code', 'amount'] as const);
+    for (const pass of passes) {
       for (const item of incoming) {
         const text = textOf(item);
         const mentionsSomeCode = open.some((candidate) => text.includes(normalizeCode(candidate.code!)));

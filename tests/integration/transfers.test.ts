@@ -236,8 +236,8 @@ describe('transfer orders', () => {
     const [pack] = await ctx.services.payments.listPackages(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     const item = { id: 'hook-1', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! };
-    // Another account of the owner: ignored.
-    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'card-1', statementItem: item } })).toBe(0);
+    // Another account of the owner without a code: not matched by amount there.
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'card-1', statementItem: { ...item, id: 'card-income', comment: '' } } })).toBe(0);
     expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(1);
     expect(await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).toMatchObject({ status: 'PAID', bankTransactionId: 'hook-1' });
     expect(dmTo(buyer).some((t) => t.includes('Оплата прошла') || t.includes('+'))).toBe(true);
@@ -282,6 +282,23 @@ describe('transfer orders', () => {
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: a.payment.id } })).status).toBe('PENDING');
   });
 
+  it('credits a coded transfer even when Monobank reports it on another account; tells admins when the bank check fails', async () => {
+    await createAdmin(ctx);
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    const coded = { id: 'other-acc', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! };
+    expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'card-1', statementItem: coded } })).toBe(1);
+
+    const second = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    bank.statement = async () => {
+      throw new Error('Monobank API responded with HTTP 403');
+    };
+    await ctx.services.payments.pollBank(new Date(Date.now() + 61_000));
+    expect(adminTexts().some((t) => t.includes('не может проверить банку') && t.includes('403'))).toBe(true);
+    expect(second.payment.status).toBe('PENDING');
+  });
+
   it('never uses one bank transaction twice and respects the Monobank rate limit', async () => {
     await enableTransfers(true);
     const [pack] = await ctx.services.payments.listPackages(true);
@@ -310,11 +327,11 @@ describe('transfer orders', () => {
 
     // With the bank check the admins are not bothered at once…
     expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
-    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 4 * 60_000) } });
+    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 60_000) } });
     await ctx.services.payments.expireTransfers();
     expect(adminTexts().some((t) => t.includes(claimed.payment.code!))).toBe(false);
-    // …only when the bank shows nothing for 5 minutes — and only once.
-    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 6 * 60_000) } });
+    // …only when the bank shows nothing for 2 minutes — and only once.
+    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 3 * 60_000) } });
     await ctx.services.payments.expireTransfers();
     await ctx.services.payments.expireTransfers();
     expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
