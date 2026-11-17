@@ -11,7 +11,7 @@ import { adminUserId } from './shared.js';
 
 const PAGE_SIZE = 10;
 
-async function showUserCard(ctx: BotContext, userId: number): Promise<void> {
+export async function showUserCard(ctx: BotContext, userId: number): Promise<void> {
   const { users, admins } = ctx.deps.services;
   const user = await users.findById(userId);
   if (!user) {
@@ -85,6 +85,7 @@ export function registerUserHandlers(admin: Composer<BotContext>): void {
     const rows = items.map((user) => [
       button(`${user.isBlocked ? '🚫 ' : ''}${truncate(displayName(user), 28)} · 📸 ${user.photosSubmitted} · 🔥 ${user.votesReceived}`, `a:u:${user.id}`),
     ]);
+    rows.unshift([button(ctx.locale.admin.findUserButton, 'a:in:find')]);
     rows.push(paginationRow(ctx.locale, page, total, PAGE_SIZE, (p) => `a:users:${p}`));
     rows.push([button(ctx.locale.admin.buttons.panel, PANEL)]);
     await respond(ctx, ctx.locale.admin.usersTitle(total), { keyboard: inline(rows) });
@@ -104,7 +105,14 @@ export function registerUserHandlers(admin: Composer<BotContext>): void {
     const { payments, spent } = await ctx.deps.services.payments.userHistory(userId);
     const a = ctx.locale.admin;
     const tz = ctx.deps.env.TIMEZONE;
-    const lines = [a.userPaymentsTitle({ name: escapeHtml(displayName(user)), balance: user.voteBalance }), ''];
+    const paid = payments.filter((payment) => payment.status === 'PAID');
+    const stars = paid.filter((payment) => payment.method === 'STARS').reduce((sum, payment) => sum + payment.amount, 0);
+    const money = paid.filter((payment) => payment.method !== 'STARS').reduce((sum, payment) => sum + payment.amount, 0);
+    const lines = [
+      a.userPaymentsTitle({ name: escapeHtml(displayName(user)), balance: user.voteBalance }),
+      a.userPaymentsTotals({ stars, money: formatCardPrice(money, ctx.deps.env.CARD_CURRENCY) }),
+      '',
+    ];
     if (payments.length === 0) lines.push(a.paymentsEmpty);
     for (const payment of payments) {
       lines.push(

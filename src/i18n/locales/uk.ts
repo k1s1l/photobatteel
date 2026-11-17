@@ -743,8 +743,11 @@ export const uk: Locale = {
     paymentsList: '🧾 Останні оплати',
     paidTo: (d: { round: number; duel: number; side: number }) => (d.round === 0 ? ` → у фото на N голосів` : ` → у раунд ${d.round}, пара ${d.duel}, робота ${d.side}`),
     paidToBalance: ' → на баланс покупця (пару вже було закрито або голоси купували без пари)',
+    findUserButton: '🔍 Знайти за @ніком або ID',
+    askUserFind: 'Надішли @нік або ID користувача — відкрию його картку (баланс, оплати, роботи).',
     userPayments: '💳 Оплати й баланс',
     userPaymentsTitle: (p: { name: string; balance: number }) => `<b>💳 ${p.name}</b>\nНа балансі зараз: <b>${p.balance}</b> голосів`,
+    userPaymentsTotals: (p: { stars: number; money: string }) => `Сплачено всього: <b>${p.stars} ⭐</b> і <b>${p.money}</b> (останні 15 оплат)`,
     paidForFinalSpot: ' → місце у фіналі',
     balanceSpentTitle: '<b>Витрачено з балансу:</b>',
     balanceSpentRow: (p: { amount: number; date: string; round: number; duel: number; side: number }) =>

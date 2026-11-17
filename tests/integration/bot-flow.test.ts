@@ -547,6 +547,18 @@ describe('bot: votes bought to the balance', () => {
   });
 });
 
+describe('bot: find a user', () => {
+  it('opens the user card by @username', async () => {
+    await sendText(800, '/start');
+    await press(ADMIN_TG_ID, 'a:users:0');
+    await press(ADMIN_TG_ID, 'a:in:find');
+    await sendText(ADMIN_TG_ID, '@u800');
+    const card = texts('sendMessage').at(-1) ?? '';
+    expect(card).toContain('@u800');
+    expect(JSON.stringify(api.filter((c) => c.method === 'sendMessage').at(-1)!.payload.reply_markup)).toContain('a:upay:');
+  });
+});
+
 describe('bot: card transfer', () => {
   it('shows transfer details with a code and accepts "I paid" (manual check)', async () => {
     await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'monobank jar link' }, null);

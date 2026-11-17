@@ -16,7 +16,7 @@ import { registerPanelHandlers, showPanel } from './panel.js';
 import { handlePackagePriceInput, handleTransferDetailsInput, registerPaymentAdminHandlers } from './payments.js';
 import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
-import { blockUser, registerUserHandlers, unblockUser } from './users.js';
+import { blockUser, registerUserHandlers, showUserCard, unblockUser } from './users.js';
 
 const ADMIN_STATES = new Set(['admin_input', 'admin_broadcast', 'admin_template', 'battle_create', 'battle_round_end', 'battle_start_change', 'admin_votes', 'admin_challenge', 'admin_final_ad', 'admin_spot_photo', 'monobank_pick']);
 const MENU_BUTTONS = new Set(
@@ -112,7 +112,8 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
     return;
   }
   setState(ctx, undefined);
-  if (state.action === 'block') await blockUser(ctx, target);
+  if (state.action === 'find') await showUserCard(ctx, target.id);
+  else if (state.action === 'block') await blockUser(ctx, target);
   else await unblockUser(ctx, target);
 }
 
@@ -143,8 +144,9 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>): void {
     delete: (ctx: BotContext) => ctx.locale.admin.askPhotoIdDelete,
     block: (ctx: BotContext) => ctx.locale.admin.askUserBlock,
     unblock: (ctx: BotContext) => ctx.locale.admin.askUserUnblock,
+    find: (ctx: BotContext) => ctx.locale.admin.askUserFind,
   } as const;
-  admin.action(/^a:in:(delete|block|unblock)$/, async (ctx) => {
+  admin.action(/^a:in:(delete|block|unblock|find)$/, async (ctx) => {
     const action = ctx.match[1] as keyof typeof prompts;
     setState(ctx, { kind: 'admin_input', action });
     await answer(ctx);
