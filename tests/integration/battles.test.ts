@@ -471,6 +471,39 @@ describe('finish now', () => {
   });
 });
 
+describe('both entries advance', () => {
+  it('lets both entries of an open pair go on; the next round includes them; not in the final', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(6);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const [first, ...rest] = await ctx.prisma.duel.findMany({ where: { round: 1 }, orderBy: { position: 'asc' } });
+    await setVotes(first!.id, 66, 67);
+    expect(await ctx.services.battles.advanceBoth(first!.id, admin.id)).toBe(true);
+    expect(await ctx.services.battles.advanceBoth(first!.id, admin.id)).toBe(false);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: first!.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: first!.photoBId, alsoAdvancesPhotoId: first!.photoAId });
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: first!.photoAId } })).status).toBe('IN_BATTLE');
+
+    for (const duel of rest) await setVotes(duel.id, 1, 0);
+    await expireDuels(ctx);
+    const round2 = await ctx.prisma.duel.findMany({ where: { round: 2 } });
+    const players = round2.flatMap((d) => [d.photoAId, d.photoBId]).filter((id) => id !== null);
+    expect(players).toHaveLength(4);
+    expect(players).toEqual(expect.arrayContaining([first!.photoAId, first!.photoBId]));
+  });
+
+  it('is not possible in the final', async () => {
+    const admin = await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const final = await ctx.prisma.duel.findFirstOrThrow();
+    expect(await ctx.services.battles.advanceBoth(final.id, admin.id)).toBe(false);
+  });
+});
+
 describe('auto publishing', () => {
   it('publishes announcements, pairs and the winner in the channel itself — nothing to forward', async () => {
     await createAdmin(ctx);

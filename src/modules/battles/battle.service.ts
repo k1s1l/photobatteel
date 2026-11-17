@@ -616,6 +616,36 @@ export class BattleService {
     return result;
   }
 
+  /**
+   * Admin: both entries of an open pair go on to the next round. The pair closes
+   * now (the leader is marked as its winner); not possible in the final.
+   */
+  async advanceBoth(duelId: number, actorUserId: number | null): Promise<boolean> {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId }, include: { ...ALL_PHOTOS, battle: true } });
+    if (!duel || duel.status === 'FINISHED' || entryCount(duel) !== 2 || duel.battle.status !== 'RUNNING' || duel.round !== duel.battle.currentRound) return false;
+    if (isFinalRound(duel.battle, await this.roundEntries(duel.battleId, duel.round))) return false;
+    const [a, b] = photosOf(duel);
+    const aVotes = votesOf(duel, a!.side);
+    const bVotes = votesOf(duel, b!.side);
+    const leader = aVotes !== bVotes ? (aVotes > bVotes ? a! : b!) : earlierEntry(a!.photo, b!.photo) === a!.photo ? a! : b!;
+    const other = leader === a ? b! : a!;
+    const finished = await this.prisma.duel.updateMany({
+      where: { id: duel.id, status: { not: 'FINISHED' } },
+      data: { status: 'FINISHED', winnerPhotoId: leader.photo.id, alsoAdvancesPhotoId: other.photo.id, finishedAt: new Date() },
+    });
+    if (finished.count === 0) return false;
+    await this.activity.log({ action: 'SETTINGS_UPDATED', userId: actorUserId, entityType: 'Duel', entityId: duel.id, details: { bothAdvance: [leader.photo.id, other.photo.id] } });
+    await this.closeButtons(duel, leader.side);
+    const postId = duel.mediaMessageIds[0] ?? duel.messageId;
+    const link = postId ? channelPostLink(this.channel, postId) : '';
+    for (const { photo } of [leader, other]) {
+      const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
+      if (author) await this.notifications.notifyUser(author, (l) => l.battle.duelWon({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
+    }
+    await this.scheduler.triggerTick();
+    return true;
+  }
+
   /** Pairs of the current round an admin may publish again (prepared or already in the channel). */
   async republishable(battleId: number, round: number): Promise<Duel[]> {
     return this.prisma.duel.findMany({
@@ -740,7 +770,8 @@ export class BattleService {
       if (battle?.status !== 'RUNNING' || battle.currentRound === 0) return null;
       const duels = await tx.duel.findMany({ where: { battleId, round: battle.currentRound }, orderBy: { position: 'asc' } });
       if (duels.length === 0 || duels.some((duel) => duel.status !== 'FINISHED')) return null;
-      const winnerIds = duels.map((duel) => duel.winnerPhotoId).filter((id): id is number => id !== null);
+      // An admin may have let both entries of a pair advance (alsoAdvancesPhotoId).
+      const winnerIds = duels.flatMap((duel) => [duel.winnerPhotoId, duel.alsoAdvancesPhotoId]).filter((id): id is number => id !== null);
       // Entries deleted between rounds do not advance.
       const stillIn = new Set(
         (await tx.photo.findMany({ where: { id: { in: winnerIds }, status: 'IN_BATTLE' }, select: { id: true } })).map((photo) => photo.id),

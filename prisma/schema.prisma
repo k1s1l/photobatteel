@@ -289,6 +289,8 @@ model Duel {
   endsAt          DateTime?
   winnerPhotoId   Int?
   winnerPhoto     Photo?     @relation("DuelWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
+  /// An admin let the other entry of the pair advance too
+  alsoAdvancesPhotoId Int?
   finishedAt      DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt

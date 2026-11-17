@@ -126,8 +126,9 @@ async function showDuelVotes(ctx: BotContext, duelId: number): Promise<void> {
     VOTE_STEPS.map((step) => button(`${sideNumber(side)}: ${step > 0 ? '+' : ''}${step}`, `a:bt:va:${duel.id}:${side.toLowerCase()}:${step}`)),
     [button(a.votesCustom(sideNumber(side)), `a:bt:vi:${duel.id}:${side.toLowerCase()}`)],
   ]);
+  const bothRow = entries.length === 2 ? [[button(a.bothAdvanceButton, `a:bt:both:${duel.id}`)]] : [];
   await respond(ctx, a.votesScreen({ duel: duel.position, lines: entries.map(({ side, votes }) => a.votesLine(sideNumber(side), votes)).join('\n') }), {
-    keyboard: inline([...rows, [button(ctx.locale.common.back, `a:bt:votes:${duel.battleId}`)]]),
+    keyboard: inline([...rows, ...bothRow, [button(ctx.locale.common.back, `a:bt:votes:${duel.battleId}`)]]),
   });
 }
 
@@ -319,6 +320,21 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       keyboard: inline([[button(ctx.locale.common.cancel, `a:bt:v:${duelId}`)]]),
       forceNew: true,
     });
+  });
+
+  admin.action(/^a:bt:both:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const duelId = matchInt(ctx);
+    await respond(ctx, ctx.locale.admin.bothAdvanceConfirm, {
+      keyboard: inline([[button(ctx.locale.common.yes, `a:bt:bothy:${duelId}`), button(ctx.locale.common.no, `a:bt:v:${duelId}`)]]),
+    });
+  });
+
+  admin.action(/^a:bt:bothy:(\d+)$/, async (ctx) => {
+    const duelId = matchInt(ctx);
+    const done = await ctx.deps.services.battles.advanceBoth(duelId, adminUserId(ctx));
+    await answer(ctx, done ? undefined : ctx.locale.admin.bothAdvanceNotPossible, !done);
+    if (done) await respond(ctx, ctx.locale.admin.bothAdvanceDone, { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
   });
 
   admin.action(/^a:bt:fin:(\d+)$/, async (ctx) => {
