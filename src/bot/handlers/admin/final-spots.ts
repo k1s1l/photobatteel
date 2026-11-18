@@ -115,12 +115,53 @@ export async function handleSpotPhotoByAdmin(ctx: BotContext, message: Message, 
  * under it (a link that opens the purchase in the bot). Premium emoji cannot be
  * posted by a bot in a channel, so if Telegram refuses them the post goes out with regular ones.
  */
+/**
+ * The channel post the admin points at: their own post forwarded from the channel,
+ * or its link (t.me/c/123/45 or t.me/channel/45). Null for a new message.
+ */
+export function channelPostId(message: Message, channel: { id: number; username?: string | undefined }): number | null {
+  const origin = 'forward_origin' in message ? message.forward_origin : undefined;
+  if (origin) {
+    if (origin.type !== 'channel') return null;
+    const sameChannel = origin.chat.id === channel.id || (!!channel.username && 'username' in origin.chat && origin.chat.username?.toLowerCase() === channel.username.replace(/^@/, '').toLowerCase());
+    return sameChannel ? origin.message_id : null;
+  }
+  const text = 'text' in message ? message.text.trim() : '';
+  const privateLink = /^(?:https?:\/\/)?t\.me\/c\/(\d+)\/(?:\d+\/)?(\d+)\/?(?:\?.*)?$/i.exec(text);
+  if (privateLink && Number(`-100${privateLink[1]}`) === channel.id) return Number(privateLink[2]);
+  const publicLink = /^(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{5,})\/(\d+)\/?(?:\?.*)?$/i.exec(text);
+  if (publicLink && channel.username && publicLink[1]!.toLowerCase() === channel.username.replace(/^@/, '').toLowerCase()) return Number(publicLink[2]);
+  return null;
+}
+
+function looksLikeChannelLink(message: Message): boolean {
+  return ('forward_origin' in message && !!message.forward_origin) || ('text' in message && /^(?:https?:\/\/)?t\.me\/\S+\/\d+/i.test(message.text.trim()));
+}
+
 export async function handleFinalSpotAd(ctx: BotContext, message: Message): Promise<void> {
   const s = ctx.locale.admin.finalSpots;
-  setState(ctx, undefined);
   const { channel, gateway } = ctx.deps;
   const url = `https://t.me/${ctx.botInfo.username}?start=final`;
   const replyMarkup = { inline_keyboard: [[{ text: ctx.locale.finalSpot.adButton, url }]] };
+
+  // The admin published the post in the channel themselves (premium emoji stay) — only the button is added.
+  const postId = channelPostId(message, channel);
+  if (postId === null && looksLikeChannelLink(message)) {
+    await ctx.reply(s.adWrongChannel, { reply_markup: inline([[button(ctx.locale.common.cancel, 'a:fs')]]) });
+    return;
+  }
+  setState(ctx, undefined);
+  if (postId !== null) {
+    try {
+      await gateway.editMessageReplyMarkup(channel.id, postId, replyMarkup);
+    } catch (error) {
+      await ctx.reply(s.adAttachFailed(escapeHtml(classifyTelegramError(error).description)), { parse_mode: 'HTML', reply_markup: inline([[button(s.back, 'a:fs')]]) });
+      return;
+    }
+    await ctx.reply(s.adAttached, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
+    return;
+  }
+
   let stripped = false;
   try {
     await gateway.copyMessage(channel.id, ctx.chat!.id, message.message_id, { replyMarkup });
