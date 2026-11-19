@@ -512,6 +512,33 @@ describe('bot: post with a "Buy" button', () => {
     expect(JSON.stringify(post.args[1])).toContain('start=final');
     expect(texts('sendMessage').at(-1)).toContain('заменены обычными');
   });
+
+  it('keeps a design of the post: the bot sends it ready with the button, and puts the button back if the forward lost it', async () => {
+    await press(ADMIN_TG_ID, 'a:fs:get');
+    expect(texts('sendMessage').at(-1)).toContain('загрузи макет');
+
+    await press(ADMIN_TG_ID, 'a:fs:tpl');
+    await bot.handleUpdate({
+      update_id: updateId++,
+      message: { message_id: messageId++, date: 0, chat: privateChat(ADMIN_TG_ID), from: from(ADMIN_TG_ID), photo: [{ file_id: 'ad-file', file_unique_id: 'ad-uid', width: 800, height: 600 }], caption: 'Место в финале' },
+    } as Update);
+    expect(await ctx.services.settings.get()).toMatchObject({ finalSpotAdTemplate: 'Место в финале', finalSpotAdMediaUid: 'ad-uid' });
+
+    await press(ADMIN_TG_ID, 'a:fs:get');
+    const ready = api.filter((c) => c.method === 'sendPhoto').at(-1)!;
+    expect(ready.payload).toMatchObject({ photo: 'ad-file', caption: 'Место в финале' });
+    expect(JSON.stringify(ready.payload.reply_markup)).toContain('start=final');
+
+    // Forwarded to the channel without the button: the bot adds it.
+    await bot.handleUpdate({
+      update_id: updateId++,
+      channel_post: { message_id: 901, date: 0, chat: { id: CHANNEL.id, type: 'channel', title: 'C' }, photo: [{ file_id: 'x', file_unique_id: 'ad-uid', width: 800, height: 600 }], caption: 'Место в финале' },
+    } as Update);
+    const edit = ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)!;
+    expect(edit.chatId).toBe(CHANNEL.id);
+    expect(edit.args[0]).toBe(901);
+    expect(JSON.stringify(edit.args[1])).toContain('start=final');
+  });
 });
 
 describe('bot: votes bought to the balance', () => {

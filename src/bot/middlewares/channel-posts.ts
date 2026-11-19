@@ -1,6 +1,7 @@
 import type { MiddlewareFn } from 'telegraf';
 import { escapeHtml } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
+import { attachBuyButtonToAd } from '../handlers/admin/final-spots.js';
 
 /**
  * New posts in the battle channel. When an admin publishes a prepared duel post
@@ -24,6 +25,10 @@ export const channelPosts: MiddlewareFn<BotContext> = async (ctx, next) => {
       const expected = ctx.deps.channel.username ? `@${ctx.deps.channel.username}` : (ctx.deps.channel.title ?? String(ctx.deps.channel.id));
       await notifications.notifyAdmins((l) => l.admin.wrongChannel({ got: escapeHtml(title), expected: escapeHtml(expected) }));
     }
+    return;
+  }
+  if (await attachBuyButtonToAd(ctx, post, fileUniqueIds)) {
+    ctx.deps.logger.info({ messageId: post.message_id }, 'Channel post is the final-spot ad');
     return;
   }
   const linked = await battles.linkChannelPost({ messageId: post.message_id, fileUniqueIds });

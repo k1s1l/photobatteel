@@ -350,6 +350,11 @@ model BotSettings {
   finalSpotPrice     Int      @default(25)
   /// Price of a place paid by transfer to the jar, minor units (4000 = 40 UAH)
   finalSpotPriceCard Int      @default(4000)
+  /// The admin's design of the "buy a place in the final" post (HTML) and its photo/video, if any
+  finalSpotAdTemplate String?
+  finalSpotAdMediaType String?
+  finalSpotAdMediaId  String?
+  finalSpotAdMediaUid String?
   updatedById        Int?
   updatedAt          DateTime @updatedAt
 }

@@ -41,6 +41,8 @@ export async function showFinalSpots(ctx: BotContext): Promise<void> {
   await respond(ctx, lines.join('\n'), {
     keyboard: inline([
       [button(s.grantButton, 'a:fs:grant')],
+      [button(s.adGetButton, 'a:fs:get')],
+      [button(`${(await settings.get()).finalSpotAdTemplate || (await settings.get()).finalSpotAdMediaId ? '✏️ ' : ''}${s.adTemplateButton}`, 'a:fs:tpl')],
       [button(s.adButton, 'a:fs:ad')],
       [button(rules.enabled ? s.disable : s.enable, 'a:fs:tog')],
       [button(s.countButton(rules.count), 'a:fs:cnt'), button(s.priceButton(rules.price), 'a:fs:price')],
@@ -202,7 +204,117 @@ export async function handleFinalSpotAd(ctx: BotContext, message: Message): Prom
   await ctx.reply(stripped ? s.adPostedStripped : s.adPosted, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
 }
 
+/** The "🎟 Buy a place in the final" link button under the channel post. */
+function buyMarkup(ctx: BotContext) {
+  const url = `https://t.me/${ctx.botInfo.username}?start=final`;
+  return { inline_keyboard: [[{ text: ctx.deps.services.battles.channelLocale.finalSpot.adButton, url }]] };
+}
+
+/** Plain text of a saved HTML design, the way it looks in a channel post. */
+function plainText(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The admin's designed "buy a place" post (text or photo/video with a caption) is saved once. */
+export async function handleFinalSpotAdTemplate(ctx: BotContext, message: Message): Promise<void> {
+  const s = ctx.locale.admin.finalSpots;
+  const text = 'text' in message ? message.text : 'caption' in message ? message.caption : undefined;
+  const entities = 'text' in message ? message.entities : 'caption_entities' in message ? message.caption_entities : undefined;
+  const media =
+    'photo' in message
+      ? { type: 'photo', id: message.photo.at(-1)!.file_id, uid: message.photo.at(-1)!.file_unique_id }
+      : 'video' in message
+        ? { type: 'video', id: message.video.file_id, uid: message.video.file_unique_id }
+        : null;
+  if (!text && !media) {
+    await ctx.reply(s.adTemplateNeedsContent);
+    return;
+  }
+  const html = text ? entitiesToHtml(text, entities ?? []) : '';
+  try {
+    await ctx.deps.services.settings.update(
+      { finalSpotAdTemplate: html || null, finalSpotAdMediaType: media?.type ?? null, finalSpotAdMediaId: media?.id ?? null, finalSpotAdMediaUid: media?.uid ?? null },
+      adminUserId(ctx),
+    );
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    await ctx.reply(ctx.locale.admin.textTooLong(900));
+    return;
+  }
+  setState(ctx, undefined);
+  await ctx.reply(s.adTemplateSaved);
+  await sendFinalSpotAdPost(ctx);
+}
+
+/** Sends the ready "buy a place" post with its button: the admin forwards it to the channel. */
+async function sendFinalSpotAdPost(ctx: BotContext): Promise<void> {
+  const s = ctx.locale.admin.finalSpots;
+  const settings = await ctx.deps.services.settings.get();
+  const html = settings.finalSpotAdTemplate ?? '';
+  if (!html && !settings.finalSpotAdMediaId) {
+    await ctx.reply(s.adTemplateMissing, { reply_markup: inline([[button(s.adTemplateButton, 'a:fs:tpl')], [button(s.back, 'a:fs')]]) });
+    return;
+  }
+  const send = async (body: string) => {
+    const extra = { parse_mode: 'HTML' as const, reply_markup: buyMarkup(ctx) };
+    if (settings.finalSpotAdMediaType === 'photo' && settings.finalSpotAdMediaId) await ctx.replyWithPhoto(settings.finalSpotAdMediaId, { ...extra, caption: body });
+    else if (settings.finalSpotAdMediaType === 'video' && settings.finalSpotAdMediaId) await ctx.replyWithVideo(settings.finalSpotAdMediaId, { ...extra, caption: body });
+    else await ctx.reply(body, { ...extra, link_preview_options: { is_disabled: true } });
+  };
+  try {
+    await send(html);
+  } catch (error) {
+    if (!html.includes('<tg-emoji')) throw error;
+    await send(stripCustomEmoji(html));
+    await ctx.reply(ctx.locale.admin.emojiPreviewRejected(escapeHtml(classifyTelegramError(error).description.slice(0, 200))), { parse_mode: 'HTML' });
+  }
+  await ctx.reply(s.adForwardHint, { reply_markup: inline([[button(s.back, 'a:fs')]]) });
+}
+
+/**
+ * A new channel post that is the admin's "buy a place" design (forwarded from the
+ * bot): if Telegram dropped the button on the way, the bot puts it back.
+ */
+export async function attachBuyButtonToAd(
+  ctx: BotContext,
+  post: { message_id: number; text?: string; caption?: string; reply_markup?: unknown },
+  fileUniqueIds: string[],
+): Promise<boolean> {
+  const settings = await ctx.deps.services.settings.get();
+  const designed = settings.finalSpotAdMediaUid ? fileUniqueIds.includes(settings.finalSpotAdMediaUid) : false;
+  const sameText = !settings.finalSpotAdMediaUid && !!settings.finalSpotAdTemplate && plainText(settings.finalSpotAdTemplate) === (post.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!designed && !sameText) return false;
+  if (post.reply_markup) return true;
+  try {
+    await ctx.deps.gateway.editMessageReplyMarkup(ctx.deps.channel.id, post.message_id, buyMarkup(ctx));
+  } catch (error) {
+    ctx.deps.logger.warn({ err: error, messageId: post.message_id }, 'Could not add the buy button to the final-spot post');
+    await ctx.deps.services.notifications.notifyAdmins((l) => l.admin.finalSpots.adAttachFailed(escapeHtml(classifyTelegramError(error).description)), { parseMode: 'HTML' });
+  }
+  return true;
+}
+
 export function registerFinalSpotAdminHandlers(admin: Composer<BotContext>): void {
+  admin.action('a:fs:tpl', async (ctx) => {
+    await answer(ctx);
+    setState(ctx, { kind: 'admin_final_ad_template' });
+    await respond(ctx, ctx.locale.admin.finalSpots.adTemplateAsk, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:fs')]]), forceNew: true });
+  });
+
+  admin.action('a:fs:get', async (ctx) => {
+    await answer(ctx);
+    setState(ctx, undefined);
+    await sendFinalSpotAdPost(ctx);
+  });
+
   admin.action('a:fs:ad', async (ctx) => {
     await answer(ctx);
     setState(ctx, { kind: 'admin_final_ad' });

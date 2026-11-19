@@ -24,6 +24,10 @@ export type SettingsPatch = Partial<
     | 'finalSpotCount'
     | 'finalSpotPrice'
     | 'finalSpotPriceCard'
+    | 'finalSpotAdTemplate'
+    | 'finalSpotAdMediaType'
+    | 'finalSpotAdMediaId'
+    | 'finalSpotAdMediaUid'
   >
 >;
 
@@ -31,7 +35,7 @@ export const LIMIT_OPTIONS = [0, 1, 2, 3, 5] as const;
 /** Telegram caption limit is 1024 visible characters; the template leaves room for placeholders. */
 export const MAX_TEMPLATE_LENGTH = 4000;
 
-const TEMPLATE_PATCH_KEYS = ['duelTemplate', 'announceTemplate', 'roundTemplate', 'winnerTemplate', 'buttonsTemplate', 'byeTemplate'] as const;
+const TEMPLATE_PATCH_KEYS = ['duelTemplate', 'announceTemplate', 'roundTemplate', 'winnerTemplate', 'buttonsTemplate', 'byeTemplate', 'finalSpotAdTemplate'] as const;
 const SETTINGS_ID = 1;
 const CACHE_TTL_MS = 5_000;
 
