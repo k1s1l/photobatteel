@@ -40,7 +40,7 @@ export interface SpotsOverview {
   spots: SpotWithDetails[];
 }
 
-export type SpotUnavailableReason = 'DISABLED' | 'NO_BATTLE' | 'TOO_EARLY' | 'FINAL_STARTED' | 'SOLD_OUT' | 'ALREADY_BOUGHT' | 'STILL_PLAYING';
+export type SpotUnavailableReason = 'DISABLED' | 'NO_BATTLE' | 'TOO_EARLY' | 'FINAL_STARTED' | 'SOLD_OUT' | 'NO_ROOM' | 'ALREADY_BOUGHT' | 'STILL_PLAYING';
 
 export type SpotOffer =
   | { available: true; battle: Battle; price: number; left: number }
@@ -88,6 +88,8 @@ export async function spotOffer(db: Db, userId: number | null, options: FinalSpo
   if (finalStarted) return { available: false, reason: 'FINAL_STARTED' };
   if (battle.currentRound < fromRound) return { available: false, reason: 'TOO_EARLY', fromRound };
   const capacity = Math.min(options.maxSpots, MAX_FINAL_SIZE - Math.max(2, battle.finalSize));
+  // The final size the admin chose already fills all 8 slots: nothing to sell.
+  if (capacity <= 0) return { available: false, reason: 'NO_ROOM' };
   const taken = await db.finalSpot.count({ where: { battleId: battle.id, refundedAt: null } });
   if (taken >= capacity) return { available: false, reason: 'SOLD_OUT' };
   if (userId !== null) {

@@ -31,6 +31,7 @@ export async function showFinalSpots(ctx: BotContext): Promise<void> {
   if (battle) {
     lines.push(s.battleLine({ title: escapeHtml(battle.title), sold }));
     lines.push(offer.available ? s.saleOpen(offer.left) : s.saleClosed(ctx.locale.errors.FINAL_SPOT_UNAVAILABLE({ reason: offer.reason, fromRound: offer.fromRound ?? 0 })));
+    if (!offer.available && offer.reason === 'NO_ROOM') lines.push(s.noRoomHint(battle.finalSize));
     if (spots.length > 0) lines.push('', ...spots.map((spot, index) => spotLine(ctx, spot, index)));
   } else {
     lines.push(s.noBattle);
