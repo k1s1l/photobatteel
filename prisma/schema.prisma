@@ -233,6 +233,9 @@ model Battle {
   roundEndsAt     DateTime?
   /// Entries in the final post: 2 = a regular pair, 3 to 6 = one post with all finalists
   finalSize       Int          @default(2)
+  /// The growing prize last shown under the buttons ("stars:left") and when
+  prizeShown      String?
+  prizeShownAt    DateTime?
   winnerPhotoId   Int?         @unique
   winnerPhoto     Photo?       @relation("BattleWinner", fields: [winnerPhotoId], references: [id], onDelete: SetNull)
   createdById     Int?
@@ -365,6 +368,11 @@ model BotSettings {
   finalSpotAdMediaType String?
   finalSpotAdMediaId  String?
   finalSpotAdMediaUid String?
+  /// Growing prize: base stars, and after `prizeThreshold` paid votes of a battle each vote adds prizePerHundred/100 stars
+  prizeEnabled       Boolean  @default(false)
+  prizeBase          Int      @default(300)
+  prizeThreshold     Int      @default(600)
+  prizePerHundred    Int      @default(50)
   updatedById        Int?
   updatedAt          DateTime @updatedAt
 }

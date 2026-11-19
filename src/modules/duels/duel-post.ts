@@ -8,6 +8,8 @@ export const DUEL_PAID_PREFIX = 'dp:';
 export const DUEL_CLOSED = 'dx';
 /** The "⏱ voting until 18:35" row: tapping it only shows the time. */
 export const DUEL_TIME = 'dt';
+/** The "💰 prize" row: tapping it explains how the prize grows. */
+export const DUEL_PRIZE = 'dz';
 
 export interface DuelKeyboardData {
   id: number;
@@ -20,6 +22,8 @@ export interface DuelKeyboardData {
   endsAt?: string;
   /** A challenge photo: one button "Support · 5 / 20". */
   goal?: number | null;
+  /** The growing prize of the battle: stars now and paid votes left until it starts growing. */
+  prize?: { stars: number; left: number } | null;
 }
 
 /** Two buttons per row ("1 · 2", then "3 · 4" in a group final), or one per row when stacked. */
@@ -40,6 +44,7 @@ export function activeDuelKeyboard(locale: Locale, duel: DuelKeyboardData, paidV
     duel.stacked,
   );
   if (paidVotes) rows.push([{ text: locale.duel.paidButton, callback_data: `${DUEL_PAID_PREFIX}${duel.id}` }]);
+  if (duel.prize) rows.push([{ text: locale.duel.prizeButton(duel.prize), callback_data: DUEL_PRIZE }]);
   if (duel.endsAt) rows.push([{ text: locale.duel.endsAtButton(duel.endsAt), callback_data: DUEL_TIME }]);
   return { inline_keyboard: rows };
 }

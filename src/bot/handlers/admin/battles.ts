@@ -60,6 +60,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
     rows.push([button(a.startTimeButton, `a:bt:st:${current.id}`)]);
   }
   if (current) rows.push([button(a.finalSizeButton(current.finalSize), `a:bt:fs:${current.id}`)]);
+  rows.push([button(a.prize.button, 'a:pz')]);
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
   rows.push([button(a.buttons.panel, PANEL)]);

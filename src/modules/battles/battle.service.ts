@@ -11,6 +11,7 @@ import type { BotIdentity, ChannelInfo, JobScheduler, TelegramGateway } from '..
 import { buildDuelCollage } from '../duels/collage.js';
 import { findActiveDuel } from '../payments/payment.service.js';
 import { activeDuelKeyboard, closedDuelKeyboard } from '../duels/duel-post.js';
+import { prizeFor, prizeRules, type PrizeState } from './prize.js';
 import { ALL_PHOTOS, anySlotFile, entriesOf, entryCount, inAnySlot, MAX_FINAL_SIZE, PHOTO_ID_FIELD, SIDES, sideNumber, VOTE_FIELD, voteList, votesOf, ZERO_VOTES } from '../duels/sides.js';
 import { renderTemplate, roundName, stageValues, templateFor, type StagePoint, type TemplateKey } from '../duels/templates.js';
 import { isFinalRound, takenSpots, type FinalSpotService } from '../final-spots/final-spot.service.js';
@@ -18,6 +19,9 @@ import type { NotificationService } from '../notifications/notification.service.
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
+/** How often the prize row under all pairs may be updated. */
+const PRIZE_REFRESH_MS = 2 * 60_000;
+
 type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null; photoG: Photo | null; photoH: Photo | null; battle: Battle };
 
 /** Entries of a duel with their photos, in slot order. */
@@ -338,6 +342,7 @@ export class BattleService {
     for (const battle of running) await this.advance(battle.id);
 
     await this.remindUnpublished(now);
+    await this.refreshPrize(now);
 
     const pending = await this.prisma.duel.findMany({
       where: { status: 'PENDING', battle: { status: 'RUNNING' } },
@@ -563,7 +568,11 @@ export class BattleService {
     const stacked = challenge || isNarrowText(buttonsText);
     const buttonsOptions = {
       parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal }, settings.paidVotesEnabled),
+      replyMarkup: activeDuelKeyboard(
+        this.locale,
+        { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal, prize: await this.prizeState(duel.battleId) },
+        settings.paidVotesEnabled,
+      ),
       replyToMessageId: post.messageId,
     };
     let buttons;
@@ -1008,6 +1017,11 @@ export class BattleService {
       }
     }
     await this.notifications.notifyUser(winnerPhoto.user, (l) => l.battle.winnerDm(escapeHtml(finished.title)));
+    const prize = await this.prizeState(battleId);
+    if (prize) {
+      const who = escapeHtml([winnerPhoto.user.firstName, winnerPhoto.user.username ? `@${winnerPhoto.user.username}` : ''].filter(Boolean).join(' '));
+      await this.notifications.notifyAdmins((l) => l.admin.prize.toPay({ battle: escapeHtml(finished.title), who, stars: prize.stars, paid: prize.paidVotes }), { parseMode: 'HTML' });
+    }
   }
 
   /**
@@ -1032,6 +1046,33 @@ export class BattleService {
     await this.scheduler.triggerTick();
   }
 
+  /** The growing prize of a battle (null when it is switched off): paid votes of all its pairs count. */
+  async prizeState(battleId: number): Promise<PrizeState | null> {
+    const rules = prizeRules(await this.settings.get());
+    if (!rules) return null;
+    const paid = await this.prisma.paidVote.aggregate({ where: { duel: { battleId } }, _sum: { amount: true } });
+    return prizeFor(paid._sum.amount ?? 0, rules);
+  }
+
+  /**
+   * Every pair of a running battle shows the prize; when it changed, all of them are
+   * updated — at most once in PRIZE_REFRESH_MS, so dozens of posts are not edited on every vote.
+   */
+  private async refreshPrize(now: Date): Promise<void> {
+    const enabled = !!prizeRules(await this.settings.get());
+    const running = await this.prisma.battle.findMany({ where: { status: 'RUNNING', ...(enabled ? {} : { prizeShown: { not: null } }) } });
+    for (const battle of running) {
+      // Switched off: the row disappears from the pairs once.
+      const prize = enabled ? await this.prizeState(battle.id) : null;
+      const shown = prize ? `${prize.stars}:${prize.left}` : null;
+      if (shown === battle.prizeShown) continue;
+      if (shown && battle.prizeShownAt && now.getTime() - battle.prizeShownAt.getTime() < PRIZE_REFRESH_MS) continue;
+      await this.prisma.battle.update({ where: { id: battle.id }, data: { prizeShown: shown, prizeShownAt: now } });
+      const open = await this.prisma.duel.findMany({ where: { battleId: battle.id, status: 'ACTIVE', messageId: { not: null } }, select: { id: true } });
+      for (const duel of open) await this.scheduler.scheduleVoteRefresh(duel.id);
+    }
+  }
+
   /** Current counts on the channel buttons (debounced job). */
   async refreshButtons(duelId: number): Promise<void> {
     const duel = await this.prisma.duel.findUnique({ where: { id: duelId } });
@@ -1040,7 +1081,15 @@ export class BattleService {
     try {
       const keyboard = activeDuelKeyboard(
         this.locale,
-        { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: duel.stackedButtons, goal: duel.goal, ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}) },
+        {
+          id: duel.id,
+          stage: duel.stage,
+          votes: voteList(duel),
+          stacked: duel.stackedButtons,
+          goal: duel.goal,
+          prize: await this.prizeState(duel.battleId),
+          ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}),
+        },
         settings.paidVotesEnabled,
       );
       await this.telegram.editMessageReplyMarkup(this.channel.id, duel.messageId, keyboard);

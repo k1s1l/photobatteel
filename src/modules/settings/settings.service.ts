@@ -28,6 +28,10 @@ export type SettingsPatch = Partial<
     | 'finalSpotAdMediaType'
     | 'finalSpotAdMediaId'
     | 'finalSpotAdMediaUid'
+    | 'prizeEnabled'
+    | 'prizeBase'
+    | 'prizeThreshold'
+    | 'prizePerHundred'
   >
 >;
 
@@ -71,6 +75,10 @@ export class SettingsService {
     }
     if (patch.finalSpotPrice !== undefined && (!Number.isInteger(patch.finalSpotPrice) || patch.finalSpotPrice < 1 || patch.finalSpotPrice > 100_000)) {
       throw new RangeError('Invalid finalSpotPrice');
+    }
+    for (const key of ['prizeBase', 'prizeThreshold', 'prizePerHundred'] as const) {
+      const value = patch[key];
+      if (value !== undefined && (!Number.isInteger(value) || value < 0 || value > 10_000_000)) throw new RangeError(`Invalid ${key}`);
     }
     // Monobank jars accept transfers from 10 UAH.
     if (patch.finalSpotPriceCard !== undefined && (!Number.isInteger(patch.finalSpotPriceCard) || patch.finalSpotPriceCard < 1000 || patch.finalSpotPriceCard > 10_000_000)) {

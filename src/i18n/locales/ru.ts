@@ -269,6 +269,9 @@ export const ru = {
       `${p.tiebreak ? '⚡ Переголосование! ' : ''}${p.final ? p.roundName : `${p.roundName} · Пара ${p.duel}`}`,
     voteButton: (p: { side: number; votes: number }) => `Поддержать ${p.side} · ${p.votes}`,
     endsAtButton: (time: string) => `⏱ Голосование до ${time}`,
+    prizeButton: (p: { stars: number; left: number }) => (p.left > 0 ? `💰 Приз ${p.stars}⭐ · ещё ${p.left} голосов до роста` : `💰 Приз ${p.stars}⭐ — растёт с каждым голосом!`),
+    prizeHint: (p: { threshold: number; perVote: string }) =>
+      `💰 Когда в батле наберётся ${p.threshold} платных голосов, каждый следующий платный голос добавляет +${p.perVote}⭐ к призу. Без ограничений!`,
     timeHint: 'Голосование продлевается на 5 минут, если в последние минуты кто-то закидывает голоса.',
     challengeCaption: (p: { goal: number; end: string }) =>
       `🎯 <b>Проходишь дальше, если набираешь ${p.goal} голосов!</b>\n\nГолосование до ${p.end}. Жми кнопку ниже, а «⭐ +1 голос» — чтобы помочь ещё сильнее.`,
@@ -892,6 +895,30 @@ export const ru = {
       `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\n${p.spot ? '🎟 Место в финале' : `Голосов: ${p.votes}`}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — ${p.spot ? 'дать место' : 'начислить голоса'}, ❌ — отклонить.`,
     transferApproved: (id: number) => `✅ Перевод #${id} подтверждён, голоса начислены.`,
     transferDeclined: (id: number) => `❌ Перевод #${id} отклонён.`,
+    prize: {
+      button: '💰 Призовой фонд',
+      screen: (p: { enabled: boolean; base: number; threshold: number; perVote: string; current: string | null }) =>
+        `<b>💰 Растущий призовой фонд</b>\n\n` +
+        `${p.enabled ? '✅ Включён' : '⛔ Выключен'}\n` +
+        `Приз: <b>${p.base}⭐</b>. После <b>${p.threshold}</b> платных голосов за батл каждый платный голос добавляет <b>+${p.perVote}⭐</b>. Без потолка.\n\n` +
+        'Считаются только платные голоса (звёзды и банка) во всех парах батла. Бесплатные, бонусные за друзей и добавленные вручную — не считаются. ' +
+        'Под кнопками каждой пары строка «💰 Приз …» обновляется раз в 2–3 минуты.' +
+        (p.current ? `\n\n${p.current}` : ''),
+      current: (p: { battle: string; paid: number; stars: number; left: number }) =>
+        `Сейчас «${p.battle}»: платных голосов — <b>${p.paid}</b>, приз — <b>${p.stars}⭐</b>` + (p.left > 0 ? ` (до роста ещё ${p.left})` : ' — растёт!'),
+      enable: '✅ Включить',
+      disable: '⛔ Выключить',
+      baseButton: (n: number) => `⭐ Приз: ${n}`,
+      thresholdButton: (n: number) => `🎯 Порог: ${n} голосов`,
+      rateButton: (v: string) => `➕ За голос: ${v}⭐`,
+      askBase: 'Пришли начальный приз в звёздах, например <code>300</code>.',
+      askThreshold: 'После скольких платных голосов приз начинает расти? Например <code>600</code>.',
+      askRate: 'Сколько звёзд добавляет каждый голос сверх порога? Например <code>0,5</code> или <code>1</code>.',
+      invalid: 'Нужно число, например 300 (для «за голос» — 0,5).',
+      saved: '✅ Сохранено.',
+      toPay: (p: { battle: string; who: string; stars: number; paid: number }) =>
+        `🏆 <b>Батл «${p.battle}» закончен.</b>\nПобедитель: ${p.who}\n💰 Приз к выплате: <b>${p.stars}⭐</b> (платных голосов за батл: ${p.paid}).`,
+    },
   },
 };
 

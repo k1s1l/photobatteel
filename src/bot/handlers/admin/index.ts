@@ -1,3 +1,4 @@
+import { handlePrizeInput, registerPrizeHandlers } from './prize.js';
 import { Composer, type Telegraf } from 'telegraf';
 import { allTranslations } from '../../../i18n/index.js';
 import { isDomainError } from '../../../lib/errors.js';
@@ -77,6 +78,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (state.kind === 'admin_votes') return handleVotesInput(ctx, state.duelId, state.side, text);
   if (state.kind !== 'admin_input') return next();
   if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
+  if (state.action === 'prize_base' || state.action === 'prize_threshold' || state.action === 'prize_rate') return handlePrizeInput(ctx, state.action, text);
   if (state.action === 'final_spot_price') return handleFinalSpotPriceInput(ctx, text);
   if (state.action === 'final_spot_price_card') return handleFinalSpotCardPriceInput(ctx, text);
   if (state.action === 'final_spot_grant') return handleFinalSpotGrantInput(ctx, text);
@@ -160,6 +162,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>): void {
   registerDesignHandlers(admin);
   registerFinalSpotAdminHandlers(admin);
   registerAdminManagementHandlers(admin);
+  registerPrizeHandlers(admin);
 
   const prompts = {
     delete: (ctx: BotContext) => ctx.locale.admin.askPhotoIdDelete,

@@ -183,3 +183,34 @@ describe('refunds and statistics', () => {
     expect(await ctx.services.payments.stats()).toMatchObject({ paid: 2, stars: 10, cardTotal: 2000, votesSold: 30 });
   });
 });
+
+describe('growing prize', () => {
+  it('counts paid votes of the whole battle: 300⭐, then +0.5⭐ per vote over 600, shown under the buttons', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ prizeEnabled: true, prizeBase: 300, prizeThreshold: 600, prizePerHundred: 50 }, null);
+    const duel = await activeDuel();
+    expect(await ctx.services.battles.prizeState(duel.battleId)).toEqual({ stars: 300, left: 600, paidVotes: 0 });
+
+    const buyer = await ctx.prisma.user.update({ where: { id: (await createUser(ctx)).id }, data: { voteBalance: 1000 } });
+    await ctx.services.payments.spendVotes(buyer, duel.photoAId, 700);
+    // Votes an admin adds by hand do not count.
+    await ctx.services.battles.adjustVotes(duel.id, 'B', 50, admin.id);
+    expect(await ctx.services.battles.prizeState(duel.battleId)).toEqual({ stars: 350, left: 0, paidVotes: 700 });
+
+    await ctx.services.battles.refreshButtons(duel.id);
+    const markup = JSON.stringify(ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)!.args[1]);
+    expect(markup).toContain('Приз 350⭐');
+
+    // The winner is decided: admins are told what to pay.
+    await expireDuels(ctx);
+    const texts = ctx.telegram.callsOf('sendMessage').map((c) => String(c.args[0]));
+    expect(texts.some((t) => t.includes('Приз к выплате') && t.includes('350⭐'))).toBe(true);
+  });
+
+  it('shows nothing when switched off', async () => {
+    const duel = await activeDuel();
+    expect(await ctx.services.battles.prizeState(duel.battleId)).toBeNull();
+    await ctx.services.battles.refreshButtons(duel.id);
+    expect(JSON.stringify(ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)!.args[1])).not.toContain('Приз');
+  });
+});
