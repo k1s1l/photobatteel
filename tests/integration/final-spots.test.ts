@@ -146,14 +146,25 @@ describe('places in the final', () => {
     expect(adminTexts().filter((t) => t.includes('Верни деньги вручную'))).toHaveLength(2);
   });
 
-  it('refunds unused places when the battle is cancelled and keeps the final within 6 entries', async () => {
+  it('refunds unused places when the battle is cancelled and keeps the final within 8 entries', async () => {
     const { battle } = await battleInRound2();
     const buyer = await consenting();
     await buy(buyer, 'ch-cancel');
-    await expect(ctx.services.battles.setFinalSize(battle.id, 6, null)).rejects.toMatchObject({ code: 'FINAL_SPOTS_TAKEN' });
+    await expect(ctx.services.battles.setFinalSize(battle.id, 8, null)).rejects.toMatchObject({ code: 'FINAL_SPOTS_TAKEN' });
     const admin = await ctx.prisma.user.findFirstOrThrow({ where: { admin: { isNot: null } } });
     await ctx.services.battles.cancel(battle.id, admin.id);
     expect(ctx.telegram.callsOf('refundStarPayment').map((c) => c.args[0])).toEqual(['ch-cancel']);
+  });
+
+  it('plays a final of 8 in one post: all 8 entries can be voted for', async () => {
+    const battle = await ctx.services.battles.schedule({ startsAt: new Date(Date.now() + 60_000), roundMinutes: 30, tiebreakMinutes: 10, finalSize: 8, createdById: null });
+    for (let i = 0; i < 8; i += 1) await createEntry(ctx, await createUser(ctx));
+    await startBattle(ctx, battle.id);
+    const final = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id } });
+    expect(final.photoHId).not.toBeNull();
+    await postPendingDuels(ctx);
+    const voter = await createUser(ctx);
+    expect(await ctx.services.duelVotes.vote(final.id, 0, 'H', voter)).toMatchObject({ side: 'H', votesH: 1 });
   });
 
   it('lets an admin give a place during a running final of 4: the entry joins, the post is prepared again, votes stay', async () => {

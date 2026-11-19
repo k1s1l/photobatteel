@@ -15,7 +15,7 @@ import { backToPanel, PANEL } from './keyboards.js';
 import { adminUserId } from './shared.js';
 
 const ROUND_MINUTES = [15, 30, 60, 120, 180, 360, 720, 1440] as const;
-const FINAL_SIZES = [2, 3, 4, 5, 6] as const;
+const FINAL_SIZES = [2, 3, 4, 5, 6, 7, 8] as const;
 /** "+30 min / +1 h / +2 h" for collecting photos longer. */
 const EXTEND_MINUTES = [30, 60, 120] as const;
 const RECENT_BATTLES = 5;
@@ -249,8 +249,8 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await answer(ctx);
     await respond(ctx, ctx.locale.admin.battleAskFinalSize, {
       keyboard: inline([
-        FINAL_SIZES.slice(0, 3).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
-        FINAL_SIZES.slice(3).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
+        FINAL_SIZES.slice(0, 4).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
+        FINAL_SIZES.slice(4).map((size) => button(ctx.locale.admin.finalSizeOption(size), `a:bt:size:${size}`)),
         [button(ctx.locale.common.cancel, 'a:cancel')],
       ]),
     });
@@ -337,7 +337,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await showDuelVotes(ctx, matchInt(ctx));
   });
 
-  admin.action(/^a:bt:va:(\d+):([a-f]):(-?\d+)$/, async (ctx) => {
+  admin.action(/^a:bt:va:(\d+):([a-h]):(-?\d+)$/, async (ctx) => {
     const duelId = matchInt(ctx, 1);
     const delta = Number(matchString(ctx, 3));
     const ok = (VOTE_STEPS as readonly number[]).includes(delta) && (await applyVotes(ctx, duelId, matchString(ctx, 2), delta));
@@ -345,7 +345,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await showDuelVotes(ctx, duelId);
   });
 
-  admin.action(/^a:bt:vi:(\d+):([a-f])$/, async (ctx) => {
+  admin.action(/^a:bt:vi:(\d+):([a-h])$/, async (ctx) => {
     await answer(ctx);
     const duelId = matchInt(ctx, 1);
     const letter = matchString(ctx, 2);
@@ -383,7 +383,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     await respond(ctx, ctx.locale.admin.replaceFinalWhich, { keyboard: inline([...rows, [button(ctx.locale.common.back, 'a:bt')]]) });
   });
 
-  admin.action(/^a:bt:rfo:(\d+):([a-f])$/, async (ctx) => {
+  admin.action(/^a:bt:rfo:(\d+):([a-h])$/, async (ctx) => {
     await answer(ctx);
     const duel = await ctx.deps.services.battles.getDuel(matchInt(ctx, 1));
     if (!duel) return;
@@ -395,7 +395,7 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
     });
   });
 
-  admin.action(/^a:bt:rfn:(\d+):([a-f]):(\d+)$/, async (ctx) => {
+  admin.action(/^a:bt:rfn:(\d+):([a-h]):(\d+)$/, async (ctx) => {
     const side = sideFromLetter(matchString(ctx, 2));
     const done = side ? await ctx.deps.services.battles.replaceFinalEntry(matchInt(ctx, 1), side, matchInt(ctx, 3), adminUserId(ctx)) : false;
     await answer(ctx, done ? undefined : ctx.locale.common.alreadyProcessed, !done);

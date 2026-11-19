@@ -339,7 +339,7 @@ describe('bot: admin — places in the final', () => {
     expect(screen).toContain('ждём фото');
 
     await press(ADMIN_TG_ID, 'a:fs:cnt');
-    expect((await ctx.services.settings.get()).finalSpotCount).toBe(1);
+    expect((await ctx.services.settings.get()).finalSpotCount).toBe(3);
     await press(ADMIN_TG_ID, 'a:fs:price');
     await sendText(ADMIN_TG_ID, '30');
     expect((await ctx.services.settings.get()).finalSpotPrice).toBe(30);

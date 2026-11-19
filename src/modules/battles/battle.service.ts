@@ -18,11 +18,11 @@ import type { NotificationService } from '../notifications/notification.service.
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
-type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null; battle: Battle };
+type DuelWithPhotos = Duel & { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null; photoG: Photo | null; photoH: Photo | null; battle: Battle };
 
 /** Entries of a duel with their photos, in slot order. */
-function photosOf(duel: { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null }): { side: DuelSide; photo: Photo }[] {
-  const all = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF };
+function photosOf(duel: { photoA: Photo; photoB: Photo | null; photoC: Photo | null; photoD: Photo | null; photoE: Photo | null; photoF: Photo | null; photoG: Photo | null; photoH: Photo | null }): { side: DuelSide; photo: Photo }[] {
+  const all = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF, G: duel.photoG, H: duel.photoH };
   return SIDES.flatMap((side) => (all[side] ? [{ side, photo: all[side] }] : []));
 }
 
@@ -387,9 +387,21 @@ export class BattleService {
    */
   private async createRound(tx: Prisma.TransactionClient, battleId: number, round: number, photoIds: number[], finalSize: number): Promise<void> {
     if (photoIds.length >= 3 && photoIds.length <= Math.min(finalSize, MAX_FINAL_SIZE)) {
-      const [a, b, c, d, e, f] = photoIds;
+      const [a, b, c, d, e, f, g, h] = photoIds;
       await tx.duel.create({
-        data: { battleId, round, position: 1, photoAId: a!, photoBId: b!, photoCId: c!, photoDId: d ?? null, photoEId: e ?? null, photoFId: f ?? null },
+        data: {
+          battleId,
+          round,
+          position: 1,
+          photoAId: a!,
+          photoBId: b!,
+          photoCId: c!,
+          photoDId: d ?? null,
+          photoEId: e ?? null,
+          photoFId: f ?? null,
+          photoGId: g ?? null,
+          photoHId: h ?? null,
+        },
       });
       await tx.battle.update({ where: { id: battleId }, data: { currentRound: round, roundEndsAt: null } });
       if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: 1, final: photoIds.length } }, tx);
@@ -1079,7 +1091,7 @@ export class BattleService {
 
   /** Number of entries playing in a round (a bye counts once). */
   private async roundEntries(battleId: number, round: number): Promise<number> {
-    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true } });
+    const duels = await this.prisma.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true, photoGId: true, photoHId: true } });
     return duels.reduce((sum, duel) => sum + entryCount(duel), 0);
   }
 

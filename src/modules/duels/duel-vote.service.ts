@@ -39,13 +39,13 @@ export class DuelVoteService {
         if (!duel || (entryCount(duel) < 2 && duel.goal === null) || duel.status !== 'ACTIVE' || duel.stage !== stage || (duel.endsAt && duel.endsAt <= now)) {
           throw new DomainError('VOTING_CLOSED');
         }
-        const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF };
+        const photos = { A: duel.photoA, B: duel.photoB, C: duel.photoC, D: duel.photoD, E: duel.photoE, F: duel.photoF, G: duel.photoG, H: duel.photoH };
         const target = photos[side];
         if (!target || duel[PHOTO_ID_FIELD[side]] === null) throw new DomainError('VOTING_CLOSED');
         if (target.userId === voter.id) throw new DomainError('SELF_VOTE');
 
         const existing = await tx.duelVote.findUnique({ where: { duelId_stage_userId: { duelId, stage, userId: voter.id } } });
-        const counters: Record<DuelSide, number> = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
+        const counters: Record<DuelSide, number> = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0, H: 0 };
         let newSide: DuelSide | null = side;
         if (!existing) {
           await tx.duelVote.create({ data: { duelId, stage, userId: voter.id, side } });

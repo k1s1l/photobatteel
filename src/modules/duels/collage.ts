@@ -13,9 +13,11 @@ const DIGIT_PATHS: Record<Digit, string> = {
   4: 'M 8 24 L 8 -24 L -16 10 L 18 10',
   5: 'M 14 -24 L -10 -24 L -12 -2 C 0 -10 16 -6 16 8 C 16 26 -6 28 -14 20',
   6: 'M 12 -24 C -4 -24 -14 -10 -14 8 C -14 22 -6 26 2 26 C 12 26 16 18 16 10 C 16 0 8 -4 0 -4 C -8 -4 -14 2 -14 8',
+  7: 'M -14 -24 L 16 -24 L -4 24',
+  8: 'M 0 -2 C -10 -2 -14 -8 -14 -14 C -14 -22 -8 -26 0 -26 C 8 -26 14 -22 14 -14 C 14 -8 10 -2 0 -2 C -10 -2 -16 4 -16 12 C -16 22 -8 26 0 26 C 8 26 16 22 16 12 C 16 4 10 -2 0 -2',
 };
 
-type Digit = 1 | 2 | 3 | 4 | 5 | 6;
+type Digit = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 function badge(digit: Digit): Buffer {
   const size = 96;
@@ -38,12 +40,12 @@ async function tile(image: Buffer, digit: Digit): Promise<Buffer> {
 
 /**
  * One image with numbered badges, so vote buttons fit under it:
-* 2 or 3 photos side by side, 4 as a 2×2 grid, 5–6 as a 3×2 grid.
+* 2 or 3 photos side by side, 4 as a 2×2 grid, 5–6 as a 3×2 grid, 7–8 as a 4×2 grid.
  */
 export async function buildDuelCollage(...images: Buffer[]): Promise<Buffer> {
-  if (images.length < 2 || images.length > 6) throw new RangeError('A collage holds 2 to 6 photos');
+  if (images.length < 2 || images.length > 8) throw new RangeError('A collage holds 2 to 8 photos');
   const tiles = await Promise.all(images.map((image, index) => tile(image, (index + 1) as Digit)));
-  const columns = images.length === 4 ? 2 : Math.min(images.length, 3);
+  const columns = images.length === 4 ? 2 : images.length >= 7 ? 4 : Math.min(images.length, 3);
   const rows = Math.ceil(images.length / columns);
   return sharp({
     create: { width: TILE_WIDTH * columns + GAP * (columns - 1), height: TILE_HEIGHT * rows + GAP * (rows - 1), channels: 3, background: BACKGROUND },

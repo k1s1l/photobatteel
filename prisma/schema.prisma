@@ -54,6 +54,8 @@ enum DuelSide {
   D
   E
   F
+  G
+  H
 }
 
 enum AdminRole {
@@ -202,6 +204,8 @@ model Photo {
   duelsAsD        Duel[]     @relation("DuelPhotoD")
   duelsAsE        Duel[]     @relation("DuelPhotoE")
   duelsAsF        Duel[]     @relation("DuelPhotoF")
+  duelsAsG        Duel[]     @relation("DuelPhotoG")
+  duelsAsH        Duel[]     @relation("DuelPhotoH")
   duelsWon        Duel[]     @relation("DuelWinner")
   paidVoteEntries PaidVote[]
   payments        Payment[]
@@ -256,7 +260,7 @@ model Duel {
   photoA          Photo      @relation("DuelPhotoA", fields: [photoAId], references: [id], onDelete: Cascade)
   photoBId        Int?
   photoB          Photo?     @relation("DuelPhotoB", fields: [photoBId], references: [id], onDelete: Cascade)
-  /// Group finals of 3 to 6 entries use the extra slots
+  /// Group finals of 3 to 8 entries use the extra slots
   photoCId        Int?
   photoC          Photo?     @relation("DuelPhotoC", fields: [photoCId], references: [id], onDelete: Cascade)
   photoDId        Int?
@@ -265,6 +269,10 @@ model Duel {
   photoE          Photo?     @relation("DuelPhotoE", fields: [photoEId], references: [id], onDelete: Cascade)
   photoFId        Int?
   photoF          Photo?     @relation("DuelPhotoF", fields: [photoFId], references: [id], onDelete: Cascade)
+  photoGId        Int?
+  photoG          Photo?     @relation("DuelPhotoG", fields: [photoGId], references: [id], onDelete: Cascade)
+  photoHId        Int?
+  photoH          Photo?     @relation("DuelPhotoH", fields: [photoHId], references: [id], onDelete: Cascade)
   status          DuelStatus @default(PENDING)
   /// 0 = main vote, 1.. = tiebreak reposts (votes start from zero each stage)
   stage           Int        @default(0)
@@ -274,6 +282,8 @@ model Duel {
   votesD          Int        @default(0)
   votesE          Int        @default(0)
   votesF          Int        @default(0)
+  votesG          Int        @default(0)
+  votesH          Int        @default(0)
   /// file_unique_id of the prepared collage; identifies the admin's channel post (photo duels)
   preparedFileUniqueId String?
   /// When the post was sent to admins, and when they were reminded to publish it

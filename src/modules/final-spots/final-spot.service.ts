@@ -29,7 +29,7 @@ export function spotRules(settings: Pick<BotSettings, 'finalSpotsEnabled' | 'fin
   return { price: settings.finalSpotPrice, maxSpots: settings.finalSpotsEnabled ? settings.finalSpotCount : 0 };
 }
 
-export const MAX_SPOTS_PER_BATTLE = 2;
+export const MAX_SPOTS_PER_BATTLE = 4;
 
 export type SpotWithDetails = FinalSpot & { user: User; photo: Photo | null };
 
@@ -65,7 +65,7 @@ export function isFinalRound(battle: Pick<Battle, 'finalSize'>, entriesInRound: 
 }
 
 async function roundEntries(db: Db, battleId: number, round: number): Promise<number> {
-  const duels = await db.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true } });
+  const duels = await db.duel.findMany({ where: { battleId, round }, select: { photoAId: true, photoBId: true, photoCId: true, photoDId: true, photoEId: true, photoFId: true, photoGId: true, photoHId: true } });
   return duels.reduce((sum, duel) => sum + entryCount(duel), 0);
 }
 
@@ -270,7 +270,7 @@ export class FinalSpotService {
 
   /**
    * Admin gives somebody a place in the final for free (e.g. paid by card). Works
-   * before and during the final, while the final post has room (6 entries).
+   * before and during the final, while the final post has room (8 entries).
    */
   async grantByAdmin(target: User, adminUserId: number): Promise<{ battle: Battle; spot: FinalSpot }> {
     if (target.isBlocked) throw new DomainError('USER_BLOCKED');

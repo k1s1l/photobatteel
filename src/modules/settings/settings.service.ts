@@ -66,7 +66,7 @@ export class SettingsService {
     if (patch.maxPhotosPerBattle !== undefined && (!Number.isInteger(patch.maxPhotosPerBattle) || patch.maxPhotosPerBattle < 0 || patch.maxPhotosPerBattle > 100)) {
       throw new RangeError('Invalid maxPhotosPerBattle');
     }
-    if (patch.finalSpotCount !== undefined && (!Number.isInteger(patch.finalSpotCount) || patch.finalSpotCount < 1 || patch.finalSpotCount > 2)) {
+    if (patch.finalSpotCount !== undefined && (!Number.isInteger(patch.finalSpotCount) || patch.finalSpotCount < 1 || patch.finalSpotCount > 4)) {
       throw new RangeError('Invalid finalSpotCount');
     }
     if (patch.finalSpotPrice !== undefined && (!Number.isInteger(patch.finalSpotPrice) || patch.finalSpotPrice < 1 || patch.finalSpotPrice > 100_000)) {

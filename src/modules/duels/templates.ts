@@ -34,7 +34,7 @@ export function isTemplateKey(value: string): value is TemplateKey {
 export const STAGED_KEYS = ['duel', 'round', 'buttons'] as const;
 export type StagedKey = (typeof STAGED_KEYS)[number];
 
-export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final', 'final3', 'final4', 'final5', 'final6'] as const;
+export const STAGE_VARIANTS = ['r1', 'r2', 'r3', 'r4', 'final', 'final3', 'final4', 'final5', 'final6', 'final7', 'final8'] as const;
 export type StageVariant = (typeof STAGE_VARIANTS)[number];
 
 export function isStagedKey(value: string): value is StagedKey {
@@ -59,7 +59,7 @@ function isFinal(point: StagePoint): boolean {
 
 /**
  * The final wins over the round number (a small battle may start with its final).
- * A group final of 3–6 entries has its own design ("final3"…"final6") and falls back to "final".
+ * A group final of 3–8 entries has its own design ("final3"…"final8") and falls back to "final".
  */
 export function stageVariant(point: StagePoint): StageVariant | null {
   if (isFinal(point)) {

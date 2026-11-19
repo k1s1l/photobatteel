@@ -77,6 +77,8 @@ function sampleVotes(variant?: StageVariant): { side: DuelSide; votes: number }[
     { side: 'D' as const, votes: 4 },
     { side: 'E' as const, votes: 3 },
     { side: 'F' as const, votes: 1 },
+    { side: 'G' as const, votes: 1 },
+    { side: 'H' as const, votes: 0 },
   ];
   const size = variant?.startsWith('final') && variant !== 'final' ? Number(variant.slice(5)) : 2;
   return all.slice(0, size);
@@ -131,7 +133,7 @@ async function showTemplate(ctx: BotContext, key: TemplateKey): Promise<void> {
 function stageRows(ctx: BotContext, key: StagedKey, saved: Record<string, string>): ReturnType<typeof button>[][] {
   const label = (variant: StageVariant): string => `${saved[stageTemplateId(key, variant)] ? '✏️ ' : ''}${ctx.locale.admin.stageNames[variant]}`;
   const item = (variant: StageVariant) => button(label(variant), `a:tpl:v:${key}:${variant}`);
-  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')], [item('final3'), item('final4')], [item('final5'), item('final6')]];
+  return [[item('r1'), item('r2')], [item('r3'), item('r4')], [item('final')], [item('final3'), item('final4')], [item('final5'), item('final6')], [item('final7'), item('final8')]];
 }
 
 async function showVariant(ctx: BotContext, key: StagedKey, variant: StageVariant): Promise<void> {

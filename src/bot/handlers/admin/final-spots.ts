@@ -346,7 +346,7 @@ export function registerFinalSpotAdminHandlers(admin: Composer<BotContext>): voi
     await showFinalSpots(ctx);
   });
 
-  // 1 ↔ 2 places per battle.
+  // 1 → 2 → 3 → 4 → 1 places per battle.
   admin.action('a:fs:cnt', async (ctx) => {
     const { finalSpotCount } = await ctx.deps.services.settings.get();
     const next = finalSpotCount >= MAX_SPOTS_PER_BATTLE ? 1 : finalSpotCount + 1;
