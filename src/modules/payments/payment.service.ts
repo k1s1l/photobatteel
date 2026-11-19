@@ -3,12 +3,13 @@ import { randomInt } from 'node:crypto';
 import { inAnySlot, sideNumber, sideOf, VOTE_FIELD, VOTE_SELECT, votesOf } from '../duels/sides.js';
 import type { Duel, DuelSide, Payment, PaymentMethod, Photo, Prisma, PrismaClient, User, VotePackage } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
-import { escapeHtml } from '../../lib/format.js';
+import { escapeHtml, formatCardPrice } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import type { ActivityService } from '../activity/activity.service.js';
 import type { JobScheduler, TelegramGateway } from '../contracts.js';
 import type { NotificationService } from '../notifications/notification.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
+import { spotOffer, spotRules } from '../final-spots/final-spot.service.js';
 import { BankRateLimitError, type BankStatementItem, type BankWebhookEvent, currencyNumericCode, type BankClient } from './monobank.js';
 
 export const STARS_CURRENCY = 'XTR';
@@ -91,6 +92,8 @@ export interface CompletedPayment {
   targetUnavailable: boolean;
   balance: number;
   alreadyProcessed: boolean;
+  /** A transfer for a place in the final: the place is taken, or it was sold out meanwhile (money goes back by hand). */
+  finalSpot?: 'reserved' | 'unavailable';
 }
 
 export interface PaymentStats {
@@ -267,6 +270,35 @@ export class PaymentService {
         return { payment, creditedTo: 'balance' as const, targetUnavailable: false, balance: payment.user.voteBalance, alreadyProcessed: true, duelId: null };
       }
 
+      // A transfer for a place in the final: take the place instead of crediting votes.
+      if (payment.finalSpotBattleId !== null) {
+        await tx.$executeRaw`SELECT id FROM "Battle" WHERE id = ${payment.finalSpotBattleId} FOR UPDATE`;
+        const offer = await spotOffer(tx, payment.userId, spotRules(await this.settings.get()));
+        const reserved = offer.available && offer.battle.id === payment.finalSpotBattleId;
+        if (reserved) await tx.finalSpot.create({ data: { battleId: payment.finalSpotBattleId, userId: payment.userId, paymentId: payment.id } });
+        else await tx.payment.update({ where: { id: paymentId }, data: { status: 'REFUNDED', refundedAt: new Date() } });
+        await this.activity.log(
+          {
+            action: 'PAYMENT_SUCCEEDED',
+            userId: payment.userId,
+            entityType: 'Payment',
+            entityId: paymentId,
+            details: { method: payment.method, amount: payment.amount, currency: payment.currency, finalSpot: reserved ? 'reserved' : 'unavailable' },
+          },
+          tx,
+        );
+        const paid = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+        return {
+          payment: paid,
+          creditedTo: 'balance' as const,
+          targetUnavailable: false,
+          balance: payment.user.voteBalance,
+          alreadyProcessed: false,
+          duelId: null,
+          finalSpot: reserved ? ('reserved' as const) : ('unavailable' as const),
+        };
+      }
+
       let creditedTo: 'photo' | 'balance' = 'balance';
       let targetUnavailable = false;
       let duelId: number | null = null;
@@ -299,6 +331,11 @@ export class PaymentService {
       return { payment: paid, creditedTo, targetUnavailable, balance, alreadyProcessed: false, duelId };
     });
 
+    if (result.finalSpot) {
+      if (!result.alreadyProcessed) await this.announceSpot(result.payment, result.finalSpot);
+      const { duelId: _spotDuel, ...spotCompleted } = result;
+      return spotCompleted;
+    }
     await this.scheduleOvertime();
     if (result.duelId) await this.scheduler.scheduleVoteRefresh(result.duelId);
     // Admins see every payment that went through by itself (one they confirmed themselves they already know about).
@@ -457,8 +494,41 @@ export class PaymentService {
     }
   }
 
+  /** A transfer order for a place in the final (price set by the admin, in minor units). */
+  async createSpotTransfer(user: User, battleId: number): Promise<{ payment: Payment; details: string; automatic: boolean }> {
+    if (user.isBlocked) throw new DomainError('USER_BLOCKED');
+    const settings = await this.settings.get();
+    if (!settings.transferEnabled || !settings.transferDetails) throw new DomainError('PAYMENTS_DISABLED');
+    const expiresAt = new Date(Date.now() + this.options.transferTtlMinutes * 60_000);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const payment = await this.prisma.payment.create({
+          data: {
+            userId: user.id,
+            votes: 0,
+            method: 'TRANSFER',
+            currency: this.options.cardCurrency,
+            amount: settings.finalSpotPriceCard,
+            finalSpotBattleId: battleId,
+            code: generateCode(),
+            expiresAt,
+          },
+        });
+        return { payment, details: settings.transferDetails, automatic: this.bankVerification(settings) };
+      } catch (error) {
+        if (attempt >= 4 || (error as { code?: string }).code !== 'P2002') throw error;
+      }
+    }
+  }
+
+  /** Transfers for a place in the final are offered when transfers are on and the details are filled in. */
+  async spotTransferAvailable(): Promise<boolean> {
+    const settings = await this.settings.get();
+    return settings.transferEnabled && !!settings.transferDetails;
+  }
+
   /** The buyer says the transfer is done. Without bank verification the admins are asked right away. */
-  async claimTransfer(paymentId: number, user: User): Promise<{ automatic: boolean }> {
+  async claimTransfer(paymentId: number, user: User): Promise<{ automatic: boolean; spot: boolean }> {
     const claimed = await this.prisma.payment.updateMany({
       // A buyer who paid a little after the time ran out can still press "I paid".
       where: { id: paymentId, userId: user.id, method: 'TRANSFER', OR: [{ status: 'PENDING' }, lateTransfers()] },
@@ -482,7 +552,7 @@ export class PaymentService {
     // The admins are asked at once (unless the bank check has just found the transfer:
     // then the order is already paid and they get the "payment credited" note instead).
     await this.requestReview(paymentId);
-    return { automatic };
+    return { automatic, spot: claimedOrder.finalSpotBattleId !== null };
   }
 
   async cancelTransfer(paymentId: number, user: User): Promise<void> {
@@ -766,7 +836,8 @@ export class PaymentService {
     const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { user: true } });
     const amount = formatCardPrice(payment.amount, payment.currency);
     const buyer = payment.user.username ? `@${payment.user.username}` : payment.user.firstName;
-    await this.notifications.notifyAdmins((l) => l.admin.transferReview({ id: payment.id, code: payment.code ?? '', amount, votes: payment.votes, buyer: escapeHtml(buyer) }), {
+    const spot = payment.finalSpotBattleId !== null;
+    await this.notifications.notifyAdmins((l) => l.admin.transferReview({ id: payment.id, code: payment.code ?? '', amount, votes: payment.votes, buyer: escapeHtml(buyer), spot }), {
       parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: [
@@ -787,7 +858,22 @@ export class PaymentService {
     await this.notifications.notifyAdmins((l) => l.admin.paymentReceived({ amount, method: l.admin.paymentMethods[payment.method], who, votes: payment.votes, toEntry }));
   }
 
+  /** Admins: a place in the final was paid by transfer (or has to be paid back by hand). */
+  private async announceSpot(payment: Payment, outcome: 'reserved' | 'unavailable'): Promise<void> {
+    const buyer = await this.prisma.user.findUnique({ where: { id: payment.userId } });
+    const who = escapeHtml(buyer ? [buyer.firstName, buyer.username ? `@${buyer.username}` : ''].filter(Boolean).join(' ') : '—');
+    const amount = formatCardPrice(payment.amount, payment.currency);
+    await this.notifications.notifyAdmins((l) => (outcome === 'reserved' ? l.admin.finalSpotSoldCard({ who, amount }) : l.admin.finalSpotPayBack({ who, amount, code: payment.code ?? '' })), {
+      parseMode: 'HTML',
+    });
+  }
+
   private async notifyPaid(user: User, completed: CompletedPayment): Promise<void> {
+    if (completed.finalSpot) {
+      const amount = formatCardPrice(completed.payment.amount, completed.payment.currency);
+      await this.notifications.notifyUser(user, (l) => (completed.finalSpot === 'reserved' ? l.finalSpot.reservedCard : l.finalSpot.soldOutCard(amount)), { parseMode: 'HTML' });
+      return;
+    }
     const votes = completed.payment.votes;
     // Votes on the balance while voting goes on: offer to give them right away.
     const targets = completed.creditedTo === 'balance' ? await this.voteTargets() : [];
@@ -895,9 +981,4 @@ function normalizeCode(text: string): string {
   return text.toUpperCase().replace(/[\s\-_.]/g, '');
 }
 
-/** Formats a card price stored in minor units: 8900 UAH → "89 ₴". */
-export function formatCardPrice(amount: number, currency: string): string {
-  const value = amount / 100;
-  const text = Number.isInteger(value) ? String(value) : value.toFixed(2);
-  return currency === 'UAH' ? `${text} ₴` : `${text} ${currency}`;
-}
+export { formatCardPrice } from '../../lib/format.js';

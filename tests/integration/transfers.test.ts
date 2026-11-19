@@ -55,7 +55,7 @@ describe('transfer orders', () => {
     await enableTransfers(false);
     const [pack] = await ctx.services.payments.listPackages(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
-    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false, spot: false });
     expect(adminTexts().some((t) => t.includes('Проверь перевод') && t.includes(order.payment.code!))).toBe(true);
     await expect(ctx.services.payments.claimTransfer(order.payment.id, buyer)).rejects.toMatchObject({ code: 'INVALID_STATE' });
 
@@ -130,7 +130,7 @@ describe('transfer orders', () => {
     const [pack] = await ctx.services.payments.listPackages(true);
     const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     await ctx.services.payments.expireTransfers(new Date(Date.now() + 16 * 60_000));
-    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false, spot: false });
     expect(adminTexts().some((t) => t.includes(order.payment.code!))).toBe(true);
 
     const admin = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: BigInt(ADMIN_TG_ID) } });
@@ -336,7 +336,7 @@ describe('transfer orders', () => {
     expect(order.automatic).toBe(false);
     const item = { id: 'off-1', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! };
     expect(await ctx.services.payments.handleBankWebhook({ type: 'StatementItem', data: { account: 'jar1', statementItem: item } })).toBe(0);
-    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false });
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false, spot: false });
     expect(adminTexts().some((t) => t.includes('Проверь перевод') && t.includes(order.payment.code!))).toBe(true);
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('CLAIMED');
   });

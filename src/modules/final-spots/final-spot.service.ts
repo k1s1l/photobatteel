@@ -1,6 +1,6 @@
 import type { Battle, BotSettings, FinalSpot, Photo, Prisma, PrismaClient, User } from '../../generated/prisma/client.js';
 import { DomainError } from '../../lib/errors.js';
-import { escapeHtml } from '../../lib/format.js';
+import { escapeHtml, formatCardPrice } from '../../lib/format.js';
 import type { Logger } from '../../lib/logger.js';
 import type { ActivityService } from '../activity/activity.service.js';
 import type { TelegramGateway } from '../contracts.js';
@@ -306,6 +306,16 @@ export class FinalSpotService {
       const marked = await this.prisma.finalSpot.updateMany({ where: { id: spotId, refundedAt: null, usedAt: null }, data: { refundedAt: new Date() } });
       if (marked.count === 0) continue;
       if (spot.photoId) await this.prisma.photo.updateMany({ where: { id: spot.photoId, status: 'ACCEPTED' }, data: { status: 'CANCELLED' } });
+      // Paid by transfer to the jar: the bot cannot send money back, the admins do it by hand.
+      if (spot.payment && spot.payment.method === 'TRANSFER') {
+        const { payment } = spot;
+        await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'REFUNDED', refundedAt: new Date() } });
+        const amount = formatCardPrice(payment.amount, payment.currency);
+        const who = escapeHtml([spot.user.firstName, spot.user.username ? `@${spot.user.username}` : ''].filter(Boolean).join(' '));
+        await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.refundedCard(amount));
+        await this.notifications.notifyAdmins((l) => l.admin.finalSpotPayBack({ who, amount, code: payment.code ?? '' }), { parseMode: 'HTML' });
+        continue;
+      }
       // A place given by an admin has nothing to refund; it is just cancelled.
       if (!spot.payment?.telegramChargeId || spot.paymentId === null) {
         await this.notifications.notifyUser(spot.user, (l) => l.finalSpot.cancelled);

@@ -1,4 +1,4 @@
-import type { Duel, DuelSide } from '../../generated/prisma/client.js';
+import type { Duel, DuelSide, Payment } from '../../generated/prisma/client.js';
 import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { answerFinalSpotCheckout, completeFinalSpot, isFinalSpotPayload } from './final-spots.js';
 import type { Telegraf } from 'telegraf';
@@ -83,6 +83,35 @@ async function showPacksForSide(ctx: BotContext, duel: Duel, letter: DuelSide): 
   });
 }
 
+/** Payment details, the code to put in the comment and the "I paid" / "Cancel" buttons for a transfer order. */
+export async function sendTransferOrder(ctx: BotContext, order: { payment: Payment; details: string; automatic: boolean }, spot = false): Promise<void> {
+  const l = ctx.locale.payments;
+  const code = order.payment.code ?? '';
+  // A jar link (send.monobank.ua/jar/…) becomes a button; a card number stays in the text.
+  const link = /https?:\/\/\S+/.exec(order.details)?.[0] ?? null;
+  // "Copy" buttons are part of the Bot API but not of Telegraf's types yet.
+  const keyboard = {
+    inline_keyboard: [
+      ...(link ? [[{ text: l.transferOpenJar, url: link }]] : []),
+      [{ text: l.transferCopyCode, copy_text: { text: code } }],
+      [{ text: l.transferPaidButton, callback_data: `pay:tc:${order.payment.id}` }],
+      [{ text: l.transferCancelButton, callback_data: `pay:tx:${order.payment.id}` }],
+    ],
+  } as unknown as InlineKeyboardMarkup;
+  await ctx.reply(
+    l.transferInstructions({
+      amount: formatCardPrice(order.payment.amount, order.payment.currency),
+      code,
+      details: escapeHtml(order.details),
+      minutes: ctx.deps.services.payments.options.transferTtlMinutes,
+      automatic: order.automatic,
+      link: link !== null,
+      spot,
+    }),
+    { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: keyboard },
+  );
+}
+
 export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
   bot.hears(allTranslations((l) => l.menu.votes), showVotesMenu);
   bot.command('votes', showVotesMenu);
@@ -132,33 +161,9 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
 
   // Transfer to the owner's card / Monobank jar.
   bot.action(/^pay:t:(\d+):(\d+)$/, async (ctx) => {
-    const { payments } = ctx.deps.services;
-    const order = await payments.createTransfer(currentUser(ctx), matchInt(ctx, 1), matchInt(ctx, 2) || null);
+    const order = await ctx.deps.services.payments.createTransfer(currentUser(ctx), matchInt(ctx, 1), matchInt(ctx, 2) || null);
     await answer(ctx);
-    const l = ctx.locale.payments;
-    const code = order.payment.code ?? '';
-    // A jar link (send.monobank.ua/jar/…) becomes a button; a card number stays in the text.
-    const link = /https?:\/\/\S+/.exec(order.details)?.[0] ?? null;
-    // "Copy" buttons are part of the Bot API but not of Telegraf's types yet.
-    const keyboard = {
-      inline_keyboard: [
-        ...(link ? [[{ text: l.transferOpenJar, url: link }]] : []),
-        [{ text: l.transferCopyCode, copy_text: { text: code } }],
-        [{ text: l.transferPaidButton, callback_data: `pay:tc:${order.payment.id}` }],
-        [{ text: l.transferCancelButton, callback_data: `pay:tx:${order.payment.id}` }],
-      ],
-    } as unknown as InlineKeyboardMarkup;
-    await ctx.reply(
-      l.transferInstructions({
-        amount: formatCardPrice(order.payment.amount, order.payment.currency),
-        code,
-        details: escapeHtml(order.details),
-        minutes: payments.options.transferTtlMinutes,
-        automatic: order.automatic,
-        link: link !== null,
-      }),
-      { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: keyboard },
-    );
+    await sendTransferOrder(ctx, order);
   });
 
   bot.action(/^pay:tc:(\d+)$/, async (ctx) => {
@@ -175,7 +180,8 @@ export function registerPaymentHandlers(bot: Telegraf<BotContext>): void {
     await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
     if (result === null) return answer(ctx, ctx.locale.common.alreadyProcessed, true);
     await answer(ctx);
-    await ctx.reply(result.automatic ? ctx.locale.payments.transferClaimedAuto : ctx.locale.payments.transferClaimedManual);
+    const l = ctx.locale;
+    await ctx.reply(result.spot ? l.finalSpot.transferClaimed : result.automatic ? l.payments.transferClaimedAuto : l.payments.transferClaimedManual);
   });
 
   bot.action(/^pay:tx:(\d+)$/, async (ctx) => {

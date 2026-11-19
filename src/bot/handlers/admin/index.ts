@@ -9,7 +9,7 @@ import { button, inline } from '../../keyboards.js';
 import { handleBattleWizardText, handleChallengeMedia, handleRoundEndText, handleStartTimeText, handleVotesInput, registerBattleHandlers } from './battles.js';
 import { handleAddAdminInput, registerAdminManagementHandlers } from './admins.js';
 import { handleTemplateMessage, registerDesignHandlers } from './design.js';
-import { handleFinalSpotAd, handleFinalSpotGrantInput, handleFinalSpotPriceInput, handleSpotPhotoByAdmin, registerFinalSpotAdminHandlers } from './final-spots.js';
+import { handleFinalSpotAd, handleFinalSpotGrantInput, handleFinalSpotCardPriceInput, handleFinalSpotPriceInput, handleSpotPhotoByAdmin, registerFinalSpotAdminHandlers } from './final-spots.js';
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
@@ -77,6 +77,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (state.kind !== 'admin_input') return next();
   if (state.action === 'transfer_details') return handleTransferDetailsInput(ctx, text);
   if (state.action === 'final_spot_price') return handleFinalSpotPriceInput(ctx, text);
+  if (state.action === 'final_spot_price_card') return handleFinalSpotCardPriceInput(ctx, text);
   if (state.action === 'final_spot_grant') return handleFinalSpotGrantInput(ctx, text);
   if (state.action === 'admin_add') return handleAddAdminInput(ctx, text);
   if (state.action === 'package_price') {

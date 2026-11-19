@@ -285,9 +285,9 @@ export const ru = {
 
   finalSpot: {
     button: (price: number) => `🎟 Купить место в финале · ${price} ⭐`,
-    offer: (p: { price: number; left: number; battle: string }) =>
+    offer: (p: { price: number; left: number; battle: string; card?: string | null }) =>
       `<b>🎟 Место в финале «${p.battle}»</b>\n\n` +
-      `Можно сразу попасть в финал за ${p.price} ⭐ — даже если твоя работа выбыла или ты ещё не участвовал. ` +
+      `Можно сразу попасть в финал за ${p.price} ⭐${p.card ? ` или ${p.card} на банку` : ''} — даже если твоя работа выбыла или ты ещё не участвовал. ` +
       `Осталось мест: ${p.left}.\n\nПосле оплаты пришли фото или видео для финала (можно ту же работу, что отправлял раньше).`,
     invoiceTitle: 'Место в финале',
     invoiceDescription: (battle: string) => `Твоя работа выйдет сразу в финал батла «${battle}».`,
@@ -303,6 +303,14 @@ export const ru = {
     adButton: '🎟 Купить место в финале',
     soldOutRefunded: '😔 Последнее место в финале купили на секунду раньше. Звёзды вернутся автоматически.',
     refunded: (price: number) => `↩️ Место в финале не использовано (не пришло фото до начала финала или батл отменён). ${price} ⭐ возвращены.`,
+    payCardButton: (price: string) => `💳 Оплатить ${price} на банку`,
+    starsBelow: '⭐ Или оплати звёздами — счёт ниже:',
+    reservedCard:
+      '🎟 <b>Оплата получена — место в финале твоё!</b>\n\nТеперь пришли сюда фото или видео для финала. Можно ту же работу, что отправлял раньше. ' +
+      'Если не пришлёшь до начала финала — админ вернёт деньги.',
+    soldOutCard: (amount: string) => `😔 Пока шла оплата, последнее место в финале купили. Админ вернёт тебе ${amount} — уже передал ему.`,
+    refundedCard: (amount: string) => `↩️ Место в финале не использовано (не пришло фото до начала финала или батл отменён). Админ вернёт тебе ${amount}.`,
+    transferClaimed: '⏳ Проверяю оплату. Как только она подтвердится, место в финале закрепится за тобой — я напишу.',
   },
 
   referrals: {
@@ -357,16 +365,16 @@ export const ru = {
       '• Если голосование закончилось до оплаты, голоса зачисляются на баланс.\n' +
       '• Возврат возможен, если голоса не были начислены: /paysupport.',
     refunded: (votes: number) => `↩️ Оплата возвращена. Списано голосов: ${votes}.`,
-    transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean; link: boolean }) =>
-      '<b>💳 Оплата голосов</b>\n\n' +
+    transferInstructions: (p: { amount: string; code: string; details: string; minutes: number; automatic: boolean; link: boolean; spot?: boolean }) =>
+      (p.spot ? '<b>🎟 Оплата места в финале</b>\n\n' : '<b>💳 Оплата голосов</b>\n\n') +
       (p.link ? '<b>1.</b> Нажми «💳 Оплата» ниже\n' : `<b>1.</b> Переведи на: ${p.details}\n`) +
       `<b>2.</b> Сумма: <b>${p.amount}</b>\n` +
       '<b>3.</b> В поле <b>«Комментарий»</b> вставь код:\n\n' +
       `👉 <b><code>${p.code}</code></b> 👈\n\n` +
-      '‼️ <b>ВСТАВЬ КОД — ТАК ГОЛОСА ЗАСЧИТАЮТСЯ ТОЧНО И СРАЗУ</b>\n' +
+      `‼️ <b>ВСТАВЬ КОД — ТАК ${p.spot ? 'ОПЛАТА ЗАСЧИТАЕТСЯ' : 'ГОЛОСА ЗАСЧИТАЮТСЯ'} ТОЧНО И СРАЗУ</b>\n` +
       'Нажми «📋 Скопировать код» — и просто вставь его. Без кода бот найдёт оплату только по сумме, и если в это время платит кто-то ещё — придётся ждать проверки админом.\n\n' +
       `<b>4.</b> После оплаты нажми «✅ Я оплатил». На оплату — ${p.minutes} мин.` +
-      (p.automatic ? '\nГолоса начислятся автоматически.' : ''),
+      (p.automatic ? (p.spot ? '\nМесто закрепится автоматически.' : '\nГолоса начислятся автоматически.') : ''),
     transferOpenJar: '💳 Оплата',
     transferCopyCode: '📋 Скопировать код',
     transferPaidButton: '✅ Я оплатил',
@@ -522,8 +530,8 @@ export const ru = {
       `⚠️ Пост пары опубликован в канале «${p.got}», а бот работает с каналом ${p.expected}. Кнопки голосования не добавлены — перешли пост в ${p.expected} (или поменяй CHANNEL_ID).`,
     byeReady: (round: number) => `➡️ Раунд ${round}: одна работа проходит без голосования (нечётное число работ). Перешли пост ниже в канал без автора:`,
     finalSpots: {
-      title: (r: { enabled: boolean; price: number; count: number }) =>
-        `<b>🎟 Места в финале</b>\n\nПродажа: ${r.enabled ? '✅ включена' : '⛔ выключена'} · Цена: ${r.price} ⭐ · Мест на батл: ${r.count}`,
+      title: (r: { enabled: boolean; price: number; count: number; card?: string }) =>
+        `<b>🎟 Места в финале</b>\n\nПродажа: ${r.enabled ? '✅ включена' : '⛔ выключена'} · Цена: ${r.price} ⭐${r.card ? ` или ${r.card} (банка)` : ''} · Мест на батл: ${r.count}`,
       battleLine: (p: { title: string; sold: number }) => `Батл «${p.title}»: куплено мест — ${p.sold}`,
       saleOpen: (left: number) => `Сейчас продажа открыта, осталось мест: ${left}.`,
       saleClosed: (reason: string) => `Сейчас не продаётся: ${reason.replace(/^🎟\s*/, '')}`,
@@ -543,6 +551,10 @@ export const ru = {
       askPrice: 'Пришли цену места в финале в звёздах, например <code>25</code>.',
       priceInvalid: 'Нужно целое число звёзд от 1, например 25.',
       priceSaved: (price: number) => `✅ Цена места в финале: ${price} ⭐.`,
+      priceCardButton: (price: string) => `💳 Цена: ${price}`,
+      askPriceCard: 'Пришли цену места в финале в гривнах (оплата на банку), например <code>40</code>. Минимум 10 — меньше банка не принимает.',
+      priceCardInvalid: 'Нужно целое число гривен от 10, например 40.',
+      priceCardSaved: (price: string) => `✅ Цена места в финале на банку: ${price}.`,
       grantButton: '🎁 Выдать место в финале',
       askGrant:
         'Кому выдать место в финале? Пришли @ник или ID пользователя (он должен хоть раз открыть бота).\n\n' +
@@ -633,6 +645,9 @@ export const ru = {
       ownerOnly: 'Управлять админами может только владелец.',
       back: '👮 К списку админов',
     },
+    finalSpotSoldCard: (p: { who: string; amount: string }) => `🎟 Куплено место в финале за ${p.amount} (банка): ${p.who}. Работа появится в финале автоматически.`,
+    finalSpotPayBack: (p: { who: string; amount: string; code: string }) =>
+      `↩️ <b>Верни деньги вручную:</b> ${p.amount} — ${p.who} (заказ <code>${p.code}</code>). Место в финале за банку не использовано или все места уже заняты.`,
     finalSpotSold: (p: { who: string; price: number }) => `🎟 Куплено место в финале за ${p.price} ⭐: ${p.who}. Работа появится в финале автоматически.`,
     finalSpotRefundFailed: (paymentId: number) => `⚠️ Не удалось вернуть звёзды за место в финале (платёж #${paymentId}). Верни вручную в разделе «Платежи».`,
     announcementReady: '📢 Пост для канала — перешли сообщение ниже без автора:',
@@ -859,8 +874,8 @@ export const ru = {
     transferRow: (p: { id: number; code: string; amount: string; votes: number; buyer: string; status: string }) =>
       `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
     transferAutoConfirmed: (code: string) => `✅ Оплата ${code} подтверждена автоматически по выписке Monobank — нажимать ничего не нужно.`,
-    transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string }) =>
-      `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\nГолосов: ${p.votes}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — начислить голоса, ❌ — отклонить.`,
+    transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string; spot?: boolean }) =>
+      `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\n${p.spot ? '🎟 Место в финале' : `Голосов: ${p.votes}`}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — ${p.spot ? 'дать место' : 'начислить голоса'}, ❌ — отклонить.`,
     transferApproved: (id: number) => `✅ Перевод #${id} подтверждён, голоса начислены.`,
     transferDeclined: (id: number) => `❌ Перевод #${id} отклонён.`,
   },

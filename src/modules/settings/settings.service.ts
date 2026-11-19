@@ -23,6 +23,7 @@ export type SettingsPatch = Partial<
     | 'finalSpotsEnabled'
     | 'finalSpotCount'
     | 'finalSpotPrice'
+    | 'finalSpotPriceCard'
   >
 >;
 
@@ -66,6 +67,10 @@ export class SettingsService {
     }
     if (patch.finalSpotPrice !== undefined && (!Number.isInteger(patch.finalSpotPrice) || patch.finalSpotPrice < 1 || patch.finalSpotPrice > 100_000)) {
       throw new RangeError('Invalid finalSpotPrice');
+    }
+    // Monobank jars accept transfers from 10 UAH.
+    if (patch.finalSpotPriceCard !== undefined && (!Number.isInteger(patch.finalSpotPriceCard) || patch.finalSpotPriceCard < 1000 || patch.finalSpotPriceCard > 10_000_000)) {
+      throw new RangeError('Invalid finalSpotPriceCard');
     }
     const templates = TEMPLATE_PATCH_KEYS.filter((key) => patch[key] !== undefined);
     if (templates.some((key) => (patch[key]?.length ?? 0) > MAX_TEMPLATE_LENGTH)) throw new RangeError('Template is too long');

@@ -3,7 +3,7 @@ import type { Message } from 'telegraf/types';
 import { isDomainError } from '../../../lib/errors.js';
 import { entitiesToHtml, stripCustomEmoji } from '../../../lib/entities-html.js';
 import { classifyTelegramError } from '../../../lib/telegram-errors.js';
-import { displayName, escapeHtml } from '../../../lib/format.js';
+import { displayName, escapeHtml, formatCardPrice } from '../../../lib/format.js';
 import { MAX_SPOTS_PER_BATTLE, type SpotWithDetails } from '../../../modules/final-spots/final-spot.service.js';
 import type { BotContext } from '../../context.js';
 import { setState } from '../../context.js';
@@ -25,7 +25,9 @@ export async function showFinalSpots(ctx: BotContext): Promise<void> {
   const { rules, battle, offer, spots } = await ctx.deps.services.finalSpots.overview();
   const s = ctx.locale.admin.finalSpots;
   const sold = spots.filter((spot) => !spot.refundedAt).length;
-  const lines = [s.title(rules), ''];
+  const { payments, settings } = ctx.deps.services;
+  const card = (await payments.spotTransferAvailable()) ? formatCardPrice((await settings.get()).finalSpotPriceCard, payments.options.cardCurrency) : null;
+  const lines = [s.title({ ...rules, ...(card ? { card } : {}) }), ''];
   if (battle) {
     lines.push(s.battleLine({ title: escapeHtml(battle.title), sold }));
     lines.push(offer.available ? s.saleOpen(offer.left) : s.saleClosed(ctx.locale.errors.FINAL_SPOT_UNAVAILABLE({ reason: offer.reason, fromRound: offer.fromRound ?? 0 })));
@@ -42,6 +44,7 @@ export async function showFinalSpots(ctx: BotContext): Promise<void> {
       [button(s.adButton, 'a:fs:ad')],
       [button(rules.enabled ? s.disable : s.enable, 'a:fs:tog')],
       [button(s.countButton(rules.count), 'a:fs:cnt'), button(s.priceButton(rules.price), 'a:fs:price')],
+      ...(card ? [[button(s.priceCardButton(card), 'a:fs:pricec')]] : []),
       ...refundable.map((spot) => [button(s.refundButton(spots.indexOf(spot) + 1), `a:fs:rf:${spot.id}`)]),
       [button(ctx.locale.admin.buttons.panel, PANEL)],
     ]),
@@ -60,6 +63,23 @@ export async function handleFinalSpotPriceInput(ctx: BotContext, text: string): 
   }
   setState(ctx, undefined);
   await ctx.reply(ctx.locale.admin.finalSpots.priceSaved(price), { reply_markup: inline([[button(ctx.locale.admin.finalSpots.back, 'a:fs')]]) });
+}
+
+/** Text answer to "send the price in hryvnias": a place paid by transfer to the jar. */
+export async function handleFinalSpotCardPriceInput(ctx: BotContext, text: string): Promise<void> {
+  const value = Number(text.trim().replace(',', '.').replace(/\s*(грн|₴|uah)\.?$/i, ''));
+  const price = Math.round(value * 100);
+  try {
+    if (!Number.isFinite(value)) throw new RangeError('Invalid price');
+    await ctx.deps.services.settings.update({ finalSpotPriceCard: price }, adminUserId(ctx));
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    await ctx.reply(ctx.locale.admin.finalSpots.priceCardInvalid);
+    return;
+  }
+  setState(ctx, undefined);
+  const shown = formatCardPrice(price, ctx.deps.services.payments.options.cardCurrency);
+  await ctx.reply(ctx.locale.admin.finalSpots.priceCardSaved(shown), { reply_markup: inline([[button(ctx.locale.admin.finalSpots.back, 'a:fs')]]) });
 }
 
 /** Text answer to "who gets a place": @username or id. */
@@ -221,6 +241,12 @@ export function registerFinalSpotAdminHandlers(admin: Composer<BotContext>): voi
     await ctx.deps.services.settings.update({ finalSpotCount: next }, adminUserId(ctx));
     await answer(ctx);
     await showFinalSpots(ctx);
+  });
+
+  admin.action('a:fs:pricec', async (ctx) => {
+    await answer(ctx);
+    setState(ctx, { kind: 'admin_input', action: 'final_spot_price_card' });
+    await respond(ctx, ctx.locale.admin.finalSpots.askPriceCard, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:fs')]]), forceNew: true });
   });
 
   admin.action('a:fs:price', async (ctx) => {

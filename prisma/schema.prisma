@@ -348,6 +348,8 @@ model BotSettings {
   finalSpotsEnabled  Boolean  @default(true)
   finalSpotCount     Int      @default(2)
   finalSpotPrice     Int      @default(25)
+  /// Price of a place paid by transfer to the jar, minor units (4000 = 40 UAH)
+  finalSpotPriceCard Int      @default(4000)
   updatedById        Int?
   updatedAt          DateTime @updatedAt
 }

@@ -116,6 +116,36 @@ describe('places in the final', () => {
     expect(await ctx.services.finalSpots.offer(null)).toMatchObject({ available: false, reason: 'FINAL_STARTED' });
   });
 
+  it('sells a place for a transfer to the jar: the admin confirms, the place is taken; unused it is paid back by hand', async () => {
+    const { battle } = await battleInRound2();
+    await ctx.services.settings.update({ transferEnabled: true, transferDetails: 'https://send.monobank.ua/jar/X', finalSpotPriceCard: 4000 }, null);
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { admin: { isNot: null } } });
+    const adminTexts = () => ctx.telegram.callsOf('sendMessage').filter((c) => c.chatId === Number(admin.telegramId)).map((c) => String(c.args[0]));
+    const buyer = await consenting();
+    const order = await ctx.services.payments.createSpotTransfer(buyer, battle.id);
+    expect(order.payment).toMatchObject({ method: 'TRANSFER', amount: 4000, votes: 0, finalSpotBattleId: battle.id });
+    expect(await ctx.services.payments.claimTransfer(order.payment.id, buyer)).toEqual({ automatic: false, spot: true });
+    expect(adminTexts().some((t) => t.includes('Место в финале') && t.includes(order.payment.code!))).toBe(true);
+
+    await ctx.services.payments.reviewTransfer(order.payment.id, admin.id, true);
+    expect(await ctx.prisma.finalSpot.findFirstOrThrow({ where: { userId: buyer.id } })).toMatchObject({ paymentId: order.payment.id, refundedAt: null });
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).voteBalance).toBe(0);
+    await expect(ctx.services.finalSpots.createInvoice(buyer)).rejects.toMatchObject({ params: { reason: 'ALREADY_BOUGHT' } });
+
+    // A second transfer for the same buyer cannot take another place: the admin is asked to pay it back.
+    const again = await ctx.services.payments.createSpotTransfer(buyer, battle.id);
+    await ctx.services.payments.claimTransfer(again.payment.id, buyer);
+    await ctx.services.payments.reviewTransfer(again.payment.id, admin.id, true);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: again.payment.id } })).status).toBe('REFUNDED');
+    expect(adminTexts().some((t) => t.includes('Верни деньги вручную') && t.includes(again.payment.code!))).toBe(true);
+
+    // No photo before the battle is cancelled: nothing goes back through Telegram, the admin pays back.
+    await ctx.services.battles.cancel(battle.id, admin.id);
+    expect(ctx.telegram.callsOf('refundStarPayment')).toHaveLength(0);
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('REFUNDED');
+    expect(adminTexts().filter((t) => t.includes('Верни деньги вручную'))).toHaveLength(2);
+  });
+
   it('refunds unused places when the battle is cancelled and keeps the final within 6 entries', async () => {
     const { battle } = await battleInRound2();
     const buyer = await consenting();

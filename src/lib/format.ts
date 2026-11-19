@@ -58,3 +58,10 @@ export function channelPostLink(channel: { id: number; username?: string | undef
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
+
+/** Formats a card price stored in minor units: 8900 UAH → "89 ₴". */
+export function formatCardPrice(amount: number, currency: string): string {
+  const value = amount / 100;
+  const text = Number.isInteger(value) ? String(value) : value.toFixed(2);
+  return currency === 'UAH' ? `${text} ₴` : `${text} ${currency}`;
+}
