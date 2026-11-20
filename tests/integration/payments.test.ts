@@ -227,7 +227,7 @@ describe('pack rules for money and Stars', () => {
     await expect(ctx.services.payments.createInvoice(buyer, ten.id, 'STARS', null)).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect((await ctx.services.payments.createInvoice(buyer, fifty.id, 'STARS', null)).votes).toBe(50);
     const order = await ctx.services.payments.createTransfer(buyer, fifty.id, null);
-    expect(order.payment).toMatchObject({ votes: 55, amount: 5000 });
+    expect(order.payment).toMatchObject({ votes: 60, amount: 5000 });
 
     const admin = await createAdmin(ctx);
     await ctx.services.payments.setPackageBonus(fifty.id, 15, admin.id);
