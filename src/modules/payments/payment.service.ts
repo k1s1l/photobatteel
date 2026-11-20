@@ -20,10 +20,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Default packs created on first start; admins can change prices or hide packs. */
 export const DEFAULT_PACKAGES = [
-  { votes: 10, priceStars: 10, priceCard: 1000, sortOrder: 1 },
-  { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2 },
-  { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3 },
-  { votes: 100, priceStars: 100, priceCard: 10000, sortOrder: 4 },
+  { votes: 10, priceStars: 10, priceCard: 1000, sortOrder: 1, bonusCard: 1, starsEnabled: false },
+  { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2, bonusCard: 3, starsEnabled: true },
+  { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3, bonusCard: 10, starsEnabled: true },
+  { votes: 100, priceStars: 100, priceCard: 10000, sortOrder: 4, bonusCard: 25, starsEnabled: true },
 ] as const;
 
 /** Monobank jars accept transfers from 10 UAH, so a card price below that cannot be paid. */
@@ -190,6 +190,22 @@ export class PaymentService {
     return pack;
   }
 
+  /** Bonus votes for paying the pack by card / jar. */
+  async setPackageBonus(id: number, bonus: number, adminUserId: number): Promise<VotePackage> {
+    if (!Number.isInteger(bonus) || bonus < 0 || bonus > 100_000) throw new RangeError('Invalid bonus');
+    const pack = await this.prisma.votePackage.update({ where: { id }, data: { bonusCard: bonus } });
+    await this.activity.log({ action: 'PACKAGE_UPDATED', userId: adminUserId, entityType: 'VotePackage', entityId: id, details: { bonusCard: bonus } });
+    return pack;
+  }
+
+  /** Sell the pack for Stars too, or only for money. */
+  async toggleStars(id: number, adminUserId: number): Promise<VotePackage> {
+    const current = await this.prisma.votePackage.findUniqueOrThrow({ where: { id } });
+    const pack = await this.prisma.votePackage.update({ where: { id }, data: { starsEnabled: !current.starsEnabled } });
+    await this.activity.log({ action: 'PACKAGE_UPDATED', userId: adminUserId, entityType: 'VotePackage', entityId: id, details: { starsEnabled: pack.starsEnabled } });
+    return pack;
+  }
+
   async togglePackage(id: number, adminUserId: number): Promise<VotePackage> {
     const current = await this.prisma.votePackage.findUniqueOrThrow({ where: { id } });
     const pack = await this.prisma.votePackage.update({ where: { id }, data: { isActive: !current.isActive } });
@@ -204,15 +220,17 @@ export class PaymentService {
     if (!settings.paidVotesEnabled) throw new DomainError('PAYMENTS_DISABLED');
     if (method === 'CARD' && !this.options.cardEnabled) throw new DomainError('PAYMENTS_DISABLED');
     const pack = await this.prisma.votePackage.findUnique({ where: { id: packageId } });
-    if (!pack?.isActive) throw new DomainError('NOT_FOUND');
+    if (!pack?.isActive || (method === 'STARS' && !pack.starsEnabled)) throw new DomainError('NOT_FOUND');
     if (targetPhotoId !== null && !(await findActiveDuel(this.prisma, targetPhotoId))) throw new DomainError('VOTING_CLOSED');
     const currency = method === 'STARS' ? STARS_CURRENCY : this.options.cardCurrency;
     const amount = method === 'STARS' ? pack.priceStars : pack.priceCard;
+    // Paying with money gives the pack's bonus votes.
+    const votes = method === 'STARS' ? pack.votes : pack.votes + pack.bonusCard;
     const payment = await this.prisma.payment.create({
-      data: { userId: user.id, packageId: pack.id, votes: pack.votes, method, currency, amount, targetPhotoId },
+      data: { userId: user.id, packageId: pack.id, votes, method, currency, amount, targetPhotoId },
     });
     await this.holdForPayment(targetPhotoId);
-    return { payment, payload: orderPayload(payment.id), currency, amount, votes: pack.votes };
+    return { payment, payload: orderPayload(payment.id), currency, amount, votes };
   }
 
   /** pre_checkout_query validation: returns a problem or null when the payment may proceed. */
@@ -477,7 +495,7 @@ export class PaymentService {
           data: {
             userId: user.id,
             packageId: pack.id,
-            votes: pack.votes,
+            votes: pack.votes + pack.bonusCard,
             method: 'TRANSFER',
             currency: this.options.cardCurrency,
             amount: pack.priceCard,

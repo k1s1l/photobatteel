@@ -344,7 +344,7 @@ export const ru = {
       'Купленные голоса сразу добавятся этой работе.' +
       (p.balance > 0 ? `\nНа балансе: ${p.balance} — можно отдать прямо сейчас.` : ''),
     packStars: (p: { votes: number; price: number }) => `${p.votes} гол. — ${p.price} ⭐`,
-    packCard: (p: { votes: number; price: string }) => `${p.votes} гол. — ${p.price} 💳`,
+    packCard: (p: { votes: number; price: string; bonus?: number }) => (p.bonus ? `${p.votes}+${p.bonus}🎁 гол. — ${p.price} 💳` : `${p.votes} гол. — ${p.price} 💳`),
     spendButton: (amount: number) => `🎁 +${amount} с баланса`,
     spent: (p: { amount: number; side: number; left: number }) => `⭐ Работа ${p.side} получила +${p.amount}. Осталось на балансе: ${p.left}.`,
     invoiceTitle: (votes: number) => `${votes} голосов — Photo Battle`,
@@ -829,9 +829,16 @@ export const ru = {
       'Пакеты (нажми, чтобы изменить цену):',
     paymentsToggleOn: '✅ Включить продажу голосов',
     paymentsToggleOff: '⛔ Выключить продажу голосов',
-    packageRow: (p: { votes: number; stars: number; card: string; active: boolean }) => `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.stars}⭐ · ${p.card}`,
-    packageCard: (p: { votes: number; stars: number; card: string; active: boolean }) =>
-      `<b>Пакет: ${p.votes} голосов</b>\nЦена: ${p.stars} ⭐ / ${p.card}\nСтатус: ${p.active ? 'продаётся' : 'скрыт'}`,
+    packageRow: (p: { votes: number; stars: number; card: string; active: boolean; bonus: number; starsOn: boolean }) =>
+      `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.starsOn ? `${p.stars}⭐` : 'без ⭐'} · ${p.card}${p.bonus ? ` (+${p.bonus}🎁)` : ''}`,
+    packageCard: (p: { votes: number; stars: number; card: string; active: boolean; bonus: number; starsOn: boolean }) =>
+      `<b>Пакет: ${p.votes} голосов</b>\nЦена: ${p.starsOn ? `${p.stars} ⭐` : 'звёздами не продаётся'} / ${p.card}\n` +
+      `Бонус за оплату на банку: ${p.bonus ? `+${p.bonus} голосов (итого ${p.votes + p.bonus})` : 'нет'}\nСтатус: ${p.active ? 'продаётся' : 'скрыт'}`,
+    packageBonusButton: (n: number) => `🎁 Бонус за банку: +${n}`,
+    packageStarsOff: '⭐ Не продавать за звёзды',
+    packageStarsOn: '⭐ Продавать и за звёзды',
+    askPackageBonus: (votes: number) => `Сколько бонусных голосов давать за пакет «${votes} голосов» при оплате на банку? Например <code>10</code> (0 — без бонуса).`,
+    packageBonusInvalid: 'Нужно целое число от 0, например 10.',
     packageEditPrice: '✏️ Изменить цену',
     packageHide: '🚫 Скрыть пакет',
     packageShow: '✅ Показывать пакет',

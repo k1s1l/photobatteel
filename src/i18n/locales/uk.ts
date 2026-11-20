@@ -324,7 +324,7 @@ export const uk: Locale = {
       'Куплені голоси одразу додадуться цій роботі.' +
       (p.balance > 0 ? `\nНа балансі: ${p.balance} — можна віддати просто зараз.` : ''),
     packStars: (p) => `${p.votes} гол. — ${p.price} ⭐`,
-    packCard: (p) => `${p.votes} гол. — ${p.price} 💳`,
+    packCard: (p) => (p.bonus ? `${p.votes}+${p.bonus}🎁 гол. — ${p.price} 💳` : `${p.votes} гол. — ${p.price} 💳`),
     spendButton: (amount) => `🎁 +${amount} з балансу`,
     spent: (p) => `⭐ Робота ${p.side} отримала +${p.amount}. Залишилось на балансі: ${p.left}.`,
     invoiceTitle: (votes) => `${votes} голосів — Photo Battle`,
@@ -769,8 +769,15 @@ export const uk: Locale = {
       'Пакети (натисни, щоб змінити ціну):',
     paymentsToggleOn: '✅ Увімкнути продаж голосів',
     paymentsToggleOff: '⛔ Вимкнути продаж голосів',
-    packageRow: (p) => `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.stars}⭐ · ${p.card}`,
-    packageCard: (p) => `<b>Пакет: ${p.votes} голосів</b>\nЦіна: ${p.stars} ⭐ / ${p.card}\nСтатус: ${p.active ? 'продається' : 'прихований'}`,
+    packageRow: (p) => `${p.active ? '' : '🚫 '}${p.votes} гол. · ${p.starsOn ? `${p.stars}⭐` : 'без ⭐'} · ${p.card}${p.bonus ? ` (+${p.bonus}🎁)` : ''}`,
+    packageCard: (p) =>
+      `<b>Пакет: ${p.votes} голосів</b>\nЦіна: ${p.starsOn ? `${p.stars} ⭐` : 'за зірки не продається'} / ${p.card}\n` +
+      `Бонус за оплату на банку: ${p.bonus ? `+${p.bonus} голосів (разом ${p.votes + p.bonus})` : 'немає'}\nСтатус: ${p.active ? 'продається' : 'прихований'}`,
+    packageBonusButton: (n) => `🎁 Бонус за банку: +${n}`,
+    packageStarsOff: '⭐ Не продавати за зірки',
+    packageStarsOn: '⭐ Продавати й за зірки',
+    askPackageBonus: (votes) => `Скільки бонусних голосів давати за пакет «${votes} голосів» при оплаті на банку? Наприклад <code>10</code> (0 — без бонусу).`,
+    packageBonusInvalid: 'Потрібне ціле число від 0, наприклад 10.',
     packageEditPrice: '✏️ Змінити ціну',
     packageHide: '🚫 Приховати пакет',
     packageShow: '✅ Показувати пакет',

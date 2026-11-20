@@ -8,7 +8,7 @@ import type { Services } from '../services.js';
 import type { Env } from '../config/env.js';
 import type { StageVariant, TemplateKey } from '../modules/duels/templates.js';
 
-export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'find' | 'package_price' | 'transfer_details' | 'final_spot_price' | 'final_spot_price_card' | 'final_spot_grant' | 'admin_add' | 'prize_base' | 'prize_threshold' | 'prize_rate';
+export type AdminInputAction = 'delete' | 'block' | 'unblock' | 'find' | 'package_price' | 'transfer_details' | 'final_spot_price' | 'final_spot_price_card' | 'final_spot_grant' | 'admin_add' | 'package_bonus' | 'prize_base' | 'prize_threshold' | 'prize_rate';
 
 /** What the bot expects from the user next. */
 export type ConversationState =

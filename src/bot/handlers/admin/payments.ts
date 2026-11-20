@@ -19,7 +19,7 @@ function money(ctx: BotContext, amount: number): string {
 }
 
 function packageInfo(ctx: BotContext, pack: VotePackage) {
-  return { votes: pack.votes, stars: pack.priceStars, card: money(ctx, pack.priceCard), active: pack.isActive };
+  return { votes: pack.votes, stars: pack.priceStars, card: money(ctx, pack.priceCard), active: pack.isActive, bonus: pack.bonusCard, starsOn: pack.starsEnabled };
 }
 
 async function showPayments(ctx: BotContext): Promise<void> {
@@ -111,6 +111,8 @@ async function showPackage(ctx: BotContext, id: number): Promise<void> {
   await respond(ctx, a.packageCard(packageInfo(ctx, pack)), {
     keyboard: inline([
       [button(a.packageEditPrice, `a:pkg:e:${id}`)],
+      [button(a.packageBonusButton(pack.bonusCard), `a:pkg:b:${id}`)],
+      [button(pack.starsEnabled ? a.packageStarsOff : a.packageStarsOn, `a:pkg:s:${id}`)],
       [button(pack.isActive ? a.packageHide : a.packageShow, `a:pkg:t:${id}`)],
       [button(ctx.locale.common.back, 'a:pay')],
     ]),
@@ -135,6 +137,21 @@ export async function handlePackagePriceInput(ctx: BotContext, packageId: number
   }
   setState(ctx, undefined);
   await ctx.reply(ctx.locale.admin.packageSaved, { reply_markup: inline([[button(ctx.locale.admin.buttons.payments, 'a:pay')]]) });
+}
+
+/** Text answer to "how many bonus votes for paying to the jar". */
+export async function handlePackageBonusInput(ctx: BotContext, packageId: number, text: string): Promise<void> {
+  const bonus = Number(text.trim().replace(/^\+/, ''));
+  try {
+    await ctx.deps.services.payments.setPackageBonus(packageId, bonus, adminUserId(ctx));
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    await ctx.reply(ctx.locale.admin.packageBonusInvalid);
+    return;
+  }
+  setState(ctx, undefined);
+  await ctx.reply(ctx.locale.admin.packageSaved);
+  await showPackage(ctx, packageId);
 }
 
 const TRANSFER_DETAILS_MAX = 200;
@@ -306,6 +323,22 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
     await ctx.deps.services.payments.togglePackage(id, adminUserId(ctx));
     await answer(ctx, ctx.locale.admin.packageSaved);
     await showPackage(ctx, id);
+  });
+
+  admin.action(/^a:pkg:s:(\d+)$/, async (ctx) => {
+    const id = matchInt(ctx);
+    await ctx.deps.services.payments.toggleStars(id, adminUserId(ctx));
+    await answer(ctx, ctx.locale.admin.packageSaved);
+    await showPackage(ctx, id);
+  });
+
+  admin.action(/^a:pkg:b:(\d+)$/, async (ctx) => {
+    const id = matchInt(ctx);
+    const pack = await ctx.deps.services.payments.getPackage(id);
+    await answer(ctx);
+    if (!pack) return;
+    setState(ctx, { kind: 'admin_input', action: 'package_bonus', packageId: id });
+    await respond(ctx, ctx.locale.admin.askPackageBonus(pack.votes), { keyboard: inline([[button(ctx.locale.common.cancel, `a:pkg:${id}`)]]) });
   });
 
   admin.action(/^a:pkg:e:(\d+)$/, async (ctx) => {

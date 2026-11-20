@@ -214,3 +214,25 @@ describe('growing prize', () => {
     expect(JSON.stringify(ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)!.args[1])).not.toContain('Приз');
   });
 });
+
+describe('pack rules for money and Stars', () => {
+  it('sells 10 votes only for money, and paying to the jar gives bonus votes', async () => {
+    ctx = await createTestContext({ realPackages: true });
+    await ctx.services.settings.update({ paidVotesEnabled: true, transferEnabled: true, transferDetails: 'https://send.monobank.ua/jar/X' }, null);
+    const packs = await ctx.services.payments.listPackages(true);
+    const ten = packs.find((p) => p.votes === 10)!;
+    const fifty = packs.find((p) => p.votes === 50)!;
+    expect(ten).toMatchObject({ starsEnabled: false, bonusCard: 1 });
+    const buyer = await createUser(ctx);
+    await expect(ctx.services.payments.createInvoice(buyer, ten.id, 'STARS', null)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await ctx.services.payments.createInvoice(buyer, fifty.id, 'STARS', null)).votes).toBe(50);
+    const order = await ctx.services.payments.createTransfer(buyer, fifty.id, null);
+    expect(order.payment).toMatchObject({ votes: 60, amount: 5000 });
+
+    const admin = await createAdmin(ctx);
+    await ctx.services.payments.setPackageBonus(fifty.id, 15, admin.id);
+    expect((await ctx.services.payments.createTransfer(buyer, fifty.id, null)).payment.votes).toBe(65);
+    await ctx.services.payments.toggleStars(ten.id, admin.id);
+    expect((await ctx.services.payments.createInvoice(buyer, ten.id, 'STARS', null)).votes).toBe(10);
+  });
+});

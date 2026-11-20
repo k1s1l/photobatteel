@@ -412,6 +412,10 @@ model VotePackage {
   votes      Int
   priceStars Int // in Telegram Stars
   priceCard  Int // in minor units of CARD_CURRENCY (kopecks for UAH)
+  /// Extra votes when the pack is paid by card / transfer to the jar
+  bonusCard  Int       @default(0)
+  /// false: the pack is sold only for money, not for Stars
+  starsEnabled Boolean @default(true)
   isActive   Boolean   @default(true)
   sortOrder  Int       @default(0)
   createdAt  DateTime  @default(now())

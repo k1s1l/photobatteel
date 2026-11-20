@@ -21,14 +21,16 @@ function packButtons(ctx: BotContext, target: number) {
     const packs = await payments.listPackages(true);
     // Card: a Telegram payment provider if configured, otherwise a transfer to the owner's card/jar.
     const cardAction = payments.options.cardEnabled ? 'c' : (await payments.transferAvailable()) ? 't' : null;
-    return packs.map((pack) => {
-      const row = [button(ctx.locale.payments.packStars({ votes: pack.votes, price: pack.priceStars }), `pay:s:${pack.id}:${target}`)];
-      if (cardAction) {
-        const price = formatCardPrice(pack.priceCard, payments.options.cardCurrency);
-        row.push(button(ctx.locale.payments.packCard({ votes: pack.votes, price }), `pay:${cardAction}:${pack.id}:${target}`));
-      }
-      return row;
-    });
+    return packs
+      .map((pack) => {
+        const row = pack.starsEnabled ? [button(ctx.locale.payments.packStars({ votes: pack.votes, price: pack.priceStars }), `pay:s:${pack.id}:${target}`)] : [];
+        if (cardAction) {
+          const price = formatCardPrice(pack.priceCard, payments.options.cardCurrency);
+          row.push(button(ctx.locale.payments.packCard({ votes: pack.votes, price, bonus: pack.bonusCard }), `pay:${cardAction}:${pack.id}:${target}`));
+        }
+        return row;
+      })
+      .filter((row) => row.length > 0);
   };
 }
 
