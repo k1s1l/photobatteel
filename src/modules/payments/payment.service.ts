@@ -21,9 +21,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Default packs created on first start; admins can change prices or hide packs. */
 export const DEFAULT_PACKAGES = [
   { votes: 10, priceStars: 10, priceCard: 1000, sortOrder: 1, bonusCard: 1, starsEnabled: false },
-  { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2, bonusCard: 3, starsEnabled: true },
-  { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3, bonusCard: 10, starsEnabled: true },
-  { votes: 100, priceStars: 100, priceCard: 10000, sortOrder: 4, bonusCard: 25, starsEnabled: true },
+  { votes: 20, priceStars: 20, priceCard: 2000, sortOrder: 2, bonusCard: 2, starsEnabled: true },
+  { votes: 50, priceStars: 50, priceCard: 5000, sortOrder: 3, bonusCard: 5, starsEnabled: true },
+  { votes: 100, priceStars: 100, priceCard: 10000, sortOrder: 4, bonusCard: 10, starsEnabled: true },
 ] as const;
 
 /** Monobank jars accept transfers from 10 UAH, so a card price below that cannot be paid. */
