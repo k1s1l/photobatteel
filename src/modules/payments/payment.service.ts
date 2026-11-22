@@ -559,17 +559,22 @@ export class PaymentService {
     const automatic = this.bankVerification(settings);
     // With the bank check the bot confirms by itself and asks the admins only when it
     // finds nothing within a few minutes (see expireTransfers); without it, right away.
+    let bankFailed = false;
     if (automatic) {
       try {
         await this.pollBank();
+        // pollBank records a failed Monobank request instead of throwing.
+        bankFailed = !!this.bankCheck?.error && Date.now() - this.bankCheck.at.getTime() < 10 * 60_000;
       } catch (error) {
+        bankFailed = true;
         this.logger.warn({ err: error }, 'Bank check on "I paid" failed');
         this.bankCheck = { at: new Date(), error: error instanceof Error ? error.message : String(error), items: 0 };
       }
     }
-    // The admins are asked at once (unless the bank check has just found the transfer:
-    // then the order is already paid and they get the "payment credited" note instead).
-    await this.requestReview(paymentId);
+    // With the bank check working, admins are asked only if the bank shows nothing for a while
+    // (expireTransfers). Without it — or when Monobank does not answer — right away.
+    if (!automatic) await this.requestReview(paymentId);
+    else if (bankFailed) await this.requestReview(paymentId, 'error');
     return { automatic, spot: claimedOrder.finalSpotBattleId !== null };
   }
 
@@ -822,7 +827,9 @@ export class PaymentService {
         },
         select: { id: true },
       });
-      for (const { id } of unmatched) await this.requestReview(id);
+      // The bank was checked all this time: tell the admins whether the transfer is simply not there or the check failed.
+      const bankFailed = !!this.bankCheck?.error && now.getTime() - this.bankCheck.at.getTime() < 10 * 60_000;
+      for (const { id } of unmatched) await this.requestReview(id, bankFailed ? 'error' : 'not_found');
     }
 
     const unanswered = await this.prisma.payment.findMany({
@@ -845,7 +852,7 @@ export class PaymentService {
   }
 
   /** Asks admins to check a transfer manually (once). */
-  private async requestReview(paymentId: number): Promise<void> {
+  private async requestReview(paymentId: number, bank: 'not_found' | 'error' | null = null): Promise<void> {
     const marked = await this.prisma.payment.updateMany({
       where: { id: paymentId, status: 'CLAIMED', reviewRequestedAt: null },
       data: { reviewRequestedAt: new Date() },
@@ -855,7 +862,7 @@ export class PaymentService {
     const amount = formatCardPrice(payment.amount, payment.currency);
     const buyer = payment.user.username ? `@${payment.user.username}` : payment.user.firstName;
     const spot = payment.finalSpotBattleId !== null;
-    await this.notifications.notifyAdmins((l) => l.admin.transferReview({ id: payment.id, code: payment.code ?? '', amount, votes: payment.votes, buyer: escapeHtml(buyer), spot }), {
+    await this.notifications.notifyAdmins((l) => l.admin.transferReview({ id: payment.id, code: payment.code ?? '', amount, votes: payment.votes, buyer: escapeHtml(buyer), spot, bank }), {
       parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: [

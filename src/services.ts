@@ -91,7 +91,7 @@ export function createServices(deps: ServiceDeps): Services {
       cardCurrency: env.CARD_CURRENCY,
       transferTtlMinutes: env.TRANSFER_TTL_MINUTES ?? 15,
       manualReviewHours: env.TRANSFER_REVIEW_HOURS ?? 12,
-      reviewAfterMinutes: env.TRANSFER_REVIEW_AFTER_MINUTES ?? 2,
+      reviewAfterMinutes: env.TRANSFER_REVIEW_AFTER_MINUTES ?? 10,
       overtimeMinutes: env.OVERTIME_MINUTES ?? 0,
     },
     notifications,

@@ -62,7 +62,7 @@ const envSchema = z
     /** Minutes a buyer has to make a transfer before the order expires. */
     TRANSFER_TTL_MINUTES: z.coerce.number().int().min(2).max(24 * 60).default(15),
     /** Minutes the bank check may take before a claimed transfer is sent to the admins. */
-    TRANSFER_REVIEW_AFTER_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(2),
+    TRANSFER_REVIEW_AFTER_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(10),
     /** Paid votes in the last N minutes of a pair extend its voting to N minutes from that moment (0 = off). */
     OVERTIME_MINUTES: z.coerce.number().int().min(0).max(60).default(5),
     /** Hours a claimed transfer waits for an admin before it is cancelled. */

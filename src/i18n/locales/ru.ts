@@ -898,7 +898,12 @@ export const ru = {
     transferRow: (p: { id: number; code: string; amount: string; votes: number; buyer: string; status: string }) =>
       `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
     transferAutoConfirmed: (code: string) => `✅ Оплата ${code} подтверждена автоматически по выписке Monobank — нажимать ничего не нужно.`,
-    transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string; spot?: boolean }) =>
+    transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string; spot?: boolean; bank?: 'not_found' | 'error' | null }) =>
+      (p.bank === 'not_found'
+        ? '⚠️ <b>Бот 10 минут проверял банку — этого перевода там нет.</b> Скорее всего, денег не было. Подтверждай, только если сам видишь перевод в банке.\n\n'
+        : p.bank === 'error'
+          ? '⚠️ <b>Бот не смог проверить банку</b> (Monobank не ответил). Проверь перевод в приложении банка сам.\n\n'
+          : '') +
       `🔎 <b>Проверь перевод</b> #${p.id}\nКод: <code>${p.code}</code>\nСумма: ${p.amount}\n${p.spot ? '🎟 Место в финале' : `Голосов: ${p.votes}`}\nПокупатель: ${p.buyer}\n\nДеньги пришли? ✅ — ${p.spot ? 'дать место' : 'начислить голоса'}, ❌ — отклонить.`,
     transferApproved: (id: number) => `✅ Перевод #${id} подтверждён, голоса начислены.`,
     transferDeclined: (id: number) => `❌ Перевод #${id} отклонён.`,

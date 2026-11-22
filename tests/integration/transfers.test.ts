@@ -367,11 +367,18 @@ describe('transfer orders', () => {
     const claimed = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
     await ctx.services.payments.claimTransfer(claimed.payment.id, buyer);
 
-    // The admins are asked the moment the buyer presses "I paid" — and only once.
-    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
+    // The bank check works: admins are not bothered while the bot is still looking for the transfer…
+    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!))).toHaveLength(0);
     await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 3 * 60_000) } });
     await ctx.services.payments.expireTransfers();
-    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'))).toHaveLength(1);
+    expect(adminTexts().filter((t) => t.includes(claimed.payment.code!))).toHaveLength(0);
+    // …and after 10 minutes without it they are asked once, told the bank shows nothing.
+    await ctx.prisma.payment.update({ where: { id: claimed.payment.id }, data: { claimedAt: new Date(Date.now() - 11 * 60_000) } });
+    await ctx.services.payments.expireTransfers();
+    await ctx.services.payments.expireTransfers();
+    const asked = adminTexts().filter((t) => t.includes(claimed.payment.code!) && t.includes('Проверь перевод'));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('этого перевода там нет');
 
     const in31min = new Date(Date.now() + 31 * 60_000);
     await ctx.services.payments.expireTransfers(in31min);
