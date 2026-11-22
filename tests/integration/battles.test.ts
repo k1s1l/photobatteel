@@ -745,7 +745,7 @@ describe('templates, final duration and reminders', () => {
     expect((await ctx.prisma.duel.findFirstOrThrow()).stackedButtons).toBe(true);
   });
 
-  it('tells the admins why Telegram refused premium emoji and still publishes the buttons', async () => {
+  it('leaves the text above the buttons empty when Telegram refuses premium emoji — no hearts', async () => {
     const admin = await createAdmin(ctx);
     await ctx.services.settings.update({ buttonsTemplate: '<tg-emoji emoji-id="5">❤</tg-emoji> ПЕРВЫЙ РАУНД — голосуй за свою работу' }, admin.id);
     const battle = await openBattle(ctx);
@@ -755,8 +755,33 @@ describe('templates, final duration and reminders', () => {
     ctx.telegram.failNext('sendMessage', telegramError(400, 'Bad Request: CUSTOM_EMOJI_NOT_ALLOWED'));
     const duel = await ctx.prisma.duel.findFirstOrThrow();
     await ctx.services.battles.linkChannelPost({ messageId: 700, fileUniqueIds: [duel.preparedFileUniqueId!] });
-    expect(String(toChannel('sendMessage').at(-1)!.args[0])).toBe('❤ ПЕРВЫЙ РАУНД — голосуй за свою работу');
-    expect(adminTexts().some((t) => t.includes('CUSTOM_EMOJI_NOT_ALLOWED') && t.includes('подпись над кнопками'))).toBe(true);
+    expect(String(toChannel('sendMessage').at(-1)!.args[0])).toBe('ㅤ');
+    expect(JSON.stringify(toChannel('sendMessage').at(-1)!.args[1])).toContain('d:');
+  });
+
+  it('puts the vote buttons right under the admin\'s post — no message above them', async () => {
+    ctx = await createTestContext({ buttonsOnPost: true });
+    await createAdmin(ctx);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    const before = toChannel('sendMessage').length;
+    expect(await ctx.services.battles.linkChannelPost({ messageId: 701, fileUniqueIds: [duel.preparedFileUniqueId!] })).toBe(true);
+    expect(toChannel('sendMessage')).toHaveLength(before);
+    const edit = toChannel('editMessageReplyMarkup').at(-1)!;
+    expect(edit.args[0]).toBe(701);
+    expect(JSON.stringify(edit.args[1])).toContain(`d:${duel.id}:0:a`);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).toMatchObject({ status: 'ACTIVE', messageId: 701, mediaMessageIds: [701] });
+
+    // An album cannot carry buttons: they come in a reply under it.
+    ctx.telegram.failNext('editMessageReplyMarkup', telegramError(400, 'Bad Request: message can\'t be edited'));
+    await ctx.services.battles.republish(duel.id, null);
+    await preparePendingDuels(ctx);
+    const again = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } });
+    await ctx.services.battles.linkChannelPost({ messageId: 702, fileUniqueIds: [again.preparedFileUniqueId!] });
+    expect((toChannel('sendMessage').at(-1)!.args[1] as { replyToMessageId: number }).replyToMessageId).toBe(702);
   });
 
   it('gives the final its own voting time', async () => {

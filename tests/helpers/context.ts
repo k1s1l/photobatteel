@@ -42,7 +42,7 @@ export const TEST_ENV = {
   PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
 };
 
-export async function createTestContext(options: { bank?: BankClient | null; realPackages?: boolean } = {}): Promise<TestContext> {
+export async function createTestContext(options: { bank?: BankClient | null; realPackages?: boolean; buttonsOnPost?: boolean } = {}): Promise<TestContext> {
   const prisma = testPrisma();
   await resetDatabase(prisma);
   const telegram = new FakeTelegram();
@@ -53,6 +53,8 @@ export async function createTestContext(options: { bank?: BankClient | null; rea
   await services.payments.ensureDefaultPackages();
   // Most tests use plain packs (sold for Stars, no bonus); the bonus rules have their own tests.
   if (!options.realPackages) await prisma.votePackage.updateMany({ data: { bonusCard: 0, starsEnabled: true } });
+  // Most tests check the message with the buttons text; buttons right on the post have their own tests.
+  if (!options.buttonsOnPost) await services.settings.update({ buttonsOnPost: false }, null);
   return { prisma, telegram, scheduler, services };
 }
 

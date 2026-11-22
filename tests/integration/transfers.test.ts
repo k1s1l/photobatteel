@@ -180,7 +180,7 @@ describe('transfer orders', () => {
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('FINISHED');
   });
 
-  it('stops holding a pair 30 minutes after "I paid"', async () => {
+  it('keeps holding a pair after "I paid" however long it takes, and closes it once the admin rejects the transfer', async () => {
     await createAdmin(ctx);
     await enableTransfers(false);
     const battle = await openBattle(ctx);
@@ -194,6 +194,12 @@ describe('transfer orders', () => {
     await ctx.services.payments.claimTransfer(order.payment.id, buyer);
     await ctx.prisma.payment.update({ where: { id: order.payment.id }, data: { claimedAt: new Date(Date.now() - 31 * 60_000) } });
     await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() - 1000), votesA: 1 } });
+    await ctx.services.battles.tick();
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('ACTIVE');
+
+    const admin = await ctx.prisma.user.findFirstOrThrow({ where: { telegramId: BigInt(ADMIN_TG_ID) } });
+    await ctx.services.payments.reviewTransfer(order.payment.id, admin.id, false);
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { endsAt: new Date(Date.now() - 1000) } });
     await ctx.services.battles.tick();
     expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } })).status).toBe('FINISHED');
   });

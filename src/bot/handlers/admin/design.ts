@@ -107,6 +107,7 @@ async function showMenu(ctx: BotContext): Promise<void> {
   const names = ctx.locale.admin.templateNames;
   await respond(ctx, ctx.locale.admin.designMenu, {
     keyboard: inline([
+      [button(settings.buttonsOnPost ? ctx.locale.admin.buttonsOnPostOn : ctx.locale.admin.buttonsOnPostOff, 'a:tpl:bop')],
       ...TEMPLATE_KEYS.map((key) => [button(`${settings[TEMPLATE_FIELDS[key]] ? '✏️ ' : ''}${names[key]}`, `a:tpl:k:${key}`)]),
       [button(ctx.locale.admin.buttons.panel, PANEL)],
     ]),
@@ -181,6 +182,14 @@ export function registerDesignHandlers(admin: Composer<BotContext>): void {
   admin.action('a:tpl', async (ctx) => {
     setState(ctx, undefined);
     await answer(ctx);
+    await showMenu(ctx);
+  });
+
+  admin.action('a:tpl:bop', async (ctx) => {
+    const { settings } = ctx.deps.services;
+    const current = await settings.get();
+    await settings.update({ buttonsOnPost: !current.buttonsOnPost }, adminUserId(ctx));
+    await answer(ctx, current.buttonsOnPost ? ctx.locale.admin.buttonsOnPostOffHint : ctx.locale.admin.buttonsOnPostOnHint, true);
     await showMenu(ctx);
   });
 

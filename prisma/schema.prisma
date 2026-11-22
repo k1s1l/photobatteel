@@ -369,6 +369,8 @@ model BotSettings {
   finalSpotAdMediaId  String?
   finalSpotAdMediaUid String?
   /// Growing prize: base stars, and after `prizeThreshold` paid votes of a battle each vote adds prizePerHundred/100 stars
+  /// Vote buttons go straight under the admin's pair post (no message above them)
+  buttonsOnPost      Boolean  @default(true)
   prizeEnabled       Boolean  @default(false)
   prizeBase          Int      @default(300)
   prizeThreshold     Int      @default(600)

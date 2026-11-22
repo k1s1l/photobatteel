@@ -19,6 +19,9 @@ import type { NotificationService } from '../notifications/notification.service.
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
+/** A text Telegram accepts but shows as empty: the message above the buttons when premium emoji cannot be used. */
+const EMPTY_TEXT = 'ㅤ';
+
 /** How often the prize row under all pairs may be updated. */
 const PRIZE_REFRESH_MS = 2 * 60_000;
 
@@ -38,7 +41,6 @@ const ADMIN_ALERT_INTERVAL_MS = 30 * 60_000;
 const PUBLISH_REMINDER_MS = 10 * 60_000;
 /** A pair waiting for a card transfer stays open 5 minutes at a time, at most 30 minutes after "I paid". */
 const TRANSFER_HOLD_STEP_MS = 5 * 60_000;
-const TRANSFER_HOLD_MAX_MS = 30 * 60_000;
 
 export interface BattleOptions {
   timeZone: string;
@@ -565,33 +567,43 @@ export class BattleService {
     const buttonsText = challenge
       ? this.locale.duel.challengeCaption({ goal: duel.goal!, end: this.time(endsAt) })
       : await this.render('buttons', { ...stageValues(this.locale, stageInfo), end: this.time(endsAt) }, stageInfo);
-    const stacked = challenge || isNarrowText(buttonsText);
-    const buttonsOptions = {
-      parseMode: 'HTML' as const,
-      replyMarkup: activeDuelKeyboard(
-        this.locale,
-        { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal, prize: await this.prizeState(duel.battleId) },
-        settings.paidVotesEnabled,
-      ),
-      replyToMessageId: post.messageId,
-    };
-    let buttons;
-    try {
-      buttons = await this.telegram.sendMessage(this.channel.id, buttonsText, buttonsOptions);
-    } catch (error) {
-      // The bot itself cannot use premium emoji in the channel: retry with regular ones.
-      const classified = classifyTelegramError(error);
-      if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
-      await this.emojiRejected('buttons', classified.description);
-      buttons = await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(buttonsText), buttonsOptions);
+    const prize = await this.prizeState(duel.battleId);
+    const keyboardFor = (stacked: boolean) =>
+      activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal, prize }, settings.paidVotesEnabled);
+
+    // The buttons go straight under the admin's post: no extra message above them. A challenge
+    // keeps its own message (it says how many votes are needed), and an album cannot carry
+    // buttons — then they come in a reply under the post.
+    let buttonsMessageId: number | null = null;
+    let stacked = false;
+    if (!challenge && settings.buttonsOnPost) {
+      try {
+        await this.telegram.editMessageReplyMarkup(this.channel.id, post.messageId, keyboardFor(false));
+        buttonsMessageId = post.messageId;
+      } catch (error) {
+        this.logger.info({ err: error, duelId: duel.id }, 'Buttons cannot go under the post itself; sending them in a reply');
+      }
+    }
+    if (buttonsMessageId === null) {
+      stacked = challenge || isNarrowText(buttonsText);
+      const buttonsOptions = { parseMode: 'HTML' as const, replyMarkup: keyboardFor(stacked), replyToMessageId: post.messageId };
+      try {
+        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, buttonsText, buttonsOptions)).message_id;
+      } catch (error) {
+        // A bot cannot use premium emoji in a channel. Instead of regular emoji (hearts in
+        // place of the admin's letters) the text above the buttons is left empty.
+        const classified = classifyTelegramError(error);
+        if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
+        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, challenge ? stripCustomEmoji(buttonsText) : EMPTY_TEXT, buttonsOptions)).message_id;
+      }
     }
     const activated = await this.prisma.duel.updateMany({
       where: { id: duel.id, status: 'READY', stage },
-      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttons.message_id, mediaMessageIds: [post.messageId, ...extraMessageIds], stackedButtons: stacked },
+      data: { status: 'ACTIVE', postedAt: now, endsAt, messageId: buttonsMessageId, mediaMessageIds: [post.messageId, ...extraMessageIds], stackedButtons: stacked },
     });
     if (activated.count === 0) {
       // Another item of the same album won the race: keep only its buttons.
-      await this.deleteMessages([buttons.message_id]);
+      if (buttonsMessageId !== post.messageId) await this.deleteMessages([buttonsMessageId]);
       return false;
     }
     await this.scheduler.scheduleTickAt(endsAt, `duel-${duel.id}-${stage}`);
@@ -1118,7 +1130,8 @@ export class BattleService {
   }
 
   private async deleteMessages(ids: number[]): Promise<void> {
-    for (const id of ids) {
+    // The buttons may sit on the post itself: the same message is listed twice.
+    for (const id of new Set(ids)) {
       await this.telegram.deleteMessage(this.channel.id, id).catch((error: unknown) => this.logger.warn({ err: error, messageId: id }, 'Failed to delete duel post'));
     }
   }
@@ -1249,7 +1262,8 @@ export class BattleService {
         method: 'TRANSFER',
         targetPhotoId: { in: entriesOf(duel).map((entry) => entry.photoId) },
         OR: [
-          { status: 'CLAIMED', claimedAt: { gte: new Date(now.getTime() - TRANSFER_HOLD_MAX_MS) } },
+          // "I paid" was pressed: the pair waits until the bank or an admin decides — however long it takes.
+          { status: 'CLAIMED' },
           { status: 'PENDING', expiresAt: { gt: now } },
         ],
       },

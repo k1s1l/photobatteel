@@ -29,6 +29,7 @@ export type SettingsPatch = Partial<
     | 'finalSpotAdMediaId'
     | 'finalSpotAdMediaUid'
     | 'prizeEnabled'
+    | 'buttonsOnPost'
     | 'prizeBase'
     | 'prizeThreshold'
     | 'prizePerHundred'

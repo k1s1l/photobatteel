@@ -1,0 +1,1 @@
+ALTER TABLE "BotSettings" ADD COLUMN "buttonsOnPost" BOOLEAN NOT NULL DEFAULT true;
