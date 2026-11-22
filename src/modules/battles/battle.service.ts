@@ -571,12 +571,12 @@ export class BattleService {
     const keyboardFor = (stacked: boolean) =>
       activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal, prize }, settings.paidVotesEnabled);
 
-    // The buttons go straight under the admin's post: no extra message above them. A challenge
-    // keeps its own message (it says how many votes are needed), and an album cannot carry
-    // buttons — then they come in a reply under the post.
+    // The buttons go straight under the admin's post: no extra message above them (a challenge
+    // shows its goal on the button: "Support · 5 / 20"). An album cannot carry buttons — then
+    // they come in a reply under the post.
     let buttonsMessageId: number | null = null;
     let stacked = false;
-    if (!challenge && settings.buttonsOnPost) {
+    if (settings.buttonsOnPost) {
       try {
         await this.telegram.editMessageReplyMarkup(this.channel.id, post.messageId, keyboardFor(false));
         buttonsMessageId = post.messageId;
