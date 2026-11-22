@@ -613,9 +613,14 @@ export class BattleService {
     const ends = formatDateTime(endsAt, this.options.timeZone, this.locale.intl);
     if (!auto) await this.notifications.notifyAdmins((l) => l.admin.duelPublished({ stage: challenge ? l.duel.challengeLabel(duel.goal!) : (stageValues(l, stageInfo).stage as string), ends }));
     if (stage === 0) {
-      for (const { photo } of photosOf(duel)) {
+      for (const { side, photo } of photosOf(duel)) {
         const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
-        if (author) await this.notifications.notifyUser(author, (l) => l.battle.entryPosted({ round: duel.round, link }), { parseMode: 'HTML', disablePreview: true });
+        if (!author) continue;
+        await this.notifications.notifyUser(author, (l) => l.battle.entryPosted({ round: duel.round, link }), {
+          parseMode: 'HTML',
+          disablePreview: true,
+          replyMarkup: this.entryButtons(getLocale(author.languageCode), duel.id, side, link, settings.paidVotesEnabled),
+        });
       }
     }
     return true;
@@ -1060,6 +1065,21 @@ export class BattleService {
   }
 
   /**
+   * Buttons for a participant about their pair: buy votes for their entry (when paid
+   * votes are on), send the post to friends, open the post.
+   */
+  private entryButtons(l: Locale, duelId: number, side: DuelSide, link: string | null, paidVotes: boolean) {
+    const share = link ? `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(l.battle.shareText)}` : null;
+    return {
+      inline_keyboard: [
+        ...(paidVotes ? [[{ text: l.battle.endReminderBuy, callback_data: `pay:side:${duelId}:${side.toLowerCase()}` }]] : []),
+        ...(share ? [[{ text: l.battle.shareButton, url: share }]] : []),
+        ...(link ? [[{ text: l.battle.endReminderOpen, url: link }]] : []),
+      ],
+    };
+  }
+
+  /**
    * A few minutes before a pair closes each participant learns the score — "you are
    * 6 votes behind, 10 minutes left" — with buttons to buy votes and open the post.
    * Once per stage; pairs shorter than the reminder window are skipped.
@@ -1103,13 +1123,7 @@ export class BattleService {
         await this.notifications.notifyUser(author, (l) => l.battle.endReminder({ ...state, minutes: left, votes: mine }), {
           parseMode: 'HTML',
           disablePreview: true,
-          replyMarkup: {
-            inline_keyboard: [
-              // In a battle without paid votes only the post is offered.
-              ...(settings.paidVotesEnabled ? [[{ text: getLocale(author.languageCode).battle.endReminderBuy, callback_data: `pay:side:${duel.id}:${side.toLowerCase()}` }]] : []),
-              ...(link ? [[{ text: getLocale(author.languageCode).battle.endReminderOpen, url: link }]] : []),
-            ],
-          },
+          replyMarkup: this.entryButtons(getLocale(author.languageCode), duel.id, side, link, settings.paidVotesEnabled),
         });
       }
     }

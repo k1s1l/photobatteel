@@ -841,6 +841,7 @@ describe('reminder before the end of a pair', () => {
     expect(String(behind.args[0])).toContain('отстаёт на 6');
     expect(String(ahead.args[0])).toContain('впереди на 6');
     expect(JSON.stringify(behind.args[1])).toContain(`pay:side:${duel.id}:a`);
+    expect(JSON.stringify(behind.args[1])).toContain('t.me/share/url');
 
     // Only once per stage.
     await ctx.services.battles.tick();
