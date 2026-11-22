@@ -818,3 +818,44 @@ describe('templates, final duration and reminders', () => {
     expect(adminTexts().filter((t) => t.includes('⏰ Финал — пост ещё не опубликован'))).toHaveLength(1);
   });
 });
+
+describe('reminder before the end of a pair', () => {
+  it('tells each participant the score a few minutes before the end, once per stage', async () => {
+    await ctx.services.settings.update({ paidVotesEnabled: true }, null);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id } });
+    const now = Date.now();
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { postedAt: new Date(now - 50 * 60_000), endsAt: new Date(now + 8 * 60_000), votesA: 3, votesB: 9 } });
+    const author = async (photoId: number) => ctx.prisma.user.findFirstOrThrow({ where: { photos: { some: { id: photoId } } } });
+    const dm = async (photoId: number) => {
+      const user = await author(photoId);
+      return ctx.telegram.callsOf('sendMessage').filter((c) => c.chatId === Number(user.telegramId) && String(c.args[0]).includes('До конца голосования'));
+    };
+
+    await ctx.services.battles.tick();
+    const behind = (await dm(duel.photoAId))[0]!;
+    const ahead = (await dm(duel.photoBId!))[0]!;
+    expect(String(behind.args[0])).toContain('отстаёт на 6');
+    expect(String(ahead.args[0])).toContain('впереди на 6');
+    expect(JSON.stringify(behind.args[1])).toContain(`pay:side:${duel.id}:a`);
+
+    // Only once per stage.
+    await ctx.services.battles.tick();
+    expect(await dm(duel.photoAId)).toHaveLength(1);
+  });
+
+  it('does nothing when switched off', async () => {
+    await ctx.services.settings.update({ endReminderMinutes: 0 }, null);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id } });
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { postedAt: new Date(Date.now() - 50 * 60_000), endsAt: new Date(Date.now() + 5 * 60_000) } });
+    await ctx.services.battles.tick();
+    expect(ctx.telegram.callsOf('sendMessage').some((c) => String(c.args[0]).includes('До конца голосования'))).toBe(false);
+  });
+});

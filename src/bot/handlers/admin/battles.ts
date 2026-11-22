@@ -61,6 +61,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   }
   if (current) rows.push([button(a.finalSizeButton(current.finalSize), `a:bt:fs:${current.id}`)]);
   rows.push([button(a.prize.button, 'a:pz')]);
+  rows.push([button(a.endReminderButton((await ctx.deps.services.settings.get()).endReminderMinutes), 'a:bt:rem')]);
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
   rows.push([button(a.buttons.panel, PANEL)]);
@@ -289,6 +290,17 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
   });
 
   // 2 → 3 → … → 6 → 2 entries in the final; locked once the final has started.
+  // ⏰ Participants are told the score before the end: off → 5 → 10 → 15 minutes.
+  admin.action('a:bt:rem', async (ctx) => {
+    const { settings } = ctx.deps.services;
+    const steps = [0, 5, 10, 15];
+    const current = (await settings.get()).endReminderMinutes;
+    const next = steps[(steps.indexOf(current) + 1) % steps.length] ?? 10;
+    await settings.update({ endReminderMinutes: next }, adminUserId(ctx));
+    await answer(ctx, ctx.locale.admin.endReminderSaved(next), true);
+    await showBattles(ctx);
+  });
+
   admin.action(/^a:bt:fs:(\d+)$/, async (ctx) => {
     const battle = await ctx.deps.services.battles.findById(matchInt(ctx));
     if (!battle) return answer(ctx);

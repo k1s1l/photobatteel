@@ -1,0 +1,2 @@
+ALTER TABLE "Duel" ADD COLUMN "endRemindedStage" INTEGER;
+ALTER TABLE "BotSettings" ADD COLUMN "endReminderMinutes" INTEGER NOT NULL DEFAULT 10;

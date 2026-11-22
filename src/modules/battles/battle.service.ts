@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import type { Battle, Duel, DuelSide, DuelStatus, Photo, Prisma, PrismaClient } from '../../generated/prisma/client.js';
-import type { Locale } from '../../i18n/index.js';
+import { getLocale, type Locale } from '../../i18n/index.js';
 import { DomainError } from '../../lib/errors.js';
 import { isNarrowText, stripCustomEmoji } from '../../lib/entities-html.js';
 import { channelPostLink, escapeHtml, formatDateTime, formatTime, truncate } from '../../lib/format.js';
@@ -344,6 +344,7 @@ export class BattleService {
     for (const battle of running) await this.advance(battle.id);
 
     await this.remindUnpublished(now);
+    await this.remindParticipants(now);
     await this.refreshPrize(now);
 
     const pending = await this.prisma.duel.findMany({
@@ -1056,6 +1057,62 @@ export class BattleService {
     if (updated.count === 0) return;
     await this.deleteMessages([...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]);
     await this.scheduler.triggerTick();
+  }
+
+  /**
+   * A few minutes before a pair closes each participant learns the score — "you are
+   * 6 votes behind, 10 minutes left" — with buttons to buy votes and open the post.
+   * Once per stage; pairs shorter than the reminder window are skipped.
+   */
+  private async remindParticipants(now: Date): Promise<void> {
+    const settings = await this.settings.get();
+    const minutes = settings.endReminderMinutes;
+    if (minutes <= 0) return;
+    const windowMs = minutes * 60_000;
+    const due = await this.prisma.duel.findMany({
+      where: { status: 'ACTIVE', endsAt: { gt: now, lte: new Date(now.getTime() + windowMs) }, battle: { status: 'RUNNING' } },
+      include: ALL_PHOTOS,
+    });
+    for (const duel of due) {
+      if (duel.endRemindedStage === duel.stage || !duel.endsAt || !duel.postedAt) continue;
+      // The whole vote was shorter than the window (a quick tiebreak): nothing to warn about.
+      if (duel.endsAt.getTime() - duel.postedAt.getTime() <= windowMs) continue;
+      const marked = await this.prisma.duel.updateMany({
+        where: { id: duel.id, stage: duel.stage, OR: [{ endRemindedStage: null }, { endRemindedStage: { not: duel.stage } }] },
+        data: { endRemindedStage: duel.stage },
+      });
+      if (marked.count === 0) continue;
+      const left = Math.max(1, Math.round((duel.endsAt.getTime() - now.getTime()) / 60_000));
+      const votes = voteList(duel);
+      const postId = duel.mediaMessageIds[0] ?? duel.messageId;
+      const link = postId ? channelPostLink(this.channel, postId) : null;
+      for (const { side, photo } of photosOf(duel)) {
+        const author = await this.prisma.user.findUnique({ where: { id: photo.userId } });
+        if (!author) continue;
+        const mine = votesOf(duel, side);
+        const others = votes.filter((entry) => entry.side !== side).map((entry) => entry.votes);
+        const best = others.length > 0 ? Math.max(...others) : 0;
+        const state =
+          duel.goal !== null
+            ? { kind: 'goal' as const, diff: Math.max(0, duel.goal - mine) }
+            : mine > best
+              ? { kind: 'ahead' as const, diff: mine - best }
+              : mine < best
+                ? { kind: 'behind' as const, diff: best - mine }
+                : { kind: 'tie' as const, diff: 0 };
+        await this.notifications.notifyUser(author, (l) => l.battle.endReminder({ ...state, minutes: left, votes: mine }), {
+          parseMode: 'HTML',
+          disablePreview: true,
+          replyMarkup: {
+            inline_keyboard: [
+              // In a battle without paid votes only the post is offered.
+              ...(settings.paidVotesEnabled ? [[{ text: getLocale(author.languageCode).battle.endReminderBuy, callback_data: `pay:side:${duel.id}:${side.toLowerCase()}` }]] : []),
+              ...(link ? [[{ text: getLocale(author.languageCode).battle.endReminderOpen, url: link }]] : []),
+            ],
+          },
+        });
+      }
+    }
   }
 
   /** The growing prize of a battle (null when it is switched off): paid votes of all its pairs count. */

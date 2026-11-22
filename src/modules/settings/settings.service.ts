@@ -30,6 +30,7 @@ export type SettingsPatch = Partial<
     | 'finalSpotAdMediaUid'
     | 'prizeEnabled'
     | 'buttonsOnPost'
+    | 'endReminderMinutes'
     | 'prizeBase'
     | 'prizeThreshold'
     | 'prizePerHundred'

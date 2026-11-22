@@ -292,6 +292,8 @@ model Duel {
   /// When the post was sent to admins, and when they were reminded to publish it
   readyAt         DateTime?
   remindedAt      DateTime?
+  /// The stage whose participants were told "10 minutes left" (one reminder per stage)
+  endRemindedStage Int?
   /// Bot message with the vote buttons, posted as a reply under the admin's channel post
   messageId       Int?
   /// Vote buttons one per row (the text above them is short, so the message is narrow)
@@ -371,6 +373,8 @@ model BotSettings {
   /// Growing prize: base stars, and after `prizeThreshold` paid votes of a battle each vote adds prizePerHundred/100 stars
   /// Vote buttons go straight under the admin's pair post (no message above them)
   buttonsOnPost      Boolean  @default(true)
+  /// Minutes before the end of voting when participants are told the score (0 = off)
+  endReminderMinutes Int      @default(10)
   prizeEnabled       Boolean  @default(false)
   prizeBase          Int      @default(300)
   prizeThreshold     Int      @default(600)
