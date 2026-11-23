@@ -647,6 +647,44 @@ export class BattleService {
     return result;
   }
 
+  /** Pairs of the current round (any state) and open challenge photos: for "who votes". */
+  async roundDuels(battleId: number): Promise<Duel[]> {
+    const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
+    if (!battle) return [];
+    return this.prisma.duel.findMany({
+      where: { battleId, OR: [{ round: battle.currentRound, photoBId: { not: null } }, { round: 0, status: { not: 'FINISHED' } }] },
+      orderBy: [{ round: 'desc' }, { position: 'asc' }],
+    });
+  }
+
+  /**
+   * Admin only: who voted for each entry of a pair in its current stage — free votes
+   * (one per person) and paid ones (summed per buyer, biggest first).
+   */
+  async voters(duelId: number) {
+    const duel = await this.prisma.duel.findUnique({ where: { id: duelId } });
+    if (!duel) return null;
+    const [free, paid] = await Promise.all([
+      this.prisma.duelVote.findMany({ where: { duelId, stage: duel.stage }, include: { user: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.paidVote.findMany({ where: { duelId, stage: duel.stage }, include: { user: true } }),
+    ]);
+    const sides = voteList(duel).map(({ side, votes }) => {
+      const buyers = new Map<number, { user: (typeof paid)[number]['user']; amount: number }>();
+      for (const vote of paid.filter((v) => v.side === side)) {
+        const entry = buyers.get(vote.userId) ?? { user: vote.user, amount: 0 };
+        entry.amount += vote.amount;
+        buyers.set(vote.userId, entry);
+      }
+      return {
+        side,
+        votes,
+        paid: [...buyers.values()].sort((x, y) => y.amount - x.amount),
+        free: free.filter((v) => v.side === side).map((v) => v.user),
+      };
+    });
+    return { duel, sides };
+  }
+
   /** Open pairs of the current round (for the admin's vote corrections). */
   async openDuels(battleId: number): Promise<Duel[]> {
     const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });

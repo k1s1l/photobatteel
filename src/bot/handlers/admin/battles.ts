@@ -49,6 +49,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
     rows.push([button(a.roundEndButton, `a:bt:end:${current.id}`)]);
     rows.push([button(a.finishNowButton, `a:bt:fin:${current.id}`)]);
     rows.push([button(a.votesButton, `a:bt:votes:${current.id}`), button(a.challengeButton, `a:bt:ch:${current.id}`)]);
+    rows.push([button(a.voters.button, `a:bt:who:${current.id}`)]);
     if (await battles.currentFinal(current.id)) rows.push([button(a.replaceFinalButton, `a:bt:rf:${current.id}`)]);
     const closed = await battles.reopenable(current.id);
     for (let i = 0; i < closed.length; i += 2) rows.push(closed.slice(i, i + 2).map((duel) => button(a.reopenButton(duel.position), `a:bt:ro:${duel.id}`)));
@@ -116,6 +117,40 @@ export async function handleStartTimeText(ctx: BotContext, battleId: number, tex
   }
   setState(ctx, undefined);
   await moveStart(ctx, battleId, at);
+}
+
+/** Telegram allows 4096 characters in a message; long voter lists are cut. */
+const MAX_FREE_NAMES = 40;
+
+function voterName(user: { firstName: string; username: string | null }): string {
+  return escapeHtml(user.username ? `${user.firstName} @${user.username}` : user.firstName);
+}
+
+/** "Who votes" for one pair: buyers with their amounts and free voters, per entry. */
+async function showVoters(ctx: BotContext, duelId: number): Promise<void> {
+  const result = await ctx.deps.services.battles.voters(duelId);
+  const v = ctx.locale.admin.voters;
+  if (!result) {
+    await respond(ctx, ctx.locale.common.notFound, { keyboard: inline([[button(ctx.locale.common.back, 'a:bt')]]) });
+    return;
+  }
+  const { duel, sides } = result;
+  const blocks = sides.map(({ side, votes, paid, free }) => {
+    const lines = [v.entry({ n: sideNumber(side), votes })];
+    lines.push(paid.length > 0 ? v.paid(paid.map((p) => `${voterName(p.user)} — ${p.amount}`).join('\n')) : v.noPaid);
+    if (free.length > 0) {
+      const names = free.slice(0, MAX_FREE_NAMES).map(voterName).join(', ');
+      lines.push(v.free({ count: free.length, names: names + (free.length > MAX_FREE_NAMES ? v.more(free.length - MAX_FREE_NAMES) : '') }));
+    } else {
+      lines.push(v.noFree);
+    }
+    return lines.join('\n');
+  });
+  let text = `${v.title({ round: duel.round, duel: duel.position, stage: duel.stage })}\n\n${blocks.join('\n\n')}\n\n${v.hint}`;
+  if (text.length > 4000) text = `${text.slice(0, 3990)}…`;
+  await respond(ctx, text, {
+    keyboard: inline([[button(v.refresh, `a:bt:wv:${duel.id}`)], [button(ctx.locale.common.back, `a:bt:who:${duel.battleId}`)]]),
+  });
 }
 
 const VOTE_STEPS = [-5, -1, 1, 5, 10] as const;
@@ -333,6 +368,21 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
       keyboard: inline([[button(ctx.locale.common.cancel, 'a:cancel')]]),
       forceNew: true,
     });
+  });
+
+  admin.action(/^a:bt:who:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    const duels = await ctx.deps.services.battles.roundDuels(matchInt(ctx));
+    const v = ctx.locale.admin.voters;
+    const rows = [];
+    const label = (duel: { round: number; position: number }) => (duel.round === 0 ? v.challengeLabel(duel.position) : ctx.locale.admin.votesPair(duel.position));
+    for (let i = 0; i < duels.length; i += 2) rows.push(duels.slice(i, i + 2).map((duel) => button(label(duel), `a:bt:wv:${duel.id}`)));
+    await respond(ctx, duels.length > 0 ? v.choose : ctx.locale.admin.votesNoPairs, { keyboard: inline([...rows, [button(ctx.locale.common.back, 'a:bt')]]) });
+  });
+
+  admin.action(/^a:bt:wv:(\d+)$/, async (ctx) => {
+    await answer(ctx);
+    await showVoters(ctx, matchInt(ctx));
   });
 
   admin.action(/^a:bt:votes:(\d+)$/, async (ctx) => {

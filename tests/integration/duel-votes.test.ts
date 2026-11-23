@@ -64,3 +64,23 @@ describe('free votes in duels', () => {
     expect(JSON.stringify(ctx.telegram.callsOf('editMessageReplyMarkup').at(-1)?.args[1])).toContain('Поддержать 2 · 1');
   });
 });
+
+describe('who votes (admin)', () => {
+  it('lists free voters and buyers with their amounts per entry', async () => {
+    await ctx.services.duelVotes.vote(duel.id, 0, 'A', voter);
+    const other = await createUser(ctx);
+    await ctx.services.duelVotes.vote(duel.id, 0, 'B', other);
+    const buyer = await ctx.prisma.user.update({ where: { id: (await createUser(ctx)).id }, data: { voteBalance: 100, firstName: 'Donor' } });
+    await ctx.services.payments.spendVotes(buyer, duel.photoBId!, 20);
+    await ctx.services.payments.spendVotes(buyer, duel.photoBId!, 5);
+
+    const result = await ctx.services.battles.voters(duel.id);
+    const [a, b] = result!.sides;
+    expect(a!.free.map((u) => u.id)).toEqual([voter.id]);
+    expect(a!.paid).toEqual([]);
+    expect(b!.free.map((u) => u.id)).toEqual([other.id]);
+    expect(b!.paid).toEqual([{ user: expect.objectContaining({ firstName: 'Donor' }), amount: 25 }]);
+    expect(b!.votes).toBe(26);
+    expect((await ctx.services.battles.roundDuels(duel.battleId)).map((d) => d.id)).toContain(duel.id);
+  });
+});
