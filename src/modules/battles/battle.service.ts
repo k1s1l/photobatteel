@@ -586,16 +586,19 @@ export class BattleService {
       }
     }
     if (buttonsMessageId === null) {
-      stacked = challenge || isNarrowText(buttonsText);
+      // A bot cannot show premium emoji in a channel: Telegram either refuses them or quietly
+      // turns them into hearts. Such a text above the buttons is left empty instead.
+      const text = buttonsText.includes('<tg-emoji') && !challenge ? EMPTY_TEXT : buttonsText;
+      stacked = challenge || isNarrowText(text);
       const buttonsOptions = { parseMode: 'HTML' as const, replyMarkup: keyboardFor(stacked), replyToMessageId: post.messageId };
       try {
-        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, buttonsText, buttonsOptions)).message_id;
+        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, text, buttonsOptions)).message_id;
       } catch (error) {
         // A bot cannot use premium emoji in a channel. Instead of regular emoji (hearts in
         // place of the admin's letters) the text above the buttons is left empty.
         const classified = classifyTelegramError(error);
-        if (classified.kind !== 'permanent' || !buttonsText.includes('<tg-emoji')) throw error;
-        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, challenge ? stripCustomEmoji(buttonsText) : EMPTY_TEXT, buttonsOptions)).message_id;
+        if (classified.kind !== 'permanent' || !text.includes('<tg-emoji')) throw error;
+        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(text), buttonsOptions)).message_id;
       }
     }
     const activated = await this.prisma.duel.updateMany({
