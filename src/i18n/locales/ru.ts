@@ -643,6 +643,13 @@ export const ru = {
       `💰 <b>На банку пришло ${p.amount}</b>, но бот не понял, чей это перевод.\n${p.text}\n\n` +
       (p.orders > 0 ? 'Недавние заказы — нажми нужный, чтобы засчитать голоса:' : 'Недавних заказов нет — возможно, это донат или человек не открывал оплату в боте. Если знаешь, кто это, начисли голоса через «🗳 Изменить голоса».'),
     paymentMethods: { STARS: 'звёзды', CARD: 'карта', TRANSFER: 'банка' } as Record<'STARS' | 'CARD' | 'TRANSFER', string>,
+    paymentCodeLine: (p: { code: string; sender: string | null }) => `\nКод: <code>${p.code}</code>` + (p.sender ? ` · в банке: ${p.sender}` : ''),
+    paymentFindButton: '🔍 Найти оплату (код, ник, отправитель)',
+    paymentFindAsk: 'Пришли <b>код оплаты</b> (например <code>PB7K2M</code>), <b>@ник</b> или имя покупателя, или <b>имя отправителя</b>, как оно в банке («Олена»).',
+    paymentFindEmpty: 'Ничего не нашёл. Проверь код или ник и пришли ещё раз.',
+    paymentFound: (n: number) => `<b>Найдено оплат: ${n}</b>`,
+    paymentFoundRow: (p: { id: number; date: string; who: string; amount: string; votes: number; status: string; code: string | null; sender: string | null }) =>
+      `#${p.id} · ${p.date} · ${p.who} · ${p.amount} · ${p.votes} гол. · ${p.status}` + (p.code ? `\n   код <code>${p.code}</code>` : '') + (p.sender ? ` · в банке: ${p.sender}` : ''),
     paymentReceived: (p: { amount: string; method: string; who: string; votes: number; toEntry: boolean }) =>
       `💰 <b>Оплата ${p.amount}</b> (${p.method}) — ${p.who} — ${p.votes} голосов ${p.toEntry ? 'сразу в пару' : 'на баланс'}. Засчитано автоматически.`,
     autoConfirmOff: '👤 Подтверждать оплаты только вручную',

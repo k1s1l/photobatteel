@@ -450,6 +450,8 @@ model Payment {
   /// Transfers: code the buyer puts into the payment comment, and the matched bank transaction
   code             String?       @unique
   bankTransactionId String?      @unique
+  /// Who sent the transfer, as the bank shows it ("Від: Олена") and the payment comment
+  bankSender       String?
   expiresAt        DateTime?
   claimedAt        DateTime?
   reviewRequestedAt DateTime?    // admins were asked to check it manually

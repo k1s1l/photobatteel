@@ -44,6 +44,7 @@ async function showPayments(ctx: BotContext): Promise<void> {
     [button(current.transferEnabled ? a.transferToggleOff : a.transferToggleOn, 'a:pay:tr:toggle')],
     [button(a.transferDetailsButton, 'a:pay:tr:details'), button(a.monobankButton, 'a:pay:mono')],
     [button(a.transfersButton, 'a:pay:trl'), button(a.paymentsList, 'a:pay:list:0')],
+    [button(a.paymentFindButton, 'a:pay:find')],
     [button(a.bankCheckButton, 'a:pay:bank'), button(a.bankWebhook.button, 'a:pay:hook')],
     [button(current.bankAutoConfirm ? a.autoConfirmOff : a.autoConfirmOn, 'a:pay:auto')],
     [button(a.buttons.panel, PANEL)],
@@ -154,6 +155,41 @@ export async function handlePackageBonusInput(ctx: BotContext, packageId: number
   await showPackage(ctx, packageId);
 }
 
+/** Text answer to "find a payment": code, buyer's nick / name / id, or the bank sender. */
+export async function handlePaymentFindInput(ctx: BotContext, text: string): Promise<void> {
+  const a = ctx.locale.admin;
+  const found = await ctx.deps.services.payments.findPayments(text);
+  const retry = inline([[button(ctx.locale.common.cancel, 'a:pay')]]);
+  if (found.length === 0) {
+    await ctx.reply(a.paymentFindEmpty, { reply_markup: retry });
+    return;
+  }
+  setState(ctx, undefined);
+  const lines = [a.paymentFound(found.length), ''];
+  for (const payment of found) {
+    lines.push(
+      a.paymentFoundRow({
+        id: payment.id,
+        date: formatDateTime(payment.paidAt ?? payment.createdAt, ctx.deps.env.TIMEZONE, ctx.locale.intl),
+        who: escapeHtml(truncate(displayName(payment.user), 24)) + (payment.user.username ? ` @${escapeHtml(payment.user.username)}` : ''),
+        amount: payment.method === 'STARS' ? `${payment.amount} ⭐` : money(ctx, payment.amount),
+        votes: payment.votes,
+        status: a.paymentStatus[payment.status],
+        code: payment.code,
+        sender: payment.bankSender ? escapeHtml(payment.bankSender) : null,
+      }),
+    );
+  }
+  // A transfer still waiting (or expired without a decision, within a day) can be confirmed from here.
+  const dayAgo = Date.now() - 24 * 60 * 60_000;
+  const decidable = found.filter(
+    (p) => p.method === 'TRANSFER' && (p.status === 'PENDING' || p.status === 'CLAIMED' || (p.status === 'CANCELLED' && p.confirmedById === null && p.createdAt.getTime() > dayAgo)),
+  );
+  const rows = decidable.map((p) => [button(`✅ #${p.id}`, `a:tr:ok:${p.id}`), button(`❌ #${p.id}`, `a:tr:no:${p.id}`)]);
+  rows.push([button(ctx.locale.common.back, 'a:pay')]);
+  await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: inline(rows) });
+}
+
 const TRANSFER_DETAILS_MAX = 200;
 
 /** Text answer to "send transfer details": the card number or jar link buyers will see. */
@@ -180,7 +216,7 @@ async function showTransfers(ctx: BotContext): Promise<void> {
         code: payment.code ?? '',
         amount: money(ctx, payment.amount),
         votes: payment.votes,
-        buyer: escapeHtml(truncate(displayName(payment.user), 24)),
+        buyer: escapeHtml(truncate(displayName(payment.user), 24)) + (payment.user.username ? ` @${escapeHtml(payment.user.username)}` : ''),
         status: payment.status === 'CANCELLED' ? a.transferExpiredStatus : a.paymentStatus[payment.status],
       }),
     );
@@ -352,6 +388,12 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
     });
   });
 
+  admin.action('a:pay:find', async (ctx) => {
+    await answer(ctx);
+    setState(ctx, { kind: 'admin_input', action: 'payment_find' });
+    await respond(ctx, ctx.locale.admin.paymentFindAsk, { keyboard: inline([[button(ctx.locale.common.cancel, 'a:pay')]]), forceNew: true });
+  });
+
   admin.action(/^a:pay:list:(\d+)$/, async (ctx) => {
     const { payments } = ctx.deps.services;
     const requested = matchInt(ctx);
@@ -366,13 +408,14 @@ export function registerPaymentAdminHandlers(admin: Composer<BotContext>): void 
       lines.push(
         a.paymentRow({
           id: payment.id,
-          user: escapeHtml(truncate(displayName(payment.user), 24)),
+          user: escapeHtml(truncate(displayName(payment.user), 24)) + (payment.user.username ? ` @${escapeHtml(payment.user.username)}` : ''),
           votes: payment.votes,
           amount: payment.method === 'STARS' ? `${payment.amount} ⭐` : money(ctx, payment.amount),
           status: a.paymentStatus[payment.status],
           date: payment.paidAt ? formatDateTime(payment.paidAt, ctx.deps.env.TIMEZONE, ctx.locale.intl) : '—',
         }) +
-          (payment.finalSpotBattleId !== null ? '' : payment.destination ? a.paidTo(payment.destination) : payment.status === 'PAID' ? a.paidToBalance : ''),
+          (payment.finalSpotBattleId !== null ? '' : payment.destination ? a.paidTo(payment.destination) : payment.status === 'PAID' ? a.paidToBalance : '') +
+          (payment.code ? a.paymentCodeLine({ code: payment.code, sender: payment.bankSender ? escapeHtml(payment.bankSender) : null }) : ''),
       );
     }
     const rows = items.filter((p) => p.method === 'STARS' && p.status === 'PAID').map((p) => [button(a.refund(p.id), `a:pay:r:${p.id}`)]);

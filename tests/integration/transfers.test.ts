@@ -146,7 +146,8 @@ describe('transfer orders', () => {
     bank.items = [{ id: 'tx-fast', time: 1, amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена', comment: order.payment.code! }];
     await ctx.services.payments.claimTransfer(order.payment.id, buyer);
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).status).toBe('PAID');
-    expect(adminTexts().some((t) => t.includes(order.payment.code!))).toBe(false);
+    // Admins only get the "payment credited" note (with the code and who sent it), no request to confirm.
+    expect(adminTexts().some((t) => t.includes(order.payment.code!) && t.includes('Проверь перевод'))).toBe(false);
   });
 
   it('keeps a pair open while a card transfer for it waits for the admin, so the votes count in the pair', async () => {
@@ -395,5 +396,22 @@ describe('transfer orders', () => {
     await ctx.services.payments.expireTransfers(new Date(Date.now() + 13 * 60 * 60_000));
     expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: claimed.payment.id } })).status).toBe('CANCELLED');
     expect(dmTo(buyer).some((t) => t.includes('не подтверждён'))).toBe(true);
+  });
+});
+
+describe('finding payments', () => {
+  it('finds a transfer by code, buyer nick or the bank sender, and keeps who sent it', async () => {
+    bank = new FakeBank();
+    ctx = await createTestContext({ bank });
+    buyer = await ctx.prisma.user.update({ where: { id: (await createUser(ctx)).id }, data: { username: 'olenka_k' } });
+    await enableTransfers(true);
+    const [pack] = await ctx.services.payments.listPackages(true);
+    const order = await ctx.services.payments.createTransfer(buyer, pack!.id, null);
+    bank.items = [{ id: 'tx-find', time: Math.floor(Date.now() / 1000), amount: order.payment.amount, currencyCode: 980, description: 'Від: Олена К.', comment: order.payment.code! }];
+    await ctx.services.payments.pollBank();
+    expect((await ctx.prisma.payment.findUniqueOrThrow({ where: { id: order.payment.id } })).bankSender).toContain('Олена К.');
+    for (const query of [order.payment.code!, '@olenka_k', 'Олена']) {
+      expect((await ctx.services.payments.findPayments(query)).map((p) => p.id)).toContain(order.payment.id);
+    }
   });
 });

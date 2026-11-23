@@ -608,6 +608,30 @@ export class PaymentService {
     return { kind: 'cancelled' };
   }
 
+  /**
+   * Admin search: a payment code ("PB7K2M"), a buyer's @username / name / Telegram id, or the
+   * sender's name as the bank shows it. The latest 10 payments that match.
+   */
+  async findPayments(query: string) {
+    const text = query.trim().replace(/^@/, '');
+    if (text.length < 2) return [];
+    const id = /^\d{1,15}$/.test(text) ? BigInt(text) : null;
+    return this.prisma.payment.findMany({
+      where: {
+        OR: [
+          { code: { contains: text.replace(/[\s-]/g, ''), mode: 'insensitive' } },
+          { bankSender: { contains: text, mode: 'insensitive' } },
+          { user: { username: { contains: text, mode: 'insensitive' } } },
+          { user: { firstName: { contains: text, mode: 'insensitive' } } },
+          ...(id ? [{ user: { telegramId: id } }, { id: Number(text) }] : []),
+        ],
+      },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+  }
+
   /** Open transfers for the admin list (claimed first). */
   async openTransfers(limit: number) {
     const open = await this.prisma.payment.findMany({
@@ -757,7 +781,8 @@ export class PaymentService {
         if (!payment) continue;
         if (await this.prisma.payment.findUnique({ where: { bankTransactionId: item.id }, select: { id: true } })) continue;
         try {
-          const completed = await this.credit(payment.id, { bankTransactionId: item.id });
+          const sender = [item.description, item.comment].filter(Boolean).join(' · ').slice(0, 200) || null;
+          const completed = await this.credit(payment.id, { bankTransactionId: item.id, bankSender: sender });
           if (completed.alreadyProcessed) continue;
           credited += 1;
           open.splice(open.indexOf(payment), 1);
@@ -887,9 +912,15 @@ export class PaymentService {
   /** "💰 Payment: 20 ₴ (jar) — @user — 20 votes" for the admins. */
   private async announcePayment(payment: Payment, toEntry: boolean): Promise<void> {
     const buyer = await this.prisma.user.findUnique({ where: { id: payment.userId } });
-    const who = escapeHtml(buyer ? (buyer.username ? `@${buyer.username}` : buyer.firstName) : '—');
+    const who = escapeHtml(buyer ? [buyer.firstName, buyer.username ? `@${buyer.username}` : ''].filter(Boolean).join(' ') : '—');
     const amount = payment.method === 'STARS' ? `${payment.amount} ⭐` : formatCardPrice(payment.amount, payment.currency);
-    await this.notifications.notifyAdmins((l) => l.admin.paymentReceived({ amount, method: l.admin.paymentMethods[payment.method], who, votes: payment.votes, toEntry }));
+    const fresh = await this.prisma.payment.findUnique({ where: { id: payment.id }, select: { bankSender: true } });
+    await this.notifications.notifyAdmins(
+      (l) =>
+        l.admin.paymentReceived({ amount, method: l.admin.paymentMethods[payment.method], who, votes: payment.votes, toEntry }) +
+        (payment.code ? l.admin.paymentCodeLine({ code: payment.code, sender: fresh?.bankSender ? escapeHtml(fresh.bankSender) : null }) : ''),
+      { parseMode: 'HTML' },
+    );
   }
 
   /** Admins: a place in the final was paid by transfer (or has to be paid back by hand). */

@@ -14,7 +14,7 @@ import { handleFinalSpotAd, handleFinalSpotAdTemplate, handleFinalSpotGrantInput
 import { previewBroadcast, registerBroadcastHandlers } from './broadcast.js';
 import { backToPanel } from './keyboards.js';
 import { registerPanelHandlers, showPanel } from './panel.js';
-import { handlePackageBonusInput, handlePackagePriceInput, handleTransferDetailsInput, registerPaymentAdminHandlers } from './payments.js';
+import { handlePackageBonusInput, handlePaymentFindInput, handlePackagePriceInput, handleTransferDetailsInput, registerPaymentAdminHandlers } from './payments.js';
 import { registerPhotoHandlers } from './photos.js';
 import { registerSettingsHandlers } from './settings.js';
 import { blockUser, registerUserHandlers, showUserCard, unblockUser } from './users.js';
@@ -83,6 +83,7 @@ async function adminInputRouter(ctx: BotContext, next: () => Promise<void>): Pro
   if (state.action === 'final_spot_price_card') return handleFinalSpotCardPriceInput(ctx, text);
   if (state.action === 'final_spot_grant') return handleFinalSpotGrantInput(ctx, text);
   if (state.action === 'admin_add') return handleAddAdminInput(ctx, text);
+  if (state.action === 'payment_find') return handlePaymentFindInput(ctx, text);
   if (state.action === 'package_bonus') {
     if (state.packageId) await handlePackageBonusInput(ctx, state.packageId, text);
     else setState(ctx, undefined);

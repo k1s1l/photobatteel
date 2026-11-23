@@ -584,6 +584,13 @@ export const uk: Locale = {
       `💰 <b>На банку надійшло ${p.amount}</b>, але бот не зрозумів, чий це переказ.\n${p.text}\n\n` +
       (p.orders > 0 ? 'Нещодавні замовлення — натисни потрібне, щоб зарахувати голоси:' : 'Нещодавніх замовлень немає — можливо, це донат або людина не відкривала оплату в боті. Якщо знаєш, хто це, нарахуй голоси через «🗳 Змінити голоси».'),
     paymentMethods: { STARS: 'зірки', CARD: 'картка', TRANSFER: 'банка' } as Record<'STARS' | 'CARD' | 'TRANSFER', string>,
+    paymentCodeLine: (p) => `\nКод: <code>${p.code}</code>` + (p.sender ? ` · у банку: ${p.sender}` : ''),
+    paymentFindButton: '🔍 Знайти оплату (код, нік, відправник)',
+    paymentFindAsk: 'Надішли <b>код оплати</b> (наприклад <code>PB7K2M</code>), <b>@нік</b> чи ім’я покупця, або <b>ім’я відправника</b>, як воно в банку («Олена»).',
+    paymentFindEmpty: 'Нічого не знайшов. Перевір код чи нік і надішли ще раз.',
+    paymentFound: (n) => `<b>Знайдено оплат: ${n}</b>`,
+    paymentFoundRow: (p) =>
+      `#${p.id} · ${p.date} · ${p.who} · ${p.amount} · ${p.votes} гол. · ${p.status}` + (p.code ? `\n   код <code>${p.code}</code>` : '') + (p.sender ? ` · у банку: ${p.sender}` : ''),
     paymentReceived: (p: { amount: string; method: string; who: string; votes: number; toEntry: boolean }) =>
       `💰 <b>Оплата ${p.amount}</b> (${p.method}) — ${p.who} — ${p.votes} голосів ${p.toEntry ? 'одразу в пару' : 'на баланс'}. Зараховано автоматично.`,
     autoConfirmOff: '👤 Підтверджувати оплати лише вручну',
