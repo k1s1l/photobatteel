@@ -181,7 +181,7 @@ async function showTransfers(ctx: BotContext): Promise<void> {
         amount: money(ctx, payment.amount),
         votes: payment.votes,
         buyer: escapeHtml(truncate(displayName(payment.user), 24)),
-        status: a.paymentStatus[payment.status],
+        status: payment.status === 'CANCELLED' ? a.transferExpiredStatus : a.paymentStatus[payment.status],
       }),
     );
   }

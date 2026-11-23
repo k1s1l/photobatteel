@@ -947,6 +947,7 @@ export const ru = {
     transfersEmpty: 'Открытых заявок нет.',
     transferRow: (p: { id: number; code: string; amount: string; votes: number; buyer: string; status: string }) =>
       `#${p.id} · <code>${p.code}</code> · ${p.amount} · ${p.votes} гол. · ${p.buyer} · ${p.status}`,
+    transferExpiredStatus: '⌛ время вышло — можно подтвердить',
     transferAutoConfirmed: (code: string) => `✅ Оплата ${code} подтверждена автоматически по выписке Monobank — нажимать ничего не нужно.`,
     transferReview: (p: { id: number; code: string; amount: string; votes: number; buyer: string; spot?: boolean; bank?: 'not_found' | 'error' | null }) =>
       (p.bank === 'not_found'

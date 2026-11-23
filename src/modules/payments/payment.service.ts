@@ -610,12 +610,21 @@ export class PaymentService {
 
   /** Open transfers for the admin list (claimed first). */
   async openTransfers(limit: number) {
-    return this.prisma.payment.findMany({
+    const open = await this.prisma.payment.findMany({
       where: { method: 'TRANSFER', status: { in: ['CLAIMED', 'PENDING'] } },
       include: { user: true },
       orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
       take: limit,
     });
+    // Orders whose 15 minutes ran out (nobody rejected them) can still be confirmed for a day:
+    // the money may have come a bit late, or the bank check missed it.
+    const expired = await this.prisma.payment.findMany({
+      where: { method: 'TRANSFER', status: 'CANCELLED', confirmedById: null, createdAt: { gte: new Date(Date.now() - DAY_MS) } },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(0, limit - open.length),
+    });
+    return [...open, ...expired];
   }
 
   /**
