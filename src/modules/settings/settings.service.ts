@@ -31,6 +31,7 @@ export type SettingsPatch = Partial<
     | 'prizeEnabled'
     | 'buttonsOnPost'
     | 'endReminderMinutes'
+    | 'byeGoal'
     | 'prizeBase'
     | 'prizeThreshold'
     | 'prizePerHundred'

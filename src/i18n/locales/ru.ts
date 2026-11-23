@@ -234,6 +234,8 @@ export const ru = {
     announceNoEntries: (title: string) => `😔 Батл «${title}» не состоялся: не было ни одной работы.`,
     winnerDm: (title: string) => `🏆 Поздравляем! Твоя работа победила в батле «${title}»! 🎉`,
     byeDm: (round: number) => `➡️ Твоя работа проходит в следующий раунд без голосования (раунд ${round}: нечётное число работ, а твою прислали последней). Удачи дальше! 🔥`,
+    byeGoalPassed: (goal: number) => `🎉 Твоя работа набрала ${goal} голосов и проходит в следующий раунд!`,
+    byeGoalFailed: (p: { votes: number; goal: number }) => `😔 Твоя работа набрала ${p.votes} из ${p.goal} голосов — не хватило, чтобы пройти дальше. Спасибо за участие!`,
     challengePassed: (goal: number) => `🎉 Твоя работа набрала ${goal} голосов и проходит в финал!`,
     challengeFailed: (p: { votes: number; goal: number }) => `😔 Твоя работа набрала ${p.votes} из ${p.goal} голосов — в этот раз не хватило. Спасибо за участие!`,
     endReminder: (p: { kind: 'ahead' | 'behind' | 'tie' | 'goal'; diff: number; minutes: number; votes: number }) =>
@@ -739,6 +741,15 @@ export const ru = {
     challengeResult: (p: { passed: boolean; votes: number; goal: number }) =>
       p.passed ? `🎯 Фото набрало ${p.votes}/${p.goal} голосов и проходит в финал.` : `🎯 Фото набрало ${p.votes}/${p.goal} голосов — не прошло.`,
     challengeButton: '🎯 Фото на N голосов',
+    byeGoalResult: (p: { passed: boolean; votes: number; goal: number; round: number }) =>
+      p.passed
+        ? `🎯 Раунд ${p.round}: работа без пары набрала ${p.votes}/${p.goal} голосов и проходит дальше.`
+        : `🎯 Раунд ${p.round}: работа без пары набрала ${p.votes}/${p.goal} голосов — выбывает.`,
+    byeGoalButton: (n: number) => (n > 0 ? `🎯 Без пары: набрать ${n} голосов` : '🎯 Без пары: проходит сама'),
+    byeGoalSaved: (n: number) =>
+      n > 0
+        ? `Работа, которой не хватило пары, получит свой пост и пройдёт дальше, только если наберёт ${n} голосов (бесплатные и платные) до конца раунда.`
+        : 'Работа без пары снова проходит дальше автоматически.',
     challengeChooseGoal: '<b>🎯 Фото на прохождение</b>\n\nСколько голосов нужно набрать, чтобы пройти в финал?',
     challengeAskPhoto: (goal: number) =>
       `Пришли фото или видео. Оно выйдет отдельным постом: «Проходишь дальше, если набираешь ${goal} голосов» с кнопками голосования и «⭐ +1 голос».\n\nЧтобы бот знал автора (ему придёт результат), напиши в подписи к фото его @ник. Без подписи автором будешь ты.`,

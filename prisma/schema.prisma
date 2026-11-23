@@ -375,6 +375,8 @@ model BotSettings {
   buttonsOnPost      Boolean  @default(true)
   /// Minutes before the end of voting when participants are told the score (0 = off)
   endReminderMinutes Int      @default(10)
+  /// An entry left without a pair must get this many votes to advance (0 = advances automatically)
+  byeGoal            Int      @default(20)
   prizeEnabled       Boolean  @default(false)
   prizeBase          Int      @default(300)
   prizeThreshold     Int      @default(600)

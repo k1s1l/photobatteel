@@ -42,7 +42,7 @@ export const TEST_ENV = {
   PAYMENT_PROVIDER_TOKEN: 'test-provider-token',
 };
 
-export async function createTestContext(options: { bank?: BankClient | null; realPackages?: boolean; buttonsOnPost?: boolean } = {}): Promise<TestContext> {
+export async function createTestContext(options: { bank?: BankClient | null; realPackages?: boolean; buttonsOnPost?: boolean; byeGoal?: number } = {}): Promise<TestContext> {
   const prisma = testPrisma();
   await resetDatabase(prisma);
   const telegram = new FakeTelegram();
@@ -55,6 +55,9 @@ export async function createTestContext(options: { bank?: BankClient | null; rea
   if (!options.realPackages) await prisma.votePackage.updateMany({ data: { bonusCard: 0, starsEnabled: true } });
   // Most tests check the message with the buttons text; buttons right on the post have their own tests.
   if (!options.buttonsOnPost) await services.settings.update({ buttonsOnPost: false }, null);
+  // Byes advance by themselves in most tests; the "collect N votes" bye has its own tests.
+  if (!options.byeGoal) await services.settings.update({ byeGoal: 0 }, null);
+  else await services.settings.update({ byeGoal: options.byeGoal }, null);
   return { prisma, telegram, scheduler, services };
 }
 

@@ -63,6 +63,7 @@ async function showBattles(ctx: BotContext): Promise<void> {
   if (current) rows.push([button(a.finalSizeButton(current.finalSize), `a:bt:fs:${current.id}`)]);
   rows.push([button(a.prize.button, 'a:pz')]);
   rows.push([button(a.endReminderButton((await ctx.deps.services.settings.get()).endReminderMinutes), 'a:bt:rem')]);
+  rows.push([button(a.byeGoalButton((await ctx.deps.services.settings.get()).byeGoal), 'a:bt:bg')]);
   if (current) rows.push([button(a.battleCancel, `a:bt:cancel:${current.id}`)]);
   else rows.push([button(a.battleCreate, 'a:bt:new')]);
   rows.push([button(a.buttons.panel, PANEL)]);
@@ -325,6 +326,17 @@ export function registerBattleHandlers(admin: Composer<BotContext>): void {
   });
 
   // 2 → 3 → … → 6 → 2 entries in the final; locked once the final has started.
+  // 🎯 An entry without a pair: advances by itself (0) or has to collect 10 / 20 / 30 / 50 votes.
+  admin.action('a:bt:bg', async (ctx) => {
+    const { settings } = ctx.deps.services;
+    const steps = [0, 10, 20, 30, 50];
+    const current = (await settings.get()).byeGoal;
+    const next = steps[(steps.indexOf(current) + 1) % steps.length] ?? 20;
+    await settings.update({ byeGoal: next }, adminUserId(ctx));
+    await answer(ctx, ctx.locale.admin.byeGoalSaved(next), true);
+    await showBattles(ctx);
+  });
+
   // ⏰ Participants are told the score before the end: off → 5 → 10 → 15 minutes.
   admin.action('a:bt:rem', async (ctx) => {
     const { settings } = ctx.deps.services;

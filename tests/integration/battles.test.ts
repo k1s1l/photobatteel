@@ -215,6 +215,41 @@ describe('start, prepared posts and publication by the admin', () => {
     expect((toChannel('sendMessage').at(-1)!.args[1] as { replyToMessageId: number }).replyToMessageId).toBe(601);
   });
 
+  it('an entry left without a pair has to collect the goal of votes to advance', async () => {
+    ctx = await createTestContext({ byeGoal: 20 });
+    const battle = await openBattle(ctx);
+    await entries(3);
+    await startBattle(ctx, battle.id);
+    const bye = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id, photoBId: null } });
+    expect(bye).toMatchObject({ status: 'PENDING', goal: 20, round: 1 });
+    await postPendingDuels(ctx);
+    expect((await ctx.prisma.duel.findUniqueOrThrow({ where: { id: bye.id } })).status).toBe('ACTIVE');
+
+    // The pair is decided; the bye got 20 votes (free + paid) → both go on.
+    const pair = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id, photoBId: { not: null } } });
+    await ctx.prisma.duel.update({ where: { id: pair.id }, data: { votesA: 5 } });
+    await ctx.prisma.duel.update({ where: { id: bye.id }, data: { votesA: 20 } });
+    await expireDuels(ctx);
+    expect(await ctx.prisma.duel.findUniqueOrThrow({ where: { id: bye.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: bye.photoAId });
+    const round2 = await ctx.prisma.duel.findMany({ where: { battleId: battle.id, round: 2 } });
+    expect(round2.flatMap((d) => [d.photoAId, d.photoBId])).toContain(bye.photoAId);
+  });
+
+  it('a bye that misses the goal is out, and the other entry wins the battle', async () => {
+    ctx = await createTestContext({ byeGoal: 20 });
+    const battle = await openBattle(ctx);
+    await entries(3);
+    await startBattle(ctx, battle.id);
+    await postPendingDuels(ctx);
+    const bye = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id, photoBId: null } });
+    const pair = await ctx.prisma.duel.findFirstOrThrow({ where: { battleId: battle.id, photoBId: { not: null } } });
+    await ctx.prisma.duel.update({ where: { id: pair.id }, data: { votesA: 5 } });
+    await ctx.prisma.duel.update({ where: { id: bye.id }, data: { votesA: 7 } });
+    await expireDuels(ctx);
+    expect((await ctx.prisma.photo.findUniqueOrThrow({ where: { id: bye.photoAId } })).status).toBe('ELIMINATED');
+    expect(await ctx.prisma.battle.findUniqueOrThrow({ where: { id: battle.id } })).toMatchObject({ status: 'FINISHED', winnerPhotoId: pair.photoAId });
+  });
+
   it('cancels a battle without entries and crowns a single entry', async () => {
     const empty = await openBattle(ctx);
     await startBattle(ctx, empty.id);

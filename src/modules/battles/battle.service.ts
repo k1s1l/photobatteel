@@ -426,17 +426,12 @@ export class BattleService {
     }
     const pairs = pairEntries(await this.latestGetsBye(tx, photoIds));
     const now = new Date();
+    // An entry without a pair either advances at once, or has to collect `byeGoal` votes
+    // (free and paid) in its own post by the end of the round.
+    const byeGoal = (await this.settings.get()).byeGoal;
     for (const [index, pair] of pairs.entries()) {
-      await tx.duel.create({
-        data: {
-          battleId,
-          round,
-          position: index + 1,
-          photoAId: pair.a,
-          photoBId: pair.b,
-          ...(pair.b === null ? { status: 'FINISHED', winnerPhotoId: pair.a, finishedAt: now } : {}),
-        },
-      });
+      const bye = pair.b === null ? (byeGoal > 0 ? { goal: byeGoal } : { status: 'FINISHED' as const, winnerPhotoId: pair.a, finishedAt: now }) : {};
+      await tx.duel.create({ data: { battleId, round, position: index + 1, photoAId: pair.a, photoBId: pair.b, ...bye } });
     }
     await tx.battle.update({ where: { id: battleId }, data: { currentRound: round, roundEndsAt: null } });
     if (round > 1) await this.activity.log({ action: 'BATTLE_ROUND_STARTED', entityType: 'Battle', entityId: battleId, details: { round, duels: pairs.length } }, tx);
@@ -665,7 +660,7 @@ export class BattleService {
     const battle = await this.prisma.battle.findUnique({ where: { id: battleId } });
     if (!battle) return [];
     return this.prisma.duel.findMany({
-      where: { battleId, OR: [{ round: battle.currentRound, photoBId: { not: null } }, { round: 0, status: { not: 'FINISHED' } }] },
+      where: { battleId, OR: [{ round: battle.currentRound, OR: [{ photoBId: { not: null } }, { goal: { not: null } }] }, { round: 0, status: { not: 'FINISHED' } }] },
       orderBy: [{ round: 'desc' }, { position: 'asc' }],
     });
   }
@@ -1005,6 +1000,16 @@ export class BattleService {
       data: { status: 'FINISHED', winnerPhotoId: passed ? duel.photoAId : null, finishedAt: new Date() },
     });
     if (finished.count === 0) return;
+    // An entry left without a pair in a round: enough votes → next round, otherwise it is out.
+    if (duel.round > 0) {
+      if (!passed) await this.prisma.photo.updateMany({ where: { id: duel.photoAId, status: 'IN_BATTLE' }, data: { status: 'ELIMINATED' } });
+      await this.closeButtons(duel, passed ? 'A' : 'tie');
+      const goal = duel.goal;
+      await this.notifications.notifyUser(duel.photoA.user, (l) => (passed ? l.battle.byeGoalPassed(goal) : l.battle.byeGoalFailed({ votes: duel.votesA, goal })));
+      await this.notifications.notifyAdmins((l) => l.admin.byeGoalResult({ passed, votes: duel.votesA, goal, round: duel.round }));
+      await this.scheduler.triggerTick();
+      return;
+    }
     // A passed photo waits for the final (or joins it if it is already running).
     await this.prisma.photo.update({ where: { id: duel.photoAId }, data: { status: passed ? 'ACCEPTED' : 'ELIMINATED' } });
     await this.closeButtons(duel, passed ? 'A' : 'tie');
@@ -1325,7 +1330,8 @@ export class BattleService {
    */
   private async prepareByePost(battle: Battle, round: number): Promise<void> {
     const bye = await this.prisma.duel.findFirst({ where: { battleId: battle.id, round, photoBId: null }, include: { photoA: { include: { user: true } } } });
-    if (!bye) return;
+    // A bye that has to collect votes is published like a pair (its own post with a button).
+    if (!bye || bye.goal !== null) return;
     const entries = await this.roundEntries(battle.id, round);
     const caption = await this.render('bye', { battle: battle.title, round, roundName: roundName(this.locale, round, entries, battle.finalSize) });
     const photo = bye.photoA;
