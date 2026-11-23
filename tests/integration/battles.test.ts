@@ -195,6 +195,26 @@ describe('start, prepared posts and publication by the admin', () => {
     expect(toChannel('sendMessage')).toHaveLength(1);
   });
 
+  it('with buttons on the post: a video pair (album) still gets its buttons in a reply, and a pair that lost them gets them back', async () => {
+    ctx = await createTestContext({ buttonsOnPost: true });
+    const battle = await openBattle(ctx);
+    await entries(2, 'VIDEO');
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    const duel = await ctx.prisma.duel.findFirstOrThrow({ where: { status: 'READY' }, include: { photoA: true } });
+    await ctx.services.battles.linkChannelPost({ messageId: 601, fileUniqueIds: [duel.photoA.fileUniqueId] });
+    expect(toChannel('editMessageReplyMarkup')).toHaveLength(0);
+    const reply = toChannel('sendMessage').at(-1)!;
+    expect((reply.args[1] as { replyToMessageId: number }).replyToMessageId).toBe(601);
+
+    // A pair published before the fix: its buttons sit on the album item, where nobody sees them.
+    await ctx.prisma.duel.update({ where: { id: duel.id }, data: { messageId: 601 } });
+    await ctx.services.battles.tick();
+    const fixed = await ctx.prisma.duel.findUniqueOrThrow({ where: { id: duel.id } });
+    expect(fixed.messageId).not.toBe(601);
+    expect((toChannel('sendMessage').at(-1)!.args[1] as { replyToMessageId: number }).replyToMessageId).toBe(601);
+  });
+
   it('cancels a battle without entries and crowns a single entry', async () => {
     const empty = await openBattle(ctx);
     await startBattle(ctx, empty.id);

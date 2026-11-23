@@ -19,6 +19,12 @@ import type { NotificationService } from '../notifications/notification.service.
 import type { SettingsService } from '../settings/settings.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
+/** A pair with a video is published as an album (photos make one collage instead). */
+function isAlbum(duel: Parameters<typeof photosOf>[0]): boolean {
+  const items = photosOf(duel);
+  return items.length > 1 && items.some(({ photo }) => photo.mediaType === 'VIDEO');
+}
+
 /** A text Telegram accepts but shows as empty: the message above the buttons when premium emoji cannot be used. */
 const EMPTY_TEXT = 'ㅤ';
 
@@ -345,6 +351,7 @@ export class BattleService {
 
     await this.remindUnpublished(now);
     await this.remindParticipants(now);
+    await this.repairAlbumButtons();
     await this.refreshPrize(now);
 
     const pending = await this.prisma.duel.findMany({
@@ -573,11 +580,11 @@ export class BattleService {
       activeDuelKeyboard(this.locale, { id: duel.id, stage, votes: voteList(duel), stacked, endsAt: this.time(endsAt), goal: duel.goal, prize }, settings.paidVotesEnabled);
 
     // The buttons go straight under the admin's post: no extra message above them (a challenge
-    // shows its goal on the button: "Support · 5 / 20"). An album cannot carry buttons — then
-    // they come in a reply under the post.
+    // shows its goal on the button: "Support · 5 / 20"). Pairs with a video go out as an album:
+    // Telegram accepts buttons on an album item but never shows them — they come in a reply.
     let buttonsMessageId: number | null = null;
     let stacked = false;
-    if (settings.buttonsOnPost) {
+    if (settings.buttonsOnPost && !isAlbum(duel)) {
       try {
         await this.telegram.editMessageReplyMarkup(this.channel.id, post.messageId, keyboardFor(false));
         buttonsMessageId = post.messageId;
@@ -1103,6 +1110,30 @@ export class BattleService {
     if (updated.count === 0) return;
     await this.deleteMessages([...(duel.messageId ? [duel.messageId] : []), ...duel.mediaMessageIds]);
     await this.scheduler.triggerTick();
+  }
+
+  /**
+   * Pairs with a video (an album) whose buttons were put on the album itself, where Telegram
+   * does not show them: the buttons are sent again in a reply under the post.
+   */
+  private async repairAlbumButtons(): Promise<void> {
+    const active = await this.prisma.duel.findMany({ where: { status: 'ACTIVE', messageId: { not: null } }, include: ALL_PHOTOS });
+    for (const duel of active) {
+      if (!duel.messageId || !duel.mediaMessageIds.includes(duel.messageId) || !isAlbum(duel)) continue;
+      const settings = await this.settings.get();
+      const keyboard = activeDuelKeyboard(
+        this.locale,
+        { id: duel.id, stage: duel.stage, votes: voteList(duel), stacked: true, goal: duel.goal, prize: await this.prizeState(duel.battleId), ...(duel.endsAt ? { endsAt: this.time(duel.endsAt) } : {}) },
+        settings.paidVotesEnabled,
+      );
+      try {
+        const sent = await this.telegram.sendMessage(this.channel.id, EMPTY_TEXT, { replyMarkup: keyboard, replyToMessageId: duel.mediaMessageIds[0]! });
+        await this.prisma.duel.update({ where: { id: duel.id }, data: { messageId: sent.message_id, stackedButtons: true } });
+        this.logger.info({ duelId: duel.id }, 'Album buttons sent again in a reply');
+      } catch (error) {
+        this.logger.warn({ err: error, duelId: duel.id }, 'Could not resend the buttons of an album pair');
+      }
+    }
   }
 
   /**
