@@ -26,7 +26,9 @@ function isAlbum(duel: Parameters<typeof photosOf>[0]): boolean {
 }
 
 /** A text Telegram accepts but shows as empty: the message above the buttons when premium emoji cannot be used. */
-const EMPTY_TEXT = 'ㅤ';
+const EMPTY_TEXT = '\u2800';
+/** Used when Telegram refuses even the empty-looking text: the buttons must go out anyway. */
+const FALLBACK_TEXT = '👇';
 
 /** How often the prize row under all pairs may be updated. */
 const PRIZE_REFRESH_MS = 2 * 60_000;
@@ -601,11 +603,12 @@ export class BattleService {
       try {
         buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, text, buttonsOptions)).message_id;
       } catch (error) {
-        // A bot cannot use premium emoji in a channel. Instead of regular emoji (hearts in
-        // place of the admin's letters) the text above the buttons is left empty.
+        // Whatever Telegram did not like in the text, the buttons still go out.
         const classified = classifyTelegramError(error);
-        if (classified.kind !== 'permanent' || !text.includes('<tg-emoji')) throw error;
-        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, stripCustomEmoji(text), buttonsOptions)).message_id;
+        if (classified.kind !== 'permanent') throw error;
+        this.logger.warn({ err: error, duelId: duel.id }, 'Text above the buttons refused; sending a plain one');
+        const plain = text.includes('<tg-emoji') ? stripCustomEmoji(text) : FALLBACK_TEXT;
+        buttonsMessageId = (await this.telegram.sendMessage(this.channel.id, plain === text ? FALLBACK_TEXT : plain, buttonsOptions)).message_id;
       }
     }
     const activated = await this.prisma.duel.updateMany({
@@ -1127,7 +1130,8 @@ export class BattleService {
         settings.paidVotesEnabled,
       );
       try {
-        const sent = await this.telegram.sendMessage(this.channel.id, EMPTY_TEXT, { replyMarkup: keyboard, replyToMessageId: duel.mediaMessageIds[0]! });
+        const options = { replyMarkup: keyboard, replyToMessageId: duel.mediaMessageIds[0]! };
+        const sent = await this.telegram.sendMessage(this.channel.id, EMPTY_TEXT, options).catch(() => this.telegram.sendMessage(this.channel.id, FALLBACK_TEXT, options));
         await this.prisma.duel.update({ where: { id: duel.id }, data: { messageId: sent.message_id, stackedButtons: true } });
         this.logger.info({ duelId: duel.id }, 'Album buttons sent again in a reply');
       } catch (error) {

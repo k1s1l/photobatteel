@@ -709,7 +709,7 @@ describe('templates, final duration and reminders', () => {
     await postPendingDuels(ctx);
     // Round 2 is the final here, and the final design wins over the "round 2" one.
     // The final's own design is used; its premium emoji cannot be shown by a bot, so the text is left empty.
-    expect(toChannel('sendMessage').map((c) => String(c.args[0]))).toContain('ㅤ');
+    expect(toChannel('sendMessage').map((c) => String(c.args[0]))).toContain('\u2800');
 
     await ctx.services.settings.setStageTemplate('buttons', 'final', null, admin.id);
     expect((await ctx.services.settings.get()).stageTemplates).toEqual({ 'round:final': 'ФИНАЛ! {entries}', 'buttons:r2': 'never used' });
@@ -775,8 +775,23 @@ describe('templates, final duration and reminders', () => {
     await preparePendingDuels(ctx);
     const duel = await ctx.prisma.duel.findFirstOrThrow();
     await ctx.services.battles.linkChannelPost({ messageId: 700, fileUniqueIds: [duel.preparedFileUniqueId!] });
-    expect(String(toChannel('sendMessage').at(-1)!.args[0])).toBe('ㅤ');
+    expect(String(toChannel('sendMessage').at(-1)!.args[0])).toBe('\u2800');
     expect(JSON.stringify(toChannel('sendMessage').at(-1)!.args[1])).toContain('d:');
+  });
+
+  it('still sends the buttons when Telegram refuses the empty-looking text', async () => {
+    const admin = await createAdmin(ctx);
+    await ctx.services.settings.update({ buttonsTemplate: '<tg-emoji emoji-id="5">❤</tg-emoji> РАУНД' }, admin.id);
+    const battle = await openBattle(ctx);
+    await entries(2);
+    await startBattle(ctx, battle.id);
+    await preparePendingDuels(ctx);
+    ctx.telegram.failNext('sendMessage', telegramError(400, 'Bad Request: message text is empty'));
+    const duel = await ctx.prisma.duel.findFirstOrThrow();
+    expect(await ctx.services.battles.linkChannelPost({ messageId: 703, fileUniqueIds: [duel.preparedFileUniqueId!] })).toBe(true);
+    const sent = toChannel('sendMessage').at(-1)!;
+    expect(String(sent.args[0])).toBe('👇');
+    expect(JSON.stringify(sent.args[1])).toContain('d:');
   });
 
   it('puts the vote buttons right under the admin\'s post — no message above them', async () => {
